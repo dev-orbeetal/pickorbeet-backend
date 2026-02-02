@@ -1,0 +1,40 @@
+"""
+URL patterns for products app.
+"""
+from django.urls import path
+from .views import (
+    CategoryListView, CategoryDetailView, SubCategoryListView,
+    ProductListView, ProductDetailView, FeaturedProductsView, CategoryProductsView,
+    AdminCategoryListCreateView, AdminCategoryDetailView,
+    AdminSubCategoryListCreateView, AdminSubCategoryDetailView,
+    AdminProductListCreateView, AdminProductDetailView,
+    ProductImageUploadView, ProductImageDeleteView,
+    BarcodeSearchView, ProductStockUpdateView, LowStockProductsView,
+    ProductVariantListCreateView, ProductVariantDetailView
+)
+
+urlpatterns = [
+    # Public endpoints
+    path('categories/', CategoryListView.as_view(), name='category_list'),
+    path('categories/<slug:slug>/', CategoryDetailView.as_view(), name='category_detail'),
+    path('categories/<slug:category_slug>/subcategories/', SubCategoryListView.as_view(), name='subcategory_list'),
+    path('', ProductListView.as_view(), name='product_list'),
+    path('featured/', FeaturedProductsView.as_view(), name='featured_products'),
+    path('by-category/', CategoryProductsView.as_view(), name='products_by_category'),
+    path('<slug:slug>/', ProductDetailView.as_view(), name='product_detail'),
+    
+    # Admin endpoints
+    path('admin/categories/', AdminCategoryListCreateView.as_view(), name='admin_category_list'),
+    path('admin/categories/<uuid:pk>/', AdminCategoryDetailView.as_view(), name='admin_category_detail'),
+    path('admin/subcategories/', AdminSubCategoryListCreateView.as_view(), name='admin_subcategory_list'),
+    path('admin/subcategories/<uuid:pk>/', AdminSubCategoryDetailView.as_view(), name='admin_subcategory_detail'),
+    path('admin/products/', AdminProductListCreateView.as_view(), name='admin_product_list'),
+    path('admin/products/<uuid:pk>/', AdminProductDetailView.as_view(), name='admin_product_detail'),
+    path('admin/products/<uuid:product_id>/images/', ProductImageUploadView.as_view(), name='product_image_upload'),
+    path('admin/products/<uuid:product_id>/variants/', ProductVariantListCreateView.as_view(), name='product_variant_list'),
+    path('admin/products/<uuid:product_id>/variants/<uuid:pk>/', ProductVariantDetailView.as_view(), name='product_variant_detail'),
+    path('admin/images/<uuid:pk>/', ProductImageDeleteView.as_view(), name='product_image_delete'),
+    path('admin/barcode-search/', BarcodeSearchView.as_view(), name='barcode_search'),
+    path('admin/products/<uuid:pk>/stock/', ProductStockUpdateView.as_view(), name='product_stock_update'),
+    path('admin/low-stock/', LowStockProductsView.as_view(), name='low_stock_products'),
+]

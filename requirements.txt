@@ -1,0 +1,36 @@
+# Django and REST Framework
+Django==5.0.1
+djangorestframework==3.14.0
+django-cors-headers==4.3.1
+djangorestframework-simplejwt==5.3.1
+
+# Database
+psycopg2-binary>=2.9.5
+
+# Admin Panel
+django-jazzmin==2.6.0
+
+# Image Processing
+Pillow>=10.0.0
+
+# Environment Variables
+python-decouple==3.8
+
+# SSLCommerz Payment
+sslcommerz-lib==1.0
+
+# Barcode Generation
+python-barcode==0.15.1
+
+# PDF Generation for Memos/Vouchers
+# reportlab - temporarily removed due to Python 3.13 compatibility
+# xhtml2pdf==0.2.11
+
+# Celery for async tasks (optional)
+celery==5.3.4
+redis==5.0.1
+
+# Utils
+django-filter==23.5
+drf-yasg==1.21.7
+gunicorn==21.2.0
