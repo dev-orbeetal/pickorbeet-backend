@@ -10,7 +10,8 @@ from .views import (
     AdminProductListCreateView, AdminProductDetailView,
     ProductImageUploadView, ProductImageDeleteView,
     BarcodeSearchView, ProductStockUpdateView, LowStockProductsView,
-    ProductVariantListCreateView, ProductVariantDetailView
+    ProductVariantListCreateView, ProductVariantDetailView,
+    StoreSettingsView
 )
 
 urlpatterns = [
@@ -37,4 +38,5 @@ urlpatterns = [
     path('admin/barcode-search/', BarcodeSearchView.as_view(), name='barcode_search'),
     path('admin/products/<uuid:pk>/stock/', ProductStockUpdateView.as_view(), name='product_stock_update'),
     path('admin/low-stock/', LowStockProductsView.as_view(), name='low_stock_products'),
+    path('admin/settings/', StoreSettingsView.as_view(), name='store_settings'),
 ]

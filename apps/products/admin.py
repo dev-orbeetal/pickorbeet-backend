@@ -3,7 +3,7 @@ Admin configuration for products app.
 """
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import Category, SubCategory, Product, ProductImage, ProductVariant
+from .models import Category, SubCategory, Product, ProductImage, ProductVariant, StoreSettings
 
 
 class SubCategoryInline(admin.TabularInline):
@@ -115,3 +115,15 @@ class ProductVariantAdmin(admin.ModelAdmin):
     list_display = ['product', 'sku', 'size', 'color', 'price', 'stock_quantity', 'is_active']
     list_filter = ['is_active', 'size', 'color']
     search_fields = ['product__name', 'sku', 'barcode']
+
+
+@admin.register(StoreSettings)
+class StoreSettingsAdmin(admin.ModelAdmin):
+    list_display = ['barcode_prefix', 'updated_at']
+    
+    def has_add_permission(self, request):
+        # Only allow one instance
+        return not StoreSettings.objects.exists()
+    
+    def has_delete_permission(self, request, obj=None):
+        return False

@@ -98,7 +98,7 @@ class Product(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255)
     slug = models.SlugField(max_length=280, unique=True, blank=True)
-    sku = models.CharField(max_length=50, unique=True)
+    sku = models.CharField(max_length=50, unique=True, blank=True, null=True)  # Optional SKU
     barcode = models.CharField(max_length=50, unique=True, blank=True, null=True)
     barcode_image = models.ImageField(upload_to='barcodes/', blank=True, null=True)
     
@@ -135,11 +135,22 @@ class Product(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = slugify(f"{self.name}-{self.sku}")
+            # Generate slug from name and a unique identifier
+            base_slug = slugify(self.name)
+            if self.sku:
+                self.slug = slugify(f"{self.name}-{self.sku}")
+            else:
+                # Use part of UUID for uniqueness if no SKU
+                unique_suffix = str(self.id)[:8] if self.id else str(uuid.uuid4())[:8]
+                self.slug = f"{base_slug}-{unique_suffix}"
         
-        # Generate barcode if not exists
+        # Generate barcode if not exists (auto-generate unique barcode with prefix)
         if not self.barcode:
-            self.barcode = self.sku
+            from apps.products.models import StoreSettings
+            prefix = StoreSettings.get_barcode_prefix()
+            timestamp = str(int(__import__('time').time()))[-10:]
+            random_suffix = str(__import__('random').randint(10, 99))
+            self.barcode = f"{prefix}-{timestamp}{random_suffix}"
         
         # Generate barcode image
         if self.barcode and not self.barcode_image:
@@ -238,3 +249,45 @@ class ProductVariant(models.Model):
     @property
     def effective_price(self):
         return self.price if self.price else self.product.price
+
+
+class StoreSettings(models.Model):
+    """Singleton model for store settings including barcode prefix."""
+    
+    barcode_prefix = models.CharField(
+        max_length=10, 
+        default='ZZ',
+        help_text='Prefix for auto-generated barcodes (e.g., 123 for 123-XXXXXXXXXX)'
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Store Settings'
+        verbose_name_plural = 'Store Settings'
+
+    def __str__(self):
+        return f"Store Settings (Barcode Prefix: {self.barcode_prefix})"
+
+    def save(self, *args, **kwargs):
+        # Ensure only one instance exists (singleton pattern)
+        if not self.pk and StoreSettings.objects.exists():
+            existing = StoreSettings.objects.first()
+            self.pk = existing.pk
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get_settings(cls):
+        """Get or create the singleton settings instance."""
+        settings, _ = cls.objects.get_or_create(pk=1)
+        return settings
+
+    @classmethod
+    def get_barcode_prefix(cls):
+        """Get the current barcode prefix."""
+        try:
+            settings = cls.objects.first()
+            return settings.barcode_prefix if settings else 'ZZ'
+        except Exception:
+            return 'ZZ'

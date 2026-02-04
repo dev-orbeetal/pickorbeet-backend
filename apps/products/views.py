@@ -303,3 +303,29 @@ class ProductVariantDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
         product_id = self.kwargs.get('product_id')
         return ProductVariant.objects.filter(product_id=product_id)
+
+
+class StoreSettingsView(APIView):
+    """Get and update store settings including barcode prefix."""
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def get(self, request):
+        from .models import StoreSettings
+        settings = StoreSettings.get_settings()
+        return Response({
+            'barcode_prefix': settings.barcode_prefix,
+        })
+
+    def patch(self, request):
+        from .models import StoreSettings
+        settings = StoreSettings.get_settings()
+        
+        barcode_prefix = request.data.get('barcode_prefix')
+        if barcode_prefix is not None:
+            settings.barcode_prefix = barcode_prefix
+            settings.save()
+        
+        return Response({
+            'barcode_prefix': settings.barcode_prefix,
+            'message': 'Settings updated successfully'
+        })
