@@ -18,8 +18,12 @@ class Category(models.Model):
     name = models.CharField(max_length=100, unique=True)
     slug = models.SlugField(max_length=120, unique=True, blank=True)
     description = models.TextField(blank=True, null=True)
+    tagline = models.CharField(max_length=150, blank=True, null=True, help_text='Short tagline for featured display')
     image = models.ImageField(upload_to='categories/', blank=True, null=True)
+    banner_image = models.ImageField(upload_to='categories/banners/', blank=True, null=True, help_text='Large banner image for homepage featured section')
     is_active = models.BooleanField(default=True)
+    is_featured = models.BooleanField(default=False, help_text='Display in homepage featured section')
+    featured_order = models.PositiveIntegerField(default=0, help_text='Order in featured section')
     display_order = models.PositiveIntegerField(default=0)
     
     created_at = models.DateTimeField(auto_now_add=True)

@@ -49,8 +49,9 @@ class CategorySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Category
-        fields = ['id', 'name', 'slug', 'description', 'image', 'is_active', 
-                  'display_order', 'subcategories', 'product_count']
+        fields = ['id', 'name', 'slug', 'description', 'tagline', 'image', 'banner_image',
+                  'is_active', 'is_featured', 'featured_order', 'display_order', 
+                  'subcategories', 'product_count']
         read_only_fields = ['slug']
 
 
@@ -59,7 +60,7 @@ class CategoryListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Category
-        fields = ['id', 'name', 'slug', 'image']
+        fields = ['id', 'name', 'slug', 'tagline', 'image', 'banner_image', 'is_featured', 'featured_order']
 
 
 class ProductListSerializer(serializers.ModelSerializer):
