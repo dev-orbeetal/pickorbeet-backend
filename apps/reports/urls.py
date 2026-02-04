@@ -5,12 +5,15 @@ from django.urls import path
 from .views import (
     DashboardStatsView, SalesReportView, StockReportView,
     StockMovementListView, DailySalesReportListView, StockReportListView,
-    GenerateDailySalesReportView
+    GenerateDailySalesReportView, InventoryAnalyticsView
 )
 
 urlpatterns = [
     # Dashboard
     path('dashboard/', DashboardStatsView.as_view(), name='dashboard_stats'),
+    
+    # Inventory Analytics
+    path('inventory/analytics/', InventoryAnalyticsView.as_view(), name='inventory_analytics'),
     
     # Sales reports
     path('sales/', SalesReportView.as_view(), name='sales_report'),

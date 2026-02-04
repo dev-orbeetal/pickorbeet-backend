@@ -5,8 +5,8 @@ from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
-from django.db.models import Sum, Count, Avg, F
-from django.db.models.functions import TruncDate
+from django.db.models import Sum, Count, Avg, F, Q, Case, When, IntegerField
+from django.db.models.functions import TruncDate, TruncMonth, TruncWeek
 from django.utils import timezone
 from datetime import timedelta
 from .models import DailySalesReport, StockReport, StockMovement
@@ -17,6 +17,255 @@ from .serializers import (
 from apps.orders.models import Order, OrderItem
 from apps.products.models import Product, Category
 from apps.accounts.permissions import IsStaffUser, IsAccountant
+
+
+class InventoryAnalyticsView(APIView):
+    """Comprehensive inventory analytics for the Inventory Management page."""
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def get(self, request):
+        today = timezone.now().date()
+        last_30_days = today - timedelta(days=30)
+        last_7_days = today - timedelta(days=7)
+        last_90_days = today - timedelta(days=90)
+        
+        products = Product.objects.filter(is_active=True)
+        
+        # Stock Summary
+        total_products = products.count()
+        in_stock = products.filter(stock_quantity__gt=F('low_stock_threshold')).count()
+        low_stock = products.filter(
+            stock_quantity__gt=0,
+            stock_quantity__lte=F('low_stock_threshold')
+        ).count()
+        out_of_stock = products.filter(stock_quantity=0).count()
+        
+        # Stock Value
+        stock_value = products.aggregate(
+            total=Sum(F('stock_quantity') * F('price'))
+        )['total'] or 0
+        
+        total_units = products.aggregate(total=Sum('stock_quantity'))['total'] or 0
+        
+        # Sales Statistics (Last 30 days)
+        orders_30_days = Order.objects.filter(
+            created_at__date__gte=last_30_days,
+            payment_status='paid'
+        )
+        
+        total_sold_30_days = OrderItem.objects.filter(
+            order__in=orders_30_days
+        ).aggregate(total=Sum('quantity'))['total'] or 0
+        
+        revenue_30_days = orders_30_days.aggregate(total=Sum('total'))['total'] or 0
+        
+        # Sales Statistics (Last 7 days)
+        orders_7_days = Order.objects.filter(
+            created_at__date__gte=last_7_days,
+            payment_status='paid'
+        )
+        
+        total_sold_7_days = OrderItem.objects.filter(
+            order__in=orders_7_days
+        ).aggregate(total=Sum('quantity'))['total'] or 0
+        
+        revenue_7_days = orders_7_days.aggregate(total=Sum('total'))['total'] or 0
+        
+        # Daily Sales Trend (Last 30 days)
+        daily_sales = Order.objects.filter(
+            created_at__date__gte=last_30_days,
+            payment_status='paid'
+        ).annotate(
+            date=TruncDate('created_at')
+        ).values('date').annotate(
+            orders=Count('id'),
+            revenue=Sum('total'),
+            items=Sum('items__quantity')
+        ).order_by('date')
+        
+        # Weekly Sales Trend (Last 90 days)
+        weekly_sales = Order.objects.filter(
+            created_at__date__gte=last_90_days,
+            payment_status='paid'
+        ).annotate(
+            week=TruncWeek('created_at')
+        ).values('week').annotate(
+            orders=Count('id'),
+            revenue=Sum('total'),
+            items=Sum('items__quantity')
+        ).order_by('week')
+        
+        # Category Stock Distribution
+        category_stock = products.values(
+            'category__id', 'category__name'
+        ).annotate(
+            product_count=Count('id'),
+            total_stock=Sum('stock_quantity'),
+            stock_value=Sum(F('stock_quantity') * F('price')),
+            out_of_stock_count=Count('id', filter=Q(stock_quantity=0)),
+            low_stock_count=Count('id', filter=Q(stock_quantity__gt=0, stock_quantity__lte=F('low_stock_threshold')))
+        ).order_by('-total_stock')
+        
+        # Top Selling Products (Last 30 days)
+        top_selling = OrderItem.objects.filter(
+            order__in=orders_30_days
+        ).values(
+            'product__id', 'product__name', 'product__sku', 'product__stock_quantity'
+        ).annotate(
+            total_sold=Sum('quantity'),
+            total_revenue=Sum('total_price')
+        ).order_by('-total_sold')[:10]
+        
+        # Slow Moving Products (Products with low sales in last 30 days)
+        products_with_sales = OrderItem.objects.filter(
+            order__in=orders_30_days
+        ).values_list('product_id', flat=True).distinct()
+        
+        slow_moving = products.exclude(
+            id__in=products_with_sales
+        ).filter(
+            stock_quantity__gt=0
+        ).values(
+            'id', 'name', 'sku', 'stock_quantity', 'price'
+        ).order_by('-stock_quantity')[:10]
+        
+        # Low Stock Products
+        low_stock_products = products.filter(
+            stock_quantity__lte=F('low_stock_threshold')
+        ).values(
+            'id', 'name', 'sku', 'stock_quantity', 'low_stock_threshold', 'price', 'category__name'
+        ).order_by('stock_quantity')[:20]
+        
+        # Stock Status Distribution for Chart
+        stock_status_distribution = {
+            'in_stock': in_stock,
+            'low_stock': low_stock,
+            'out_of_stock': out_of_stock
+        }
+        
+        # Recent Stock Movements
+        recent_movements = StockMovement.objects.select_related(
+            'product', 'created_by'
+        ).order_by('-created_at')[:20]
+        
+        movements_data = [
+            {
+                'id': str(m.id),
+                'product_id': str(m.product.id),
+                'product_name': m.product.name,
+                'product_sku': m.product.sku,
+                'movement_type': m.movement_type,
+                'quantity': m.quantity,
+                'previous_stock': m.previous_stock,
+                'new_stock': m.new_stock,
+                'reason': m.reason,
+                'created_at': m.created_at.isoformat(),
+                'created_by': m.created_by.email if m.created_by else None
+            }
+            for m in recent_movements
+        ]
+        
+        # Inventory Turnover Rate (Simplified)
+        avg_inventory = total_units / 2 if total_units > 0 else 1
+        turnover_rate = (total_sold_30_days / avg_inventory) * 12 if avg_inventory > 0 else 0
+        
+        # Stock Age Distribution
+        stock_age = products.filter(stock_quantity__gt=0).aggregate(
+            fresh=Count('id', filter=Q(updated_at__gte=last_7_days)),
+            recent=Count('id', filter=Q(updated_at__gte=last_30_days, updated_at__lt=last_7_days)),
+            aging=Count('id', filter=Q(updated_at__gte=last_90_days, updated_at__lt=last_30_days)),
+            old=Count('id', filter=Q(updated_at__lt=last_90_days))
+        )
+        
+        return Response({
+            'summary': {
+                'total_products': total_products,
+                'in_stock': in_stock,
+                'low_stock': low_stock,
+                'out_of_stock': out_of_stock,
+                'total_units': total_units,
+                'stock_value': float(stock_value),
+                'turnover_rate': round(turnover_rate, 2),
+            },
+            'sales_stats': {
+                'last_7_days': {
+                    'units_sold': total_sold_7_days,
+                    'revenue': float(revenue_7_days),
+                    'orders': orders_7_days.count(),
+                },
+                'last_30_days': {
+                    'units_sold': total_sold_30_days,
+                    'revenue': float(revenue_30_days),
+                    'orders': orders_30_days.count(),
+                },
+            },
+            'stock_status_distribution': stock_status_distribution,
+            'stock_age_distribution': stock_age,
+            'daily_sales_trend': [
+                {
+                    'date': d['date'].isoformat() if d['date'] else None,
+                    'orders': d['orders'],
+                    'revenue': float(d['revenue'] or 0),
+                    'items': d['items'] or 0,
+                }
+                for d in daily_sales
+            ],
+            'weekly_sales_trend': [
+                {
+                    'week': w['week'].isoformat() if w['week'] else None,
+                    'orders': w['orders'],
+                    'revenue': float(w['revenue'] or 0),
+                    'items': w['items'] or 0,
+                }
+                for w in weekly_sales
+            ],
+            'category_stock': [
+                {
+                    'category_id': str(c['category__id']) if c['category__id'] else None,
+                    'category_name': c['category__name'] or 'Uncategorized',
+                    'product_count': c['product_count'],
+                    'total_stock': c['total_stock'] or 0,
+                    'stock_value': float(c['stock_value'] or 0),
+                    'out_of_stock_count': c['out_of_stock_count'],
+                    'low_stock_count': c['low_stock_count'],
+                }
+                for c in category_stock
+            ],
+            'top_selling_products': [
+                {
+                    'product_id': str(p['product__id']),
+                    'product_name': p['product__name'],
+                    'product_sku': p['product__sku'],
+                    'current_stock': p['product__stock_quantity'],
+                    'total_sold': p['total_sold'],
+                    'total_revenue': float(p['total_revenue']),
+                }
+                for p in top_selling
+            ],
+            'slow_moving_products': [
+                {
+                    'id': str(p['id']),
+                    'name': p['name'],
+                    'sku': p['sku'],
+                    'stock_quantity': p['stock_quantity'],
+                    'value': float(p['stock_quantity'] * p['price']),
+                }
+                for p in slow_moving
+            ],
+            'low_stock_products': [
+                {
+                    'id': str(p['id']),
+                    'name': p['name'],
+                    'sku': p['sku'],
+                    'stock_quantity': p['stock_quantity'],
+                    'threshold': p['low_stock_threshold'],
+                    'category': p['category__name'],
+                    'value': float(p['stock_quantity'] * p['price']),
+                }
+                for p in low_stock_products
+            ],
+            'recent_stock_movements': movements_data,
+        })
 
 
 class DashboardStatsView(APIView):
