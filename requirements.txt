@@ -15,6 +15,7 @@ Pillow>=10.0.0
 
 # Environment Variables
 python-decouple==3.8
+python-dotenv==1.0.0
 
 # SSLCommerz Payment
 sslcommerz-lib==1.0
