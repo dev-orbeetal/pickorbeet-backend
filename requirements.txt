@@ -31,6 +31,11 @@ python-barcode==0.15.1
 celery==5.3.4
 redis==5.0.1
 
+# Google OAuth
+google-auth==2.27.0
+google-auth-oauthlib==1.2.0
+google-auth-httplib2==0.2.0
+
 # Utils
 django-filter==23.5
 drf-yasg==1.21.7
