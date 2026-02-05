@@ -188,9 +188,9 @@ SSLCOMMERZ_STORE_ID = config('SSLCOMMERZ_STORE_ID', default='')
 SSLCOMMERZ_STORE_PASSWORD = config('SSLCOMMERZ_STORE_PASSWORD', default='')
 SSLCOMMERZ_SANDBOX = config('SSLCOMMERZ_SANDBOX', default=True, cast=bool)
 
-# Frontend URLs
-FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:3000')
-ADMIN_PANEL_URL = config('ADMIN_PANEL_URL', default='http://localhost:3001')
+# Frontend URLs - Check os.environ first for production servers
+FRONTEND_URL = os.environ.get('FRONTEND_URL') or config('FRONTEND_URL', default='https://www.zzuhana.com')
+ADMIN_PANEL_URL = os.environ.get('ADMIN_PANEL_URL') or config('ADMIN_PANEL_URL', default='https://admin.zzuhana.com')
 
 # Jazzmin Admin Configuration
 JAZZMIN_SETTINGS = {
