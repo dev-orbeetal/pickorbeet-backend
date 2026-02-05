@@ -3,8 +3,80 @@ Serializers for orders app.
 """
 from rest_framework import serializers
 from django.conf import settings
-from .models import Order, OrderItem, OrderStatusHistory, Cart, CartItem
+from .models import Order, OrderItem, OrderStatusHistory, Cart, CartItem, Coupon, CouponUsage
 from apps.products.serializers import ProductListSerializer
+
+
+class CouponSerializer(serializers.ModelSerializer):
+    """Serializer for Coupon model."""
+    status = serializers.ReadOnlyField()
+    discount_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Coupon
+        fields = ['id', 'code', 'name', 'description', 'discount_type', 'discount_value',
+                  'minimum_order_amount', 'maximum_discount', 'usage_limit', 
+                  'usage_limit_per_user', 'times_used', 'valid_from', 'valid_until',
+                  'is_active', 'first_order_only', 'new_users_only', 'status', 
+                  'discount_display', 'created_at']
+        read_only_fields = ['id', 'times_used', 'created_at']
+
+    def get_discount_display(self, obj):
+        if obj.discount_type == 'percentage':
+            return f"{obj.discount_value}%"
+        return f"৳{obj.discount_value}"
+
+
+class CouponCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating/updating coupons (admin only)."""
+    
+    class Meta:
+        model = Coupon
+        fields = ['code', 'name', 'description', 'discount_type', 'discount_value',
+                  'minimum_order_amount', 'maximum_discount', 'usage_limit',
+                  'usage_limit_per_user', 'valid_from', 'valid_until', 'is_active',
+                  'first_order_only', 'new_users_only', 'applicable_categories',
+                  'applicable_products']
+
+    def validate_code(self, value):
+        return value.upper()
+
+    def validate(self, attrs):
+        if attrs.get('valid_from') and attrs.get('valid_until'):
+            if attrs['valid_from'] >= attrs['valid_until']:
+                raise serializers.ValidationError({
+                    'valid_until': 'End date must be after start date.'
+                })
+        
+        if attrs.get('discount_type') == 'percentage' and attrs.get('discount_value', 0) > 100:
+            raise serializers.ValidationError({
+                'discount_value': 'Percentage discount cannot exceed 100%.'
+            })
+        
+        return attrs
+
+
+class ValidateCouponSerializer(serializers.Serializer):
+    """Serializer for validating a coupon code."""
+    code = serializers.CharField(max_length=50)
+    subtotal = serializers.DecimalField(max_digits=10, decimal_places=2, required=False, default=0)
+
+
+class ApplyCouponSerializer(serializers.Serializer):
+    """Serializer for applying a coupon to cart/checkout."""
+    code = serializers.CharField(max_length=50)
+
+
+class CouponUsageSerializer(serializers.ModelSerializer):
+    """Serializer for coupon usage history."""
+    coupon_code = serializers.CharField(source='coupon.code', read_only=True)
+    order_number = serializers.CharField(source='order.order_number', read_only=True)
+    user_email = serializers.CharField(source='user.email', read_only=True)
+
+    class Meta:
+        model = CouponUsage
+        fields = ['id', 'coupon', 'coupon_code', 'user', 'user_email', 
+                  'order', 'order_number', 'discount_amount', 'used_at']
 
 
 class CartItemSerializer(serializers.ModelSerializer):
@@ -114,7 +186,7 @@ class OrderDetailSerializer(serializers.ModelSerializer):
                   'billing_name', 'billing_phone', 'billing_address_line1',
                   'billing_address_line2', 'billing_city', 'billing_district',
                   'billing_postal_code', 'subtotal', 'delivery_charge',
-                  'discount', 'total', 'payment_method', 'transaction_id',
+                  'discount', 'total', 'coupon_code', 'payment_method', 'transaction_id',
                   'processed_by', 'processed_by_name', 'notes',
                   'items', 'status_history', 'created_at', 'updated_at',
                   'confirmed_at', 'shipped_at', 'delivered_at']
@@ -145,6 +217,9 @@ class CheckoutSerializer(serializers.Serializer):
     billing_city = serializers.CharField(required=False, allow_blank=True)
     billing_district = serializers.CharField(required=False, allow_blank=True)
     billing_postal_code = serializers.CharField(required=False, allow_blank=True)
+    
+    # Coupon
+    coupon_code = serializers.CharField(required=False, allow_blank=True, max_length=50)
     
     notes = serializers.CharField(required=False, allow_blank=True)
 

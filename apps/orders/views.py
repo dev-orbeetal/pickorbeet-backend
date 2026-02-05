@@ -9,15 +9,17 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.db import transaction
 from django.utils import timezone
 from django.db.models import Q
-from .models import Order, OrderItem, OrderStatusHistory, Cart, CartItem
+from decimal import Decimal
+from .models import Order, OrderItem, OrderStatusHistory, Cart, CartItem, Coupon, CouponUsage
 from .serializers import (
     CartSerializer, CartItemSerializer, AddToCartSerializer, UpdateCartItemSerializer,
     OrderListSerializer, OrderDetailSerializer, CheckoutSerializer,
     InShopOrderSerializer, OrderStatusUpdateSerializer, TrackOrderSerializer,
-    OrderStatusHistorySerializer
+    OrderStatusHistorySerializer, CouponSerializer, CouponCreateSerializer,
+    ValidateCouponSerializer, ApplyCouponSerializer
 )
 from apps.products.models import Product, ProductVariant
-from apps.accounts.permissions import IsStaffUser, IsSeller
+from apps.accounts.permissions import IsStaffUser, IsSeller, IsSuperAdmin
 
 
 # Cart Views
@@ -181,6 +183,25 @@ class CheckoutView(APIView):
         
         data = serializer.validated_data
         
+        # Validate coupon if provided
+        coupon = None
+        discount_amount = Decimal('0')
+        coupon_code = data.get('coupon_code', '').strip().upper()
+        
+        if coupon_code:
+            try:
+                coupon = Coupon.objects.get(code=coupon_code)
+                can_use, message = coupon.can_be_used_by(
+                    request.user if request.user.is_authenticated else None,
+                    cart.subtotal
+                )
+                if can_use:
+                    discount_amount = coupon.calculate_discount(cart.subtotal)
+                else:
+                    return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
+            except Coupon.DoesNotExist:
+                return Response({'error': 'Invalid coupon code.'}, status=status.HTTP_400_BAD_REQUEST)
+        
         with transaction.atomic():
             # Create order
             order = Order.objects.create(
@@ -197,6 +218,9 @@ class CheckoutView(APIView):
                 shipping_district=data['shipping_district'],
                 shipping_postal_code=data.get('shipping_postal_code', ''),
                 subtotal=cart.subtotal,
+                discount=discount_amount,
+                coupon=coupon,
+                coupon_code=coupon_code if coupon else None,
                 notes=data.get('notes', ''),
             )
             
@@ -240,6 +264,17 @@ class CheckoutView(APIView):
                 status='pending',
                 note='Order placed'
             )
+            
+            # Record coupon usage
+            if coupon:
+                CouponUsage.objects.create(
+                    coupon=coupon,
+                    user=request.user if request.user.is_authenticated else None,
+                    order=order,
+                    discount_amount=discount_amount
+                )
+                coupon.times_used += 1
+                coupon.save()
             
             # Clear cart
             cart.items.all().delete()
@@ -462,3 +497,165 @@ class InShopOrderView(APIView):
             'message': 'In-shop order created successfully',
             'order': OrderDetailSerializer(order).data
         }, status=status.HTTP_201_CREATED)
+
+
+# Coupon Views
+class ValidateCouponView(APIView):
+    """Validate a coupon code for the current cart."""
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = ValidateCouponSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        code = serializer.validated_data['code'].upper()
+        subtotal = serializer.validated_data.get('subtotal', 0)
+        
+        try:
+            coupon = Coupon.objects.get(code=code)
+        except Coupon.DoesNotExist:
+            return Response({
+                'valid': False,
+                'error': 'Invalid coupon code.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        user = request.user if request.user.is_authenticated else None
+        can_use, message = coupon.can_be_used_by(user, subtotal)
+        
+        if not can_use:
+            return Response({
+                'valid': False,
+                'error': message
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        discount_amount = coupon.calculate_discount(subtotal) if subtotal else 0
+        
+        return Response({
+            'valid': True,
+            'message': message,
+            'coupon': {
+                'code': coupon.code,
+                'name': coupon.name,
+                'discount_type': coupon.discount_type,
+                'discount_value': str(coupon.discount_value),
+                'minimum_order_amount': str(coupon.minimum_order_amount),
+                'maximum_discount': str(coupon.maximum_discount) if coupon.maximum_discount else None,
+            },
+            'discount_amount': str(discount_amount)
+        })
+
+
+class ApplyCouponToCartView(APIView):
+    """Apply coupon to current cart and return updated totals."""
+    permission_classes = [AllowAny]
+
+    def get_cart(self, request):
+        if request.user.is_authenticated:
+            return Cart.objects.filter(user=request.user).first()
+        session_key = request.session.session_key
+        if session_key:
+            return Cart.objects.filter(session_key=session_key).first()
+        return None
+
+    def post(self, request):
+        serializer = ApplyCouponSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        code = serializer.validated_data['code'].upper()
+        cart = self.get_cart(request)
+        
+        if not cart or not cart.items.exists():
+            return Response({
+                'error': 'Cart is empty'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            coupon = Coupon.objects.get(code=code)
+        except Coupon.DoesNotExist:
+            return Response({
+                'valid': False,
+                'error': 'Invalid coupon code.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        user = request.user if request.user.is_authenticated else None
+        can_use, message = coupon.can_be_used_by(user, cart.subtotal)
+        
+        if not can_use:
+            return Response({
+                'valid': False,
+                'error': message
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        discount_amount = coupon.calculate_discount(cart.subtotal)
+        
+        return Response({
+            'valid': True,
+            'message': f'Coupon "{coupon.code}" applied successfully!',
+            'coupon': CouponSerializer(coupon).data,
+            'cart_subtotal': str(cart.subtotal),
+            'discount_amount': str(discount_amount),
+            'total_after_discount': str(cart.subtotal - discount_amount)
+        })
+
+
+# Admin Coupon Management Views
+class AdminCouponListCreateView(generics.ListCreateAPIView):
+    """Admin: List and create coupons."""
+    permission_classes = [IsAuthenticated, IsStaffUser]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['discount_type', 'is_active', 'first_order_only', 'new_users_only']
+    search_fields = ['code', 'name', 'description']
+    ordering_fields = ['created_at', 'valid_from', 'valid_until', 'times_used']
+    ordering = ['-created_at']
+
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            return CouponCreateSerializer
+        return CouponSerializer
+
+    def get_queryset(self):
+        return Coupon.objects.all()
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+
+class AdminCouponDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """Admin: Get, update, delete coupon."""
+    permission_classes = [IsAuthenticated, IsStaffUser]
+    queryset = Coupon.objects.all()
+
+    def get_serializer_class(self):
+        if self.request.method in ['PUT', 'PATCH']:
+            return CouponCreateSerializer
+        return CouponSerializer
+
+
+class AdminCouponStatsView(APIView):
+    """Admin: Get coupon statistics."""
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def get(self, request, pk):
+        try:
+            coupon = Coupon.objects.get(pk=pk)
+        except Coupon.DoesNotExist:
+            return Response({'error': 'Coupon not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        usages = CouponUsage.objects.filter(coupon=coupon)
+        total_discount_given = sum(u.discount_amount for u in usages)
+        
+        return Response({
+            'coupon': CouponSerializer(coupon).data,
+            'total_times_used': coupon.times_used,
+            'total_discount_given': str(total_discount_given),
+            'unique_users': usages.values('user').distinct().count(),
+            'recent_usages': [
+                {
+                    'order_number': u.order.order_number,
+                    'user_email': u.user.email if u.user else 'Guest',
+                    'discount_amount': str(u.discount_amount),
+                    'used_at': u.used_at
+                }
+                for u in usages.order_by('-used_at')[:10]
+            ]
+        })

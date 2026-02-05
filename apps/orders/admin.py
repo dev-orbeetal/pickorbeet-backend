@@ -3,7 +3,7 @@ Admin configuration for orders app.
 """
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import Order, OrderItem, OrderStatusHistory, Cart, CartItem
+from .models import Order, OrderItem, OrderStatusHistory, Cart, CartItem, Coupon, CouponUsage
 
 
 class OrderItemInline(admin.TabularInline):
@@ -50,8 +50,8 @@ class OrderAdmin(admin.ModelAdmin):
                        'billing_address_line2', 'billing_city', 'billing_district', 'billing_postal_code'),
             'classes': ('collapse',)
         }),
-        ('Pricing', {
-            'fields': ('subtotal', 'delivery_charge', 'discount', 'total')
+        ('Pricing & Coupon', {
+            'fields': ('subtotal', 'delivery_charge', 'coupon', 'coupon_code', 'discount', 'total')
         }),
         ('Payment', {
             'fields': ('payment_method', 'transaction_id')
@@ -135,3 +135,83 @@ class CartItemAdmin(admin.ModelAdmin):
     list_display = ['cart', 'product', 'variant', 'quantity', 'unit_price', 'total_price']
     list_filter = ['created_at']
     search_fields = ['product__name']
+
+
+class CouponUsageInline(admin.TabularInline):
+    model = CouponUsage
+    extra = 0
+    readonly_fields = ['user', 'order', 'discount_amount', 'used_at']
+    can_delete = False
+
+
+@admin.register(Coupon)
+class CouponAdmin(admin.ModelAdmin):
+    list_display = ['code', 'name', 'discount_display', 'status_display', 'times_used', 
+                    'usage_limit', 'valid_from', 'valid_until', 'is_active']
+    list_filter = ['discount_type', 'is_active', 'first_order_only', 'new_users_only', 
+                   'valid_from', 'valid_until', 'created_at']
+    search_fields = ['code', 'name', 'description']
+    readonly_fields = ['times_used', 'created_at', 'updated_at']
+    filter_horizontal = ['applicable_categories', 'applicable_products']
+    ordering = ['-created_at']
+    inlines = [CouponUsageInline]
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('code', 'name', 'description', 'is_active')
+        }),
+        ('Discount Settings', {
+            'fields': ('discount_type', 'discount_value', 'minimum_order_amount', 'maximum_discount')
+        }),
+        ('Usage Limits', {
+            'fields': ('usage_limit', 'usage_limit_per_user', 'times_used')
+        }),
+        ('Validity Period', {
+            'fields': ('valid_from', 'valid_until')
+        }),
+        ('Restrictions', {
+            'fields': ('first_order_only', 'new_users_only'),
+            'classes': ('collapse',)
+        }),
+        ('Product/Category Restrictions', {
+            'fields': ('applicable_categories', 'applicable_products'),
+            'classes': ('collapse',),
+            'description': 'Leave empty to apply to all products/categories'
+        }),
+        ('Metadata', {
+            'fields': ('created_by', 'created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def discount_display(self, obj):
+        if obj.discount_type == 'percentage':
+            return f"{obj.discount_value}%"
+        return f"৳{obj.discount_value}"
+    discount_display.short_description = 'Discount'
+
+    def status_display(self, obj):
+        colors = {
+            'active': 'green',
+            'inactive': 'gray',
+            'expired': 'red',
+        }
+        color = colors.get(obj.status, 'black')
+        return format_html(
+            '<span style="color: {}; font-weight: bold;">{}</span>',
+            color, obj.status.title()
+        )
+    status_display.short_description = 'Status'
+
+    def save_model(self, request, obj, form, change):
+        if not change:  # New object
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(CouponUsage)
+class CouponUsageAdmin(admin.ModelAdmin):
+    list_display = ['coupon', 'user', 'order', 'discount_amount', 'used_at']
+    list_filter = ['used_at', 'coupon']
+    search_fields = ['coupon__code', 'user__email', 'order__order_number']
+    readonly_fields = ['coupon', 'user', 'order', 'discount_amount', 'used_at']
