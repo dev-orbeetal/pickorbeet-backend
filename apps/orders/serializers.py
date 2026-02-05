@@ -195,7 +195,7 @@ class OrderDetailSerializer(serializers.ModelSerializer):
 class CheckoutSerializer(serializers.Serializer):
     """Serializer for checkout process."""
     # Guest info (optional if authenticated)
-    guest_email = serializers.EmailField(required=False)
+    guest_email = serializers.EmailField(required=False, allow_blank=True)
     guest_phone = serializers.CharField(required=False)
     guest_name = serializers.CharField(required=False)
     
