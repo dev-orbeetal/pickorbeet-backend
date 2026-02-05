@@ -15,10 +15,11 @@ from .serializers import (
 )
 from .models import Address, EmailVerificationToken, PasswordResetToken
 from .permissions import IsSuperAdmin, IsStaffUser
-from django.core.mail import send_mail
+from .emails import (
+    send_otp_email, send_welcome_email, send_google_welcome_email,
+    send_password_reset_email, send_password_changed_email
+)
 from django.conf import settings
-from django.template.loader import render_to_string
-from django.utils.html import strip_tags
 
 User = get_user_model()
 
@@ -29,7 +30,7 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 
 
 class UserRegistrationView(generics.CreateAPIView):
-    """User registration endpoint."""
+    """User registration endpoint with OTP verification."""
     queryset = User.objects.all()
     serializer_class = UserRegistrationSerializer
     permission_classes = [permissions.AllowAny]
@@ -39,14 +40,22 @@ class UserRegistrationView(generics.CreateAPIView):
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
         
-        refresh = RefreshToken.for_user(user)
+        # Create OTP and send verification email
+        try:
+            otp = EmailVerificationToken.create_otp(user)
+            send_otp_email(user, otp.otp_code)
+        except Exception as e:
+            pass  # Log error but don't fail registration
+        
         return Response({
-            'message': 'Registration successful',
-            'user': UserSerializer(user).data,
-            'tokens': {
-                'refresh': str(refresh),
-                'access': str(refresh.access_token),
-            }
+            'message': 'Registration successful. Please check your email for verification code.',
+            'user': {
+                'id': str(user.id),
+                'email': user.email,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+            },
+            'requires_verification': True
         }, status=status.HTTP_201_CREATED)
 
 
@@ -76,6 +85,13 @@ class ChangePasswordView(APIView):
         
         user.set_password(serializer.validated_data['new_password'])
         user.save()
+        
+        # Send password changed confirmation email
+        try:
+            send_password_changed_email(user)
+        except Exception:
+            pass  # Log error but don't fail
+        
         return Response({'message': 'Password changed successfully'})
 
 
@@ -219,6 +235,13 @@ class GoogleAuthView(APIView):
                 if updated:
                     user.save()
 
+            # Send welcome email for new Google OAuth users
+            if created:
+                try:
+                    send_google_welcome_email(user)
+                except Exception:
+                    pass  # Log error but don't fail auth
+
             # Generate JWT tokens
             refresh = RefreshToken.for_user(user)
 
@@ -231,6 +254,7 @@ class GoogleAuthView(APIView):
                     'first_name': user.first_name,
                     'last_name': user.last_name,
                     'role': user.role,
+                    'is_verified': user.is_verified,
                 }
             }, status=status.HTTP_200_OK)
 
@@ -265,45 +289,14 @@ class ForgotPasswordView(APIView):
             # Create new token
             token_obj = PasswordResetToken.create_token(user)
             
-            # Build reset URL
+            # Build reset URL and send beautiful email
             reset_url = f"{settings.FRONTEND_URL}/reset-password?token={token_obj.token}"
-            
-            # Send email
-            subject = 'Reset Your Password - Zzuhana'
-            html_message = f"""
-            <html>
-            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-                    <h2 style="color: #8B0000;">Password Reset Request</h2>
-                    <p>Hi {user.first_name},</p>
-                    <p>We received a request to reset your password. Click the button below to create a new password:</p>
-                    <div style="text-align: center; margin: 30px 0;">
-                        <a href="{reset_url}" style="background-color: #8B0000; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">Reset Password</a>
-                    </div>
-                    <p>This link will expire in 1 hour.</p>
-                    <p>If you didn't request this, you can safely ignore this email.</p>
-                    <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
-                    <p style="color: #666; font-size: 12px;">This email was sent by Zzuhana. Please do not reply.</p>
-                </div>
-            </body>
-            </html>
-            """
-            plain_message = strip_tags(html_message)
-            
-            send_mail(
-                subject,
-                plain_message,
-                settings.DEFAULT_FROM_EMAIL,
-                [email],
-                html_message=html_message,
-                fail_silently=False,
-            )
+            send_password_reset_email(user, reset_url)
             
         except User.DoesNotExist:
             pass  # Don't reveal if email exists
         except Exception as e:
-            # Log error but don't reveal to user
-            pass
+            pass  # Log error but don't reveal to user
         
         return Response({
             'message': 'If an account with this email exists, you will receive a password reset link.'
@@ -339,6 +332,12 @@ class ResetPasswordView(APIView):
             token_obj.is_used = True
             token_obj.save()
             
+            # Send password changed confirmation email
+            try:
+                send_password_changed_email(user)
+            except Exception:
+                pass
+            
             return Response({'message': 'Password has been reset successfully.'})
             
         except PasswordResetToken.DoesNotExist:
@@ -349,44 +348,81 @@ class ResetPasswordView(APIView):
 
 
 class VerifyEmailView(APIView):
-    """Verify email with token."""
+    """Verify email with 6-digit OTP code."""
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
-        serializer = EmailVerificationSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        email = request.data.get('email')
+        otp_code = request.data.get('otp_code') or request.data.get('token')
         
-        token = serializer.validated_data['token']
+        if not email or not otp_code:
+            return Response(
+                {'error': 'Email and OTP code are required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         try:
-            token_obj = EmailVerificationToken.objects.get(token=token)
+            user = User.objects.get(email=email)
             
-            if not token_obj.is_valid():
+            # Find valid OTP for this user
+            otp_obj = EmailVerificationToken.objects.filter(
+                user=user,
+                otp_code=otp_code,
+                is_used=False
+            ).first()
+            
+            if not otp_obj:
                 return Response(
-                    {'error': 'This verification link has expired or already been used.'},
+                    {'error': 'Invalid verification code.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            if not otp_obj.is_valid():
+                return Response(
+                    {'error': 'Verification code has expired. Please request a new one.'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
             # Verify user
-            user = token_obj.user
             user.is_verified = True
             user.save()
             
-            # Mark token as used
-            token_obj.is_used = True
-            token_obj.save()
+            # Mark OTP as used
+            otp_obj.is_used = True
+            otp_obj.save()
             
-            return Response({'message': 'Email verified successfully.'})
+            # Send welcome email
+            try:
+                send_welcome_email(user)
+            except Exception:
+                pass
             
-        except EmailVerificationToken.DoesNotExist:
+            # Generate JWT tokens for auto-login
+            refresh = RefreshToken.for_user(user)
+            
+            return Response({
+                'message': 'Email verified successfully! Welcome to Zzuhana!',
+                'access': str(refresh.access_token),
+                'refresh': str(refresh),
+                'user': {
+                    'id': str(user.id),
+                    'email': user.email,
+                    'first_name': user.first_name,
+                    'last_name': user.last_name,
+                    'role': user.role,
+                    'is_verified': True,
+                }
+            })
+            
+        except User.DoesNotExist:
             return Response(
-                {'error': 'Invalid verification link.'},
+                {'error': 'Invalid email address.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
 
 class ResendVerificationView(APIView):
-    """Resend email verification."""
+    """Resend OTP verification code."""
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -401,44 +437,9 @@ class ResendVerificationView(APIView):
             if user.is_verified:
                 return Response({'message': 'Email is already verified.'})
             
-            # Invalidate existing tokens
-            EmailVerificationToken.objects.filter(user=user, is_used=False).update(is_used=True)
-            
-            # Create new token
-            token_obj = EmailVerificationToken.create_token(user)
-            
-            # Build verification URL
-            verify_url = f"{settings.FRONTEND_URL}/verify-email?token={token_obj.token}"
-            
-            # Send email
-            subject = 'Verify Your Email - Zzuhana'
-            html_message = f"""
-            <html>
-            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-                    <h2 style="color: #8B0000;">Welcome to Zzuhana!</h2>
-                    <p>Hi {user.first_name},</p>
-                    <p>Thank you for creating an account. Please verify your email address by clicking the button below:</p>
-                    <div style="text-align: center; margin: 30px 0;">
-                        <a href="{verify_url}" style="background-color: #8B0000; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">Verify Email</a>
-                    </div>
-                    <p>This link will expire in 24 hours.</p>
-                    <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
-                    <p style="color: #666; font-size: 12px;">This email was sent by Zzuhana. Please do not reply.</p>
-                </div>
-            </body>
-            </html>
-            """
-            plain_message = strip_tags(html_message)
-            
-            send_mail(
-                subject,
-                plain_message,
-                settings.DEFAULT_FROM_EMAIL,
-                [email],
-                html_message=html_message,
-                fail_silently=False,
-            )
+            # Create new OTP and send email
+            otp = EmailVerificationToken.create_otp(user)
+            send_otp_email(user, otp.otp_code)
             
         except User.DoesNotExist:
             pass  # Don't reveal if email exists
@@ -446,5 +447,5 @@ class ResendVerificationView(APIView):
             pass  # Log error but don't reveal to user
         
         return Response({
-            'message': 'If an account with this email exists and is not verified, you will receive a verification link.'
+            'message': 'If an account with this email exists and is not verified, you will receive a new verification code.'
         })

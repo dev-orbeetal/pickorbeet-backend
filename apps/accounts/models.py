@@ -127,31 +127,39 @@ class Address(models.Model):
 
 
 class EmailVerificationToken(models.Model):
-    """Token for email verification."""
+    """Token for email verification using 6-digit OTP."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='email_tokens')
-    token = models.CharField(max_length=100, unique=True)
+    otp_code = models.CharField(max_length=6)
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
     is_used = models.BooleanField(default=False)
+    attempts = models.IntegerField(default=0)
 
     class Meta:
         verbose_name = 'Email Verification Token'
         verbose_name_plural = 'Email Verification Tokens'
 
     def __str__(self):
-        return f"Email token for {self.user.email}"
+        return f"OTP for {self.user.email}"
 
     def is_valid(self):
-        return not self.is_used and self.expires_at > timezone.now()
+        return not self.is_used and self.expires_at > timezone.now() and self.attempts < 5
+
+    def increment_attempts(self):
+        self.attempts += 1
+        self.save()
 
     @classmethod
-    def create_token(cls, user):
-        import secrets
+    def create_otp(cls, user):
+        import random
         from datetime import timedelta
-        token = secrets.token_urlsafe(32)
-        expires_at = timezone.now() + timedelta(hours=24)
-        return cls.objects.create(user=user, token=token, expires_at=expires_at)
+        # Invalidate existing OTPs
+        cls.objects.filter(user=user, is_used=False).update(is_used=True)
+        # Generate 6-digit OTP
+        otp_code = ''.join([str(random.randint(0, 9)) for _ in range(6)])
+        expires_at = timezone.now() + timedelta(minutes=10)
+        return cls.objects.create(user=user, otp_code=otp_code, expires_at=expires_at)
 
 
 class PasswordResetToken(models.Model):
