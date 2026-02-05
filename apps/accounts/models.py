@@ -124,3 +124,59 @@ class Address(models.Model):
         dhaka_areas = ['dhaka', 'mirpur', 'uttara', 'gulshan', 'banani', 'dhanmondi', 'mohammadpur']
         self.is_inside_dhaka = self.city.lower() in dhaka_areas or self.district.lower() == 'dhaka'
         super().save(*args, **kwargs)
+
+
+class EmailVerificationToken(models.Model):
+    """Token for email verification."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='email_tokens')
+    token = models.CharField(max_length=100, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    is_used = models.BooleanField(default=False)
+
+    class Meta:
+        verbose_name = 'Email Verification Token'
+        verbose_name_plural = 'Email Verification Tokens'
+
+    def __str__(self):
+        return f"Email token for {self.user.email}"
+
+    def is_valid(self):
+        return not self.is_used and self.expires_at > timezone.now()
+
+    @classmethod
+    def create_token(cls, user):
+        import secrets
+        from datetime import timedelta
+        token = secrets.token_urlsafe(32)
+        expires_at = timezone.now() + timedelta(hours=24)
+        return cls.objects.create(user=user, token=token, expires_at=expires_at)
+
+
+class PasswordResetToken(models.Model):
+    """Token for password reset."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='password_tokens')
+    token = models.CharField(max_length=100, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    is_used = models.BooleanField(default=False)
+
+    class Meta:
+        verbose_name = 'Password Reset Token'
+        verbose_name_plural = 'Password Reset Tokens'
+
+    def __str__(self):
+        return f"Password reset token for {self.user.email}"
+
+    def is_valid(self):
+        return not self.is_used and self.expires_at > timezone.now()
+
+    @classmethod
+    def create_token(cls, user):
+        import secrets
+        from datetime import timedelta
+        token = secrets.token_urlsafe(32)
+        expires_at = timezone.now() + timedelta(hours=1)
+        return cls.objects.create(user=user, token=token, expires_at=expires_at)

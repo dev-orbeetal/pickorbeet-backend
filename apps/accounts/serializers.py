@@ -123,3 +123,30 @@ class ChangePasswordSerializer(serializers.Serializer):
         if attrs['new_password'] != attrs['new_password_confirm']:
             raise serializers.ValidationError({"new_password": "New passwords don't match."})
         return attrs
+
+
+class ForgotPasswordSerializer(serializers.Serializer):
+    """Serializer for forgot password request."""
+    email = serializers.EmailField(required=True)
+
+
+class ResetPasswordSerializer(serializers.Serializer):
+    """Serializer for password reset."""
+    token = serializers.CharField(required=True)
+    new_password = serializers.CharField(required=True, validators=[validate_password])
+    new_password_confirm = serializers.CharField(required=True)
+
+    def validate(self, attrs):
+        if attrs['new_password'] != attrs['new_password_confirm']:
+            raise serializers.ValidationError({"new_password": "Passwords don't match."})
+        return attrs
+
+
+class EmailVerificationSerializer(serializers.Serializer):
+    """Serializer for email verification."""
+    token = serializers.CharField(required=True)
+
+
+class ResendVerificationSerializer(serializers.Serializer):
+    """Serializer for resending verification email."""
+    email = serializers.EmailField(required=True)
