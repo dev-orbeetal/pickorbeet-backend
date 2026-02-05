@@ -56,12 +56,19 @@ class ProductListView(generics.ListAPIView):
     serializer_class = ProductListSerializer
     permission_classes = [AllowAny]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['category', 'subcategory', 'is_featured', 'size', 'color']
+    filterset_fields = ['subcategory', 'is_featured', 'color']
     search_fields = ['name', 'description', 'sku']
     ordering_fields = ['price', 'created_at', 'name']
 
     def get_queryset(self):
         queryset = Product.objects.filter(is_active=True).select_related('category', 'subcategory')
+        
+        # Multi-value category filter (comma-separated IDs)
+        category_param = self.request.query_params.get('category')
+        if category_param:
+            category_ids = [c.strip() for c in category_param.split(',') if c.strip()]
+            if category_ids:
+                queryset = queryset.filter(category__id__in=category_ids)
         
         # Filter by category slug
         category_slug = self.request.query_params.get('category_slug')
@@ -72,6 +79,13 @@ class ProductListView(generics.ListAPIView):
         subcategory_slug = self.request.query_params.get('subcategory_slug')
         if subcategory_slug:
             queryset = queryset.filter(subcategory__slug=subcategory_slug)
+        
+        # Multi-value size filter (comma-separated)
+        size_param = self.request.query_params.get('size')
+        if size_param:
+            sizes = [s.strip() for s in size_param.split(',') if s.strip()]
+            if sizes:
+                queryset = queryset.filter(size__in=sizes)
         
         # Price range filter
         min_price = self.request.query_params.get('min_price')
