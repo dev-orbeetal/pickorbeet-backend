@@ -130,7 +130,7 @@ class EmailVerificationToken(models.Model):
     """Token for email verification using 6-digit OTP."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='email_tokens')
-    otp_code = models.CharField(max_length=6)
+    otp_code = models.CharField(max_length=6, default='000000')
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
     is_used = models.BooleanField(default=False)
