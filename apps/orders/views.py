@@ -358,11 +358,21 @@ class AdminOrderListView(generics.ListAPIView):
         return Order.objects.all().prefetch_related('items')
 
 
-class AdminOrderDetailView(generics.RetrieveAPIView):
-    """Admin: Get single order."""
+class AdminOrderDetailView(generics.RetrieveDestroyAPIView):
+    """Admin: Get or delete single order."""
     serializer_class = OrderDetailSerializer
     permission_classes = [IsAuthenticated, IsStaffUser]
     queryset = Order.objects.all()
+
+    def destroy(self, request, *args, **kwargs):
+        order = self.get_object()
+        # Only allow deletion of pending or cancelled orders
+        if order.order_status not in ['pending', 'cancelled']:
+            return Response(
+                {'error': 'Can only delete pending or cancelled orders'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return super().destroy(request, *args, **kwargs)
 
 
 class UpdateOrderStatusView(APIView):
