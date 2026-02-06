@@ -260,6 +260,37 @@ class StoreSettings(models.Model):
         help_text='Prefix for auto-generated barcodes (e.g., 123 for 123-XXXXXXXXXX)'
     )
     
+    # Popular searches (comma-separated terms shown in search modal)
+    popular_searches = models.TextField(
+        blank=True,
+        default='Borkha,Hijab,Abaya,Niqab',
+        help_text='Comma-separated popular search terms shown in search modal'
+    )
+    
+    # Contact information
+    contact_address = models.TextField(
+        blank=True,
+        default='123 Fashion Street, Gulshan, Dhaka 1212, Bangladesh',
+        help_text='Full store address'
+    )
+    contact_phone_1 = models.CharField(max_length=20, blank=True, default='+880 1234-567890')
+    contact_phone_2 = models.CharField(max_length=20, blank=True, default='+880 1234-567891')
+    contact_email_1 = models.EmailField(blank=True, default='contact@zzuhana.com')
+    contact_email_2 = models.EmailField(blank=True, default='support@zzuhana.com')
+    business_hours = models.TextField(
+        blank=True,
+        default='Sat - Thu: 10:00 AM - 8:00 PM\nFriday: Closed',
+        help_text='Business hours (one line per entry)'
+    )
+    
+    # Map embed
+    map_embed_url = models.URLField(
+        max_length=1000,
+        blank=True,
+        default='https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d14602.254272231177!2d90.41259!3d23.7925!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3755c7a0f70deb73%3A0x30c36498f90fe23!2sGulshan%2C%20Dhaka!5e0!3m2!1sen!2sbd!4v1640000000000!5m2!1sen!2sbd',
+        help_text='Google Maps embed URL for the contact page'
+    )
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -319,27 +319,56 @@ class ProductVariantDetailView(generics.RetrieveUpdateDestroyAPIView):
         return ProductVariant.objects.filter(product_id=product_id)
 
 
-class StoreSettingsView(APIView):
-    """Get and update store settings including barcode prefix."""
-    permission_classes = [IsAuthenticated, IsStaffUser]
+class PublicStoreSettingsView(APIView):
+    """Public endpoint for client to fetch store settings (no auth required)."""
+    permission_classes = [AllowAny]
 
     def get(self, request):
         from .models import StoreSettings
         settings = StoreSettings.get_settings()
         return Response({
-            'barcode_prefix': settings.barcode_prefix,
+            'popular_searches': settings.popular_searches,
+            'contact_address': settings.contact_address,
+            'contact_phone_1': settings.contact_phone_1,
+            'contact_phone_2': settings.contact_phone_2,
+            'contact_email_1': settings.contact_email_1,
+            'contact_email_2': settings.contact_email_2,
+            'business_hours': settings.business_hours,
+            'map_embed_url': settings.map_embed_url,
         })
+
+
+class StoreSettingsView(APIView):
+    """Get and update store settings (admin only)."""
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    SETTINGS_FIELDS = [
+        'barcode_prefix', 'popular_searches',
+        'contact_address', 'contact_phone_1', 'contact_phone_2',
+        'contact_email_1', 'contact_email_2', 'business_hours',
+        'map_embed_url',
+    ]
+
+    def get(self, request):
+        from .models import StoreSettings
+        settings = StoreSettings.get_settings()
+        data = {field: getattr(settings, field) for field in self.SETTINGS_FIELDS}
+        return Response(data)
 
     def patch(self, request):
         from .models import StoreSettings
         settings = StoreSettings.get_settings()
         
-        barcode_prefix = request.data.get('barcode_prefix')
-        if barcode_prefix is not None:
-            settings.barcode_prefix = barcode_prefix
+        updated = False
+        for field in self.SETTINGS_FIELDS:
+            value = request.data.get(field)
+            if value is not None:
+                setattr(settings, field, value)
+                updated = True
+        
+        if updated:
             settings.save()
         
-        return Response({
-            'barcode_prefix': settings.barcode_prefix,
-            'message': 'Settings updated successfully'
-        })
+        data = {field: getattr(settings, field) for field in self.SETTINGS_FIELDS}
+        data['message'] = 'Settings updated successfully'
+        return Response(data)

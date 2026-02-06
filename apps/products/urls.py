@@ -11,7 +11,7 @@ from .views import (
     ProductImageUploadView, ProductImageDeleteView,
     BarcodeSearchView, ProductStockUpdateView, LowStockProductsView,
     ProductVariantListCreateView, ProductVariantDetailView,
-    StoreSettingsView
+    StoreSettingsView, PublicStoreSettingsView
 )
 
 urlpatterns = [
@@ -22,6 +22,7 @@ urlpatterns = [
     path('', ProductListView.as_view(), name='product_list'),
     path('featured/', FeaturedProductsView.as_view(), name='featured_products'),
     path('by-category/', CategoryProductsView.as_view(), name='products_by_category'),
+    path('settings/public/', PublicStoreSettingsView.as_view(), name='public_store_settings'),
     path('<slug:slug>/', ProductDetailView.as_view(), name='product_detail'),
     
     # Admin endpoints
