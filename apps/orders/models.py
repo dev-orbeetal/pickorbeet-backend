@@ -354,7 +354,7 @@ class OrderItem(models.Model):
     )
     
     product_name = models.CharField(max_length=255)  # Snapshot of product name
-    product_sku = models.CharField(max_length=50)
+    product_sku = models.CharField(max_length=50, blank=True, null=True)
     size = models.CharField(max_length=10, blank=True, null=True)
     color = models.CharField(max_length=50, blank=True, null=True)
     
