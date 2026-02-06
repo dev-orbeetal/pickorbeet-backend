@@ -178,7 +178,9 @@ class AdminProductListCreateView(generics.ListCreateAPIView):
         return ProductListSerializer
 
     def get_queryset(self):
-        return Product.objects.all().select_related('category', 'subcategory')
+        return Product.objects.all().select_related(
+            'category', 'subcategory'
+        ).prefetch_related('variants')
 
 
 class AdminProductDetailView(generics.RetrieveUpdateDestroyAPIView):

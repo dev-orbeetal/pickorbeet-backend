@@ -71,13 +71,16 @@ class ProductListSerializer(serializers.ModelSerializer):
     discount_percentage = serializers.ReadOnlyField()
     is_low_stock = serializers.ReadOnlyField()
     is_out_of_stock = serializers.ReadOnlyField()
+    variants = ProductVariantSerializer(many=True, read_only=True)
 
     class Meta:
         model = Product
-        fields = ['id', 'name', 'slug', 'sku', 'category', 'category_name', 
+        fields = ['id', 'name', 'slug', 'sku', 'barcode', 'category', 'category_name', 
                   'subcategory', 'subcategory_name', 'price', 'compare_price',
                   'primary_image', 'discount_percentage', 'stock_quantity',
-                  'is_low_stock', 'is_out_of_stock', 'is_featured', 'is_active']
+                  'low_stock_threshold',
+                  'is_low_stock', 'is_out_of_stock', 'is_featured', 'is_active',
+                  'variants']
 
 
 class ProductDetailSerializer(serializers.ModelSerializer):
