@@ -16,6 +16,7 @@ from .serializers import (
     ProductStockUpdateSerializer
 )
 from apps.accounts.permissions import IsStaffUser, IsSeller
+from apps.reports.models import StockMovement
 
 
 # Public Views
@@ -300,7 +301,7 @@ class BarcodeSearchView(APIView):
 
 
 class ProductStockUpdateView(APIView):
-    """Update product stock."""
+    """Update product stock with movement tracking."""
     permission_classes = [IsAuthenticated, IsStaffUser]
 
     def post(self, request, pk):
@@ -317,9 +318,14 @@ class ProductStockUpdateView(APIView):
         
         quantity = serializer.validated_data['quantity']
         operation = serializer.validated_data['operation']
+        reason = request.data.get('reason', 'adjustment')
+        note = request.data.get('note', '')
+        previous_stock = product.stock_quantity
         
         if operation == 'add':
             product.stock_quantity += quantity
+            movement_type = 'in'
+            movement_qty = quantity
         elif operation == 'subtract':
             if product.stock_quantity < quantity:
                 return Response(
@@ -327,13 +333,178 @@ class ProductStockUpdateView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             product.stock_quantity -= quantity
+            movement_type = 'out'
+            movement_qty = -quantity
         else:  # set
+            diff = quantity - product.stock_quantity
             product.stock_quantity = quantity
+            movement_type = 'adjustment'
+            movement_qty = diff
         
         product.save()
+        
+        StockMovement.objects.create(
+            product=product,
+            variant=None,
+            movement_type=movement_type,
+            reason=reason,
+            quantity=movement_qty,
+            previous_stock=previous_stock,
+            new_stock=product.stock_quantity,
+            note=note,
+            created_by=request.user,
+        )
+        
         return Response({
             'message': 'Stock updated successfully',
             'new_stock': product.stock_quantity
+        })
+
+
+class VariantStockUpdateView(APIView):
+    """Update variant stock with movement tracking."""
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def post(self, request, variant_id):
+        serializer = ProductStockUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            variant = ProductVariant.objects.select_related('product').get(pk=variant_id)
+        except ProductVariant.DoesNotExist:
+            return Response(
+                {'error': 'Variant not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        quantity = serializer.validated_data['quantity']
+        operation = serializer.validated_data['operation']
+        reason = request.data.get('reason', 'adjustment')
+        note = request.data.get('note', '')
+        previous_stock = variant.stock_quantity
+
+        if operation == 'add':
+            variant.stock_quantity += quantity
+            movement_type = 'in'
+            movement_qty = quantity
+        elif operation == 'subtract':
+            if variant.stock_quantity < quantity:
+                return Response(
+                    {'error': 'Insufficient stock'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            variant.stock_quantity -= quantity
+            movement_type = 'out'
+            movement_qty = -quantity
+        else:  # set
+            diff = quantity - variant.stock_quantity
+            variant.stock_quantity = quantity
+            movement_type = 'adjustment'
+            movement_qty = diff
+
+        variant.save()
+
+        StockMovement.objects.create(
+            product=variant.product,
+            variant=variant,
+            movement_type=movement_type,
+            reason=reason,
+            quantity=movement_qty,
+            previous_stock=previous_stock,
+            new_stock=variant.stock_quantity,
+            note=note,
+            created_by=request.user,
+        )
+
+        return Response({
+            'message': 'Variant stock updated successfully',
+            'new_stock': variant.stock_quantity
+        })
+
+
+class InventoryItemsView(APIView):
+    """List all products with their variants for inventory management.
+    Returns a flat list: products without variants appear as single rows,
+    products with variants are returned with their variant details.
+    """
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def get(self, request):
+        search = request.query_params.get('search', '').strip()
+        stock_filter = request.query_params.get('stock_status', '')  # all, in_stock, low_stock, out_of_stock
+        category_id = request.query_params.get('category', '')
+
+        products = Product.objects.filter(
+            is_active=True
+        ).select_related('category').prefetch_related(
+            models.Prefetch(
+                'variants',
+                queryset=ProductVariant.objects.filter(is_active=True).order_by('size', 'color')
+            )
+        ).order_by('name')
+
+        if search:
+            products = products.filter(
+                Q(name__icontains=search) |
+                Q(sku__icontains=search) |
+                Q(barcode__icontains=search) |
+                Q(variants__sku__icontains=search) |
+                Q(variants__barcode__icontains=search)
+            ).distinct()
+
+        if category_id:
+            products = products.filter(category_id=category_id)
+
+        items = []
+        for product in products:
+            variants = list(product.variants.all())
+            has_variants = len(variants) > 0
+
+            # Compute total stock across variants if applicable
+            if has_variants:
+                total_variant_stock = sum(v.stock_quantity for v in variants)
+            else:
+                total_variant_stock = product.stock_quantity
+
+            # Stock status filter
+            if stock_filter == 'out_of_stock' and total_variant_stock > 0:
+                continue
+            if stock_filter == 'low_stock' and (total_variant_stock == 0 or total_variant_stock > product.low_stock_threshold):
+                continue
+            if stock_filter == 'in_stock' and total_variant_stock <= product.low_stock_threshold:
+                continue
+
+            variant_data = []
+            for v in variants:
+                variant_data.append({
+                    'id': str(v.id),
+                    'sku': v.sku,
+                    'barcode': v.barcode,
+                    'size': v.size,
+                    'color': v.color,
+                    'price': float(v.effective_price),
+                    'stock_quantity': v.stock_quantity,
+                    'is_active': v.is_active,
+                })
+
+            items.append({
+                'id': str(product.id),
+                'name': product.name,
+                'sku': product.sku,
+                'barcode': product.barcode,
+                'category': product.category.name if product.category else None,
+                'price': float(product.price),
+                'stock_quantity': product.stock_quantity,
+                'total_stock': total_variant_stock,
+                'low_stock_threshold': product.low_stock_threshold,
+                'has_variants': has_variants,
+                'variants': variant_data,
+                'primary_image': product.primary_image,
+            })
+
+        return Response({
+            'count': len(items),
+            'items': items,
         })
 
 

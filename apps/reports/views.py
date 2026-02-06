@@ -145,8 +145,8 @@ class InventoryAnalyticsView(APIView):
         
         # Recent Stock Movements
         recent_movements = StockMovement.objects.select_related(
-            'product', 'created_by'
-        ).order_by('-created_at')[:20]
+            'product', 'variant', 'created_by'
+        ).order_by('-created_at')[:30]
         
         movements_data = [
             {
@@ -154,11 +154,18 @@ class InventoryAnalyticsView(APIView):
                 'product_id': str(m.product.id),
                 'product_name': m.product.name,
                 'product_sku': m.product.sku,
+                'variant_id': str(m.variant.id) if m.variant else None,
+                'variant_label': (
+                    f"{m.variant.size or ''} {m.variant.color or ''}".strip()
+                    if m.variant else None
+                ),
+                'variant_sku': m.variant.sku if m.variant else None,
                 'movement_type': m.movement_type,
                 'quantity': m.quantity,
                 'previous_stock': m.previous_stock,
                 'new_stock': m.new_stock,
                 'reason': m.reason,
+                'note': m.note or '',
                 'created_at': m.created_at.isoformat(),
                 'created_by': m.created_by.email if m.created_by else None
             }
