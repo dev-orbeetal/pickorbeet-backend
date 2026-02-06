@@ -86,6 +86,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
     subcategory = SubCategoryListSerializer(read_only=True)
     images = ProductImageSerializer(many=True, read_only=True)
     variants = ProductVariantSerializer(many=True, read_only=True)
+    primary_image = serializers.ReadOnlyField()
     discount_percentage = serializers.ReadOnlyField()
     is_low_stock = serializers.ReadOnlyField()
     is_out_of_stock = serializers.ReadOnlyField()
@@ -97,7 +98,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
                   'price', 'compare_price', 'size', 'color', 'material',
                   'stock_quantity', 'is_low_stock', 'is_out_of_stock',
                   'discount_percentage', 'is_active', 'is_featured',
-                  'images', 'variants', 'created_at', 'updated_at']
+                  'primary_image', 'images', 'variants', 'created_at', 'updated_at']
 
 
 class ProductCreateUpdateSerializer(serializers.ModelSerializer):
