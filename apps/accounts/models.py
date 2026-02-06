@@ -50,6 +50,10 @@ class User(AbstractBaseUser, PermissionsMixin):
     last_name = models.CharField(max_length=100)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='customer')
     
+    address = models.TextField(blank=True, null=True)
+    city = models.CharField(max_length=100, blank=True, null=True)
+    postal_code = models.CharField(max_length=20, blank=True, null=True)
+    
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     is_verified = models.BooleanField(default=False)
