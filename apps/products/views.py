@@ -210,38 +210,93 @@ class ProductImageDeleteView(generics.DestroyAPIView):
 
 
 class BarcodeSearchView(APIView):
-    """Search product by barcode for POS."""
+    """Search product by barcode/SKU for POS.
+    
+    Logic:
+    1. Try variant barcode/SKU first (products with variants should be
+       detected at the variant level).
+    2. If no variant match, try the product's own barcode/SKU — but only
+       return it directly when the product has NO active variants.
+       If the product HAS variants, return a list so the POS can prompt
+       the user to pick the correct variant.
+    """
     permission_classes = [IsAuthenticated, IsSeller]
 
     def get(self, request):
-        barcode = request.query_params.get('barcode')
+        barcode = request.query_params.get('barcode', '').strip()
         if not barcode:
             return Response(
                 {'error': 'Barcode is required'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
+
+        # Step 1: Try matching a variant barcode or variant SKU
         try:
-            product = Product.objects.get(Q(barcode=barcode) | Q(sku=barcode))
-            return Response(BarcodeProductSerializer(product).data)
-        except Product.DoesNotExist:
-            # Try variants
-            try:
-                variant = ProductVariant.objects.get(barcode=barcode)
+            variant = ProductVariant.objects.select_related('product').get(
+                Q(barcode=barcode) | Q(sku=barcode),
+                is_active=True,
+            )
+            product = variant.product
+            return Response({
+                'id': str(product.id),
+                'variant_id': str(variant.id),
+                'name': product.name,
+                'variant_label': f"{variant.size or ''} {variant.color or ''}".strip(),
+                'sku': variant.sku,
+                'barcode': variant.barcode,
+                'price': float(variant.effective_price),
+                'stock_quantity': variant.stock_quantity,
+                'primary_image': product.primary_image,
+                'has_variants': True,
+            })
+        except ProductVariant.DoesNotExist:
+            pass
+
+        # Step 2: Try matching the product barcode or product SKU
+        try:
+            product = Product.objects.get(
+                Q(barcode=barcode) | Q(sku=barcode),
+                is_active=True,
+            )
+            active_variants = product.variants.filter(is_active=True)
+
+            if active_variants.exists():
+                # Product has variants — return product info with variant list
+                # so the POS can let the user pick the right variant
+                variants_data = [
+                    {
+                        'id': str(v.id),
+                        'label': f"{v.size or ''} {v.color or ''}".strip(),
+                        'sku': v.sku,
+                        'barcode': v.barcode,
+                        'price': float(v.effective_price),
+                        'stock_quantity': v.stock_quantity,
+                    }
+                    for v in active_variants
+                ]
                 return Response({
-                    'id': str(variant.product.id),
-                    'variant_id': str(variant.id),
-                    'name': f"{variant.product.name} - {variant.size} - {variant.color}",
-                    'sku': variant.sku,
-                    'barcode': variant.barcode,
-                    'price': float(variant.effective_price),
-                    'stock_quantity': variant.stock_quantity,
+                    'id': str(product.id),
+                    'name': product.name,
+                    'sku': product.sku,
+                    'barcode': product.barcode,
+                    'price': float(product.price),
+                    'stock_quantity': product.stock_quantity,
+                    'primary_image': product.primary_image,
+                    'has_variants': True,
+                    'variants': variants_data,
+                    'pick_variant': True,
                 })
-            except ProductVariant.DoesNotExist:
-                return Response(
-                    {'error': 'Product not found'},
-                    status=status.HTTP_404_NOT_FOUND
-                )
+            else:
+                # No variants — return the product directly
+                data = BarcodeProductSerializer(product).data
+                data['has_variants'] = False
+                return Response(data)
+
+        except Product.DoesNotExist:
+            return Response(
+                {'error': 'Product not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
 
 class ProductStockUpdateView(APIView):
