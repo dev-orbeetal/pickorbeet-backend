@@ -294,14 +294,33 @@ class DashboardStatsView(APIView):
         # Pending orders
         pending_orders = Order.objects.filter(order_status='pending').count()
         
-        # Low stock products
-        low_stock_count = Product.objects.filter(
+        # Low stock products (variant-aware)
+        from apps.products.models import ProductVariant
+        # Products without variants that are low stock
+        no_variant_low = Q(
+            variants__isnull=True,
             stock_quantity__lte=F('low_stock_threshold'),
+        )
+        # Products with at least one variant that is low stock
+        variant_low = Q(
+            variants__is_active=True,
+            variants__stock_quantity__lte=F('variants__low_stock_threshold'),
+        )
+        low_stock_count = Product.objects.filter(
             is_active=True
-        ).count()
+        ).filter(no_variant_low | variant_low).distinct().count()
         
-        # Out of stock products
-        out_of_stock = Product.objects.filter(stock_quantity=0, is_active=True).count()
+        # Out of stock products (variant-aware)
+        no_variant_oos = Q(variants__isnull=True, stock_quantity=0)
+        all_active = Product.objects.filter(is_active=True)
+        # For variant products: all variants have 0 stock
+        variant_products_with_stock = Product.objects.filter(
+            is_active=True, variants__is_active=True, variants__stock_quantity__gt=0
+        ).distinct()
+        out_of_stock = all_active.filter(no_variant_oos).distinct().count() + \
+            all_active.filter(variants__isnull=False).distinct().exclude(
+                id__in=variant_products_with_stock
+            ).count()
         
         return Response({
             'today': {

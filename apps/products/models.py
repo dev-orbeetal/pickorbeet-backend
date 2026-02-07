@@ -171,10 +171,16 @@ class Product(models.Model):
 
     @property
     def is_low_stock(self):
+        variants = self.variants.filter(is_active=True)
+        if variants.exists():
+            return any(v.stock_quantity <= v.low_stock_threshold for v in variants)
         return self.stock_quantity <= self.low_stock_threshold
 
     @property
     def is_out_of_stock(self):
+        variants = self.variants.filter(is_active=True)
+        if variants.exists():
+            return all(v.stock_quantity == 0 for v in variants)
         return self.stock_quantity == 0
 
     @property

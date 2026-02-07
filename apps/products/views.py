@@ -468,12 +468,20 @@ class InventoryItemsView(APIView):
             else:
                 total_variant_stock = product.stock_quantity
 
+            # Determine low stock status (variant-aware)
+            if has_variants:
+                is_low = any(v.stock_quantity <= v.low_stock_threshold for v in variants)
+                is_out = all(v.stock_quantity == 0 for v in variants)
+            else:
+                is_low = product.stock_quantity <= product.low_stock_threshold
+                is_out = product.stock_quantity == 0
+
             # Stock status filter
-            if stock_filter == 'out_of_stock' and total_variant_stock > 0:
+            if stock_filter == 'out_of_stock' and not is_out:
                 continue
-            if stock_filter == 'low_stock' and (total_variant_stock == 0 or total_variant_stock > product.low_stock_threshold):
+            if stock_filter == 'low_stock' and (is_out or not is_low):
                 continue
-            if stock_filter == 'in_stock' and total_variant_stock <= product.low_stock_threshold:
+            if stock_filter == 'in_stock' and (is_out or is_low):
                 continue
 
             variant_data = []
@@ -512,15 +520,26 @@ class InventoryItemsView(APIView):
 
 
 class LowStockProductsView(generics.ListAPIView):
-    """List products with low stock."""
+    """List products with low stock (including variant-level low stock)."""
     serializer_class = ProductListSerializer
     permission_classes = [IsAuthenticated, IsStaffUser]
 
     def get_queryset(self):
-        return Product.objects.filter(
+        # Products without variants that are low stock
+        no_variant_low = models.Q(
+            variants__isnull=True,
             stock_quantity__lte=models.F('low_stock_threshold'),
+        )
+        # Products with at least one variant that is low stock
+        variant_low = models.Q(
+            variants__is_active=True,
+            variants__stock_quantity__lte=models.F('variants__low_stock_threshold'),
+        )
+        return Product.objects.filter(
             is_active=True
-        ).order_by('stock_quantity')
+        ).filter(
+            no_variant_low | variant_low
+        ).distinct().prefetch_related('variants').order_by('name')
 
 
 class ProductVariantListCreateView(generics.ListCreateAPIView):
