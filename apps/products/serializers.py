@@ -20,7 +20,7 @@ class ProductVariantSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductVariant
         fields = ['id', 'sku', 'barcode', 'size', 'color', 'price', 
-                  'stock_quantity', 'is_active', 'effective_price']
+                  'stock_quantity', 'low_stock_threshold', 'is_active', 'effective_price']
 
 
 class SubCategorySerializer(serializers.ModelSerializer):

@@ -486,6 +486,7 @@ class InventoryItemsView(APIView):
                     'color': v.color,
                     'price': float(v.effective_price),
                     'stock_quantity': v.stock_quantity,
+                    'low_stock_threshold': v.low_stock_threshold,
                     'is_active': v.is_active,
                 })
 

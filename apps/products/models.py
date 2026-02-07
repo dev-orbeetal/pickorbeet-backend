@@ -232,6 +232,7 @@ class ProductVariant(models.Model):
     
     price = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     stock_quantity = models.PositiveIntegerField(default=0)
+    low_stock_threshold = models.PositiveIntegerField(default=10)
     
     is_active = models.BooleanField(default=True)
     

@@ -49,4 +49,18 @@ class Command(BaseCommand):
             else:
                 self.stdout.write(self.style.WARNING('⏭  orders_deliveryoption table already exists'))
 
+            # 3. Add low_stock_threshold column to products_productvariant if missing
+            cursor.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'products_productvariant' AND column_name = 'low_stock_threshold'
+            """)
+            if not cursor.fetchone():
+                cursor.execute("""
+                    ALTER TABLE products_productvariant
+                    ADD COLUMN low_stock_threshold INTEGER NOT NULL DEFAULT 10
+                """)
+                self.stdout.write(self.style.SUCCESS('✅ Added low_stock_threshold column to products_productvariant'))
+            else:
+                self.stdout.write(self.style.WARNING('⏭  low_stock_threshold column already exists on products_productvariant'))
+
         self.stdout.write(self.style.SUCCESS('\n✅ Database fix complete! Restart gunicorn now.'))
