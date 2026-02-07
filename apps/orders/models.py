@@ -283,6 +283,7 @@ class Order(models.Model):
     )
     
     notes = models.TextField(blank=True, null=True)
+    stock_reduced = models.BooleanField(default=False, help_text='Whether stock has been deducted for this order')
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

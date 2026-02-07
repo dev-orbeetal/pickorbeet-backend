@@ -236,7 +236,7 @@ class CheckoutView(APIView):
             
             order.save()
             
-            # Create order items and update stock
+            # Create order items (stock is reduced when order is confirmed)
             for cart_item in cart.items.all():
                 OrderItem.objects.create(
                     order=order,
@@ -249,14 +249,6 @@ class CheckoutView(APIView):
                     quantity=cart_item.quantity,
                     unit_price=cart_item.unit_price,
                 )
-                
-                # Update stock
-                if cart_item.variant:
-                    cart_item.variant.stock_quantity -= cart_item.quantity
-                    cart_item.variant.save()
-                else:
-                    cart_item.product.stock_quantity -= cart_item.quantity
-                    cart_item.product.save()
             
             # Create initial status history
             OrderStatusHistory.objects.create(
@@ -376,8 +368,34 @@ class AdminOrderDetailView(generics.RetrieveDestroyAPIView):
 
 
 class UpdateOrderStatusView(APIView):
-    """Admin: Update order status."""
+    """Admin: Update order status with automatic stock management."""
     permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def _reduce_stock(self, order):
+        """Reduce stock for all items in the order."""
+        if order.stock_reduced:
+            return
+        for item in order.items.select_related('product', 'variant').all():
+            if item.variant:
+                item.variant.stock_quantity = max(0, item.variant.stock_quantity - item.quantity)
+                item.variant.save(update_fields=['stock_quantity'])
+            else:
+                item.product.stock_quantity = max(0, item.product.stock_quantity - item.quantity)
+                item.product.save(update_fields=['stock_quantity'])
+        order.stock_reduced = True
+
+    def _restore_stock(self, order):
+        """Restore stock for all items in the order."""
+        if not order.stock_reduced:
+            return
+        for item in order.items.select_related('product', 'variant').all():
+            if item.variant:
+                item.variant.stock_quantity += item.quantity
+                item.variant.save(update_fields=['stock_quantity'])
+            else:
+                item.product.stock_quantity += item.quantity
+                item.product.save(update_fields=['stock_quantity'])
+        order.stock_reduced = False
 
     def post(self, request, pk):
         serializer = OrderStatusUpdateSerializer(data=request.data)
@@ -394,28 +412,42 @@ class UpdateOrderStatusView(APIView):
         new_status = serializer.validated_data['status']
         note = serializer.validated_data.get('note', '')
         
-        order.order_status = new_status
+        with transaction.atomic():
+            order.order_status = new_status
+            
+            # Update timestamps
+            if new_status == 'confirmed':
+                order.confirmed_at = timezone.now()
+                self._reduce_stock(order)
+            elif new_status == 'shipped':
+                order.shipped_at = timezone.now()
+                # Safety: ensure stock is reduced if somehow skipped confirmation
+                if not order.stock_reduced:
+                    self._reduce_stock(order)
+            elif new_status == 'delivered':
+                order.delivered_at = timezone.now()
+                order.payment_status = 'paid'
+                if not order.stock_reduced:
+                    self._reduce_stock(order)
+            elif new_status in ('cancelled', 'refunded'):
+                self._restore_stock(order)
+                if new_status == 'refunded':
+                    order.payment_status = 'refunded'
+            elif new_status == 'pending':
+                # Reopening a cancelled/refunded order — stock stays restored
+                pass
+            
+            order.save()
+            
+            # Create status history
+            OrderStatusHistory.objects.create(
+                order=order,
+                status=new_status,
+                note=note,
+                changed_by=request.user
+            )
         
-        # Update timestamps
-        if new_status == 'confirmed':
-            order.confirmed_at = timezone.now()
-        elif new_status == 'shipped':
-            order.shipped_at = timezone.now()
-        elif new_status == 'delivered':
-            order.delivered_at = timezone.now()
-            order.payment_status = 'paid'  # COD orders
-        
-        order.save()
-        
-        # Create status history
-        OrderStatusHistory.objects.create(
-            order=order,
-            status=new_status,
-            note=note,
-            changed_by=request.user
-        )
-        
-        return Response(OrderDetailSerializer(order).data)
+        return Response(OrderDetailSerializer(order, context={'request': request}).data)
 
 
 class InShopOrderView(APIView):
@@ -471,9 +503,10 @@ class InShopOrderView(APIView):
                 processed_by=request.user,
                 notes=data.get('notes', ''),
                 delivered_at=timezone.now(),
+                stock_reduced=True,
             )
             
-            # Create order items and update stock
+            # Create order items and update stock immediately for in-shop orders
             for item in order_items:
                 OrderItem.objects.create(
                     order=order,
@@ -489,11 +522,11 @@ class InShopOrderView(APIView):
                 
                 # Update stock
                 if item['variant']:
-                    item['variant'].stock_quantity -= item['quantity']
-                    item['variant'].save()
+                    item['variant'].stock_quantity = max(0, item['variant'].stock_quantity - item['quantity'])
+                    item['variant'].save(update_fields=['stock_quantity'])
                 else:
-                    item['product'].stock_quantity -= item['quantity']
-                    item['product'].save()
+                    item['product'].stock_quantity = max(0, item['product'].stock_quantity - item['quantity'])
+                    item['product'].save(update_fields=['stock_quantity'])
             
             # Create status history
             OrderStatusHistory.objects.create(
