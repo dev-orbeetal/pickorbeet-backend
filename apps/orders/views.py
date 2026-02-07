@@ -371,14 +371,31 @@ class UpdateOrderStatusView(APIView):
     """Admin: Update order status with automatic stock management."""
     permission_classes = [IsAuthenticated, IsStaffUser]
 
+    def _find_variant(self, item):
+        """Find the variant to update stock for. Handles cases where variant FK
+        is null but product has variants (e.g. SET_NULL after variant delete)."""
+        if item.variant:
+            return item.variant
+        # If product has variants, try to match by size/color from the order item snapshot
+        if item.product.variants.exists():
+            variant = item.product.variants.filter(
+                size=item.size, color=item.color, is_active=True
+            ).first()
+            if variant:
+                return variant
+            # Last resort: return first active variant
+            return item.product.variants.filter(is_active=True).first()
+        return None
+
     def _reduce_stock(self, order):
         """Reduce stock for all items in the order."""
         if order.stock_reduced:
             return
         for item in order.items.select_related('product', 'variant').all():
-            if item.variant:
-                item.variant.stock_quantity = max(0, item.variant.stock_quantity - item.quantity)
-                item.variant.save(update_fields=['stock_quantity'])
+            variant = self._find_variant(item)
+            if variant:
+                variant.stock_quantity = max(0, variant.stock_quantity - item.quantity)
+                variant.save(update_fields=['stock_quantity'])
             else:
                 item.product.stock_quantity = max(0, item.product.stock_quantity - item.quantity)
                 item.product.save(update_fields=['stock_quantity'])
@@ -389,9 +406,10 @@ class UpdateOrderStatusView(APIView):
         if not order.stock_reduced:
             return
         for item in order.items.select_related('product', 'variant').all():
-            if item.variant:
-                item.variant.stock_quantity += item.quantity
-                item.variant.save(update_fields=['stock_quantity'])
+            variant = self._find_variant(item)
+            if variant:
+                variant.stock_quantity += item.quantity
+                variant.save(update_fields=['stock_quantity'])
             else:
                 item.product.stock_quantity += item.quantity
                 item.product.save(update_fields=['stock_quantity'])
