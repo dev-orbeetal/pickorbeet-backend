@@ -15,7 +15,7 @@ from .serializers import (
     DateRangeSerializer, SalesSummarySerializer, TopProductSerializer
 )
 from apps.orders.models import Order, OrderItem
-from apps.products.models import Product, Category
+from apps.products.models import Product, ProductVariant, Category
 from apps.accounts.permissions import IsStaffUser, IsAccountant
 
 
@@ -414,7 +414,7 @@ class SalesReportView(APIView):
 
 
 class StockReportView(APIView):
-    """Generate current stock report."""
+    """Generate current stock report with variant details."""
     permission_classes = [IsAuthenticated, IsStaffUser]
 
     def get(self, request):
@@ -435,6 +435,12 @@ class StockReportView(APIView):
         
         total_units = products.aggregate(total=Sum('stock_quantity'))['total'] or 0
         
+        # Variant stats
+        total_variants = ProductVariant.objects.filter(product__is_active=True).count()
+        variant_units = ProductVariant.objects.filter(
+            product__is_active=True
+        ).aggregate(total=Sum('stock_quantity'))['total'] or 0
+        
         # Low stock products details
         low_stock_products = products.filter(
             stock_quantity__lte=F('low_stock_threshold')
@@ -450,6 +456,43 @@ class StockReportView(APIView):
             total_stock=Sum('stock_quantity'),
             stock_value=Sum(F('stock_quantity') * F('price'))
         ).order_by('-total_stock')
+        
+        # Full product list with variants for detailed stock report
+        all_products_qs = products.select_related(
+            'category'
+        ).prefetch_related(
+            'variants'
+        ).order_by('category__name', 'name')
+        
+        all_products = []
+        for p in all_products_qs:
+            variants_data = []
+            for v in p.variants.all():
+                variants_data.append({
+                    'id': str(v.id),
+                    'sku': v.sku,
+                    'barcode': v.barcode,
+                    'size': v.size,
+                    'color': v.color,
+                    'stock_quantity': v.stock_quantity,
+                    'price': float(v.price) if v.price else float(p.price),
+                    'stock_value': float((v.price or p.price) * v.stock_quantity),
+                })
+            
+            all_products.append({
+                'id': str(p.id),
+                'name': p.name,
+                'sku': p.sku,
+                'barcode': p.barcode,
+                'category': p.category.name if p.category else 'Uncategorized',
+                'price': float(p.price),
+                'stock_quantity': p.stock_quantity,
+                'low_stock_threshold': p.low_stock_threshold,
+                'stock_value': float(p.price * p.stock_quantity),
+                'has_variants': len(variants_data) > 0,
+                'variants': variants_data,
+                'total_variant_stock': sum(v['stock_quantity'] for v in variants_data),
+            })
         
         # Save stock report
         report, _ = StockReport.objects.update_or_create(
@@ -474,6 +517,8 @@ class StockReportView(APIView):
                 'out_of_stock': out_of_stock,
                 'total_units': total_units,
                 'total_stock_value': float(stock_value),
+                'total_variants': total_variants,
+                'total_variant_units': variant_units,
             },
             'low_stock_products': list(low_stock_products),
             'category_stock': [
@@ -486,6 +531,7 @@ class StockReportView(APIView):
                 }
                 for c in category_stock
             ],
+            'all_products': all_products,
         })
 
 

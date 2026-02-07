@@ -16,6 +16,27 @@ def generate_order_number():
     return f"ORD-{timestamp}-{random_str}"
 
 
+class DeliveryOption(models.Model):
+    """Configurable delivery options with custom names and charges."""
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=100, unique=True, help_text='e.g. Inside Dhaka, Outside Dhaka')
+    charge = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    is_active = models.BooleanField(default=True)
+    display_order = models.PositiveIntegerField(default=0)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Delivery Option'
+        verbose_name_plural = 'Delivery Options'
+        ordering = ['display_order', 'name']
+
+    def __str__(self):
+        return f"{self.name} — ৳{self.charge}"
+
+
 class Coupon(models.Model):
     """Coupon/Discount code model for promotional offers."""
     

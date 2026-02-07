@@ -8,7 +8,8 @@ from .views import (
     TrackOrderView, AdminOrderListView, AdminOrderDetailView,
     UpdateOrderStatusView, InShopOrderView,
     ValidateCouponView, ApplyCouponToCartView,
-    AdminCouponListCreateView, AdminCouponDetailView, AdminCouponStatsView
+    AdminCouponListCreateView, AdminCouponDetailView, AdminCouponStatsView,
+    PublicDeliveryOptionsView, AdminDeliveryOptionListCreateView, AdminDeliveryOptionDetailView
 )
 
 urlpatterns = [
@@ -42,4 +43,9 @@ urlpatterns = [
     path('admin/coupons/', AdminCouponListCreateView.as_view(), name='admin_coupon_list'),
     path('admin/coupons/<uuid:pk>/', AdminCouponDetailView.as_view(), name='admin_coupon_detail'),
     path('admin/coupons/<uuid:pk>/stats/', AdminCouponStatsView.as_view(), name='admin_coupon_stats'),
+    
+    # Delivery options
+    path('delivery-options/', PublicDeliveryOptionsView.as_view(), name='public_delivery_options'),
+    path('admin/delivery-options/', AdminDeliveryOptionListCreateView.as_view(), name='admin_delivery_options'),
+    path('admin/delivery-options/<uuid:pk>/', AdminDeliveryOptionDetailView.as_view(), name='admin_delivery_option_detail'),
 ]

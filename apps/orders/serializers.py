@@ -3,8 +3,17 @@ Serializers for orders app.
 """
 from rest_framework import serializers
 from django.conf import settings
-from .models import Order, OrderItem, OrderStatusHistory, Cart, CartItem, Coupon, CouponUsage
+from .models import Order, OrderItem, OrderStatusHistory, Cart, CartItem, Coupon, CouponUsage, DeliveryOption
 from apps.products.serializers import ProductListSerializer
+
+
+class DeliveryOptionSerializer(serializers.ModelSerializer):
+    """Serializer for delivery options."""
+
+    class Meta:
+        model = DeliveryOption
+        fields = ['id', 'name', 'charge', 'is_active', 'display_order', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
 
 
 class CouponSerializer(serializers.ModelSerializer):

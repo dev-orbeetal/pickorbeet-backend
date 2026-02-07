@@ -10,13 +10,13 @@ from django.db import transaction
 from django.utils import timezone
 from django.db.models import Q
 from decimal import Decimal
-from .models import Order, OrderItem, OrderStatusHistory, Cart, CartItem, Coupon, CouponUsage
+from .models import Order, OrderItem, OrderStatusHistory, Cart, CartItem, Coupon, CouponUsage, DeliveryOption
 from .serializers import (
     CartSerializer, CartItemSerializer, AddToCartSerializer, UpdateCartItemSerializer,
     OrderListSerializer, OrderDetailSerializer, CheckoutSerializer,
     InShopOrderSerializer, OrderStatusUpdateSerializer, TrackOrderSerializer,
     OrderStatusHistorySerializer, CouponSerializer, CouponCreateSerializer,
-    ValidateCouponSerializer, ApplyCouponSerializer
+    ValidateCouponSerializer, ApplyCouponSerializer, DeliveryOptionSerializer
 )
 from apps.products.models import Product, ProductVariant
 from apps.accounts.permissions import IsStaffUser, IsSeller, IsSuperAdmin
@@ -702,3 +702,27 @@ class AdminCouponStatsView(APIView):
                 for u in usages.order_by('-used_at')[:10]
             ]
         })
+
+
+# Delivery Option Views
+class PublicDeliveryOptionsView(generics.ListAPIView):
+    """Public: List active delivery options for checkout."""
+    serializer_class = DeliveryOptionSerializer
+    permission_classes = [AllowAny]
+
+    def get_queryset(self):
+        return DeliveryOption.objects.filter(is_active=True)
+
+
+class AdminDeliveryOptionListCreateView(generics.ListCreateAPIView):
+    """Admin: List and create delivery options."""
+    serializer_class = DeliveryOptionSerializer
+    permission_classes = [IsAuthenticated, IsStaffUser]
+    queryset = DeliveryOption.objects.all()
+
+
+class AdminDeliveryOptionDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """Admin: Get, update, or delete a delivery option."""
+    serializer_class = DeliveryOptionSerializer
+    permission_classes = [IsAuthenticated, IsStaffUser]
+    queryset = DeliveryOption.objects.all()
