@@ -135,12 +135,23 @@ class UpdateCartItemSerializer(serializers.Serializer):
 
 class OrderItemSerializer(serializers.ModelSerializer):
     """Serializer for order items."""
+    product_image = serializers.SerializerMethodField()
 
     class Meta:
         model = OrderItem
         fields = ['id', 'product', 'variant', 'product_name', 'product_sku',
-                  'size', 'color', 'quantity', 'unit_price', 'total_price']
+                  'product_image', 'size', 'color', 'quantity', 'unit_price', 'total_price']
         read_only_fields = ['id', 'total_price']
+
+    def get_product_image(self, obj):
+        if obj.product:
+            img = obj.product.primary_image
+            if img:
+                request = self.context.get('request')
+                if request and not img.startswith('http'):
+                    return request.build_absolute_uri(img)
+                return img
+        return None
 
 
 class OrderStatusHistorySerializer(serializers.ModelSerializer):
