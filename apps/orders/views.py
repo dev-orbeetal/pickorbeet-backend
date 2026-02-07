@@ -412,30 +412,29 @@ class UpdateOrderStatusView(APIView):
         new_status = serializer.validated_data['status']
         note = serializer.validated_data.get('note', '')
         
+        # Statuses where stock should be deducted
+        STOCK_DEDUCTED_STATUSES = {'confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered'}
+        
         with transaction.atomic():
             order.order_status = new_status
             
             # Update timestamps
             if new_status == 'confirmed':
                 order.confirmed_at = timezone.now()
-                self._reduce_stock(order)
             elif new_status == 'shipped':
                 order.shipped_at = timezone.now()
-                # Safety: ensure stock is reduced if somehow skipped confirmation
-                if not order.stock_reduced:
-                    self._reduce_stock(order)
             elif new_status == 'delivered':
                 order.delivered_at = timezone.now()
                 order.payment_status = 'paid'
-                if not order.stock_reduced:
-                    self._reduce_stock(order)
-            elif new_status in ('cancelled', 'refunded'):
+            elif new_status == 'refunded':
+                order.payment_status = 'refunded'
+            
+            # Stock management: reduce when entering confirmed+ statuses, restore when going back
+            if new_status in STOCK_DEDUCTED_STATUSES:
+                self._reduce_stock(order)
+            else:
+                # pending, cancelled, refunded → restore stock if it was reduced
                 self._restore_stock(order)
-                if new_status == 'refunded':
-                    order.payment_status = 'refunded'
-            elif new_status == 'pending':
-                # Reopening a cancelled/refunded order — stock stays restored
-                pass
             
             order.save()
             
