@@ -19,6 +19,7 @@ from .serializers import (
     ValidateCouponSerializer, ApplyCouponSerializer, DeliveryOptionSerializer
 )
 from apps.products.models import Product, ProductVariant
+from apps.reports.models import StockMovement
 from apps.accounts.permissions import IsStaffUser, IsSeller, IsSuperAdmin
 
 
@@ -394,11 +395,27 @@ class UpdateOrderStatusView(APIView):
         for item in order.items.select_related('product', 'variant').all():
             variant = self._find_variant(item)
             if variant:
+                prev = variant.stock_quantity
                 variant.stock_quantity = max(0, variant.stock_quantity - item.quantity)
                 variant.save(update_fields=['stock_quantity'])
+                StockMovement.objects.create(
+                    product=item.product, variant=variant,
+                    movement_type='out', quantity=-item.quantity,
+                    previous_stock=prev, new_stock=variant.stock_quantity,
+                    reason='sale', reference_order=order,
+                    note=f'Order #{order.order_number}',
+                )
             else:
+                prev = item.product.stock_quantity
                 item.product.stock_quantity = max(0, item.product.stock_quantity - item.quantity)
                 item.product.save(update_fields=['stock_quantity'])
+                StockMovement.objects.create(
+                    product=item.product, variant=None,
+                    movement_type='out', quantity=-item.quantity,
+                    previous_stock=prev, new_stock=item.product.stock_quantity,
+                    reason='sale', reference_order=order,
+                    note=f'Order #{order.order_number}',
+                )
         order.stock_reduced = True
 
     def _restore_stock(self, order):
@@ -408,11 +425,27 @@ class UpdateOrderStatusView(APIView):
         for item in order.items.select_related('product', 'variant').all():
             variant = self._find_variant(item)
             if variant:
+                prev = variant.stock_quantity
                 variant.stock_quantity += item.quantity
                 variant.save(update_fields=['stock_quantity'])
+                StockMovement.objects.create(
+                    product=item.product, variant=variant,
+                    movement_type='return', quantity=item.quantity,
+                    previous_stock=prev, new_stock=variant.stock_quantity,
+                    reason='return', reference_order=order,
+                    note=f'Order #{order.order_number} cancelled/refunded',
+                )
             else:
+                prev = item.product.stock_quantity
                 item.product.stock_quantity += item.quantity
                 item.product.save(update_fields=['stock_quantity'])
+                StockMovement.objects.create(
+                    product=item.product, variant=None,
+                    movement_type='return', quantity=item.quantity,
+                    previous_stock=prev, new_stock=item.product.stock_quantity,
+                    reason='return', reference_order=order,
+                    note=f'Order #{order.order_number} cancelled/refunded',
+                )
         order.stock_reduced = False
 
     def post(self, request, pk):
@@ -539,11 +572,29 @@ class InShopOrderView(APIView):
                 
                 # Update stock
                 if item['variant']:
+                    prev = item['variant'].stock_quantity
                     item['variant'].stock_quantity = max(0, item['variant'].stock_quantity - item['quantity'])
                     item['variant'].save(update_fields=['stock_quantity'])
+                    StockMovement.objects.create(
+                        product=item['product'], variant=item['variant'],
+                        movement_type='out', quantity=-item['quantity'],
+                        previous_stock=prev, new_stock=item['variant'].stock_quantity,
+                        reason='sale', reference_order=order,
+                        note=f'In-shop order #{order.order_number}',
+                        created_by=request.user,
+                    )
                 else:
+                    prev = item['product'].stock_quantity
                     item['product'].stock_quantity = max(0, item['product'].stock_quantity - item['quantity'])
                     item['product'].save(update_fields=['stock_quantity'])
+                    StockMovement.objects.create(
+                        product=item['product'], variant=None,
+                        movement_type='out', quantity=-item['quantity'],
+                        previous_stock=prev, new_stock=item['product'].stock_quantity,
+                        reason='sale', reference_order=order,
+                        note=f'In-shop order #{order.order_number}',
+                        created_by=request.user,
+                    )
             
             # Create status history
             OrderStatusHistory.objects.create(
