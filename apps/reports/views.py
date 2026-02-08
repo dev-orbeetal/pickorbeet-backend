@@ -31,21 +31,38 @@ class InventoryAnalyticsView(APIView):
         
         products = Product.objects.filter(is_active=True)
         
-        # Stock Summary
+        # Stock Summary (variant-aware)
         total_products = products.count()
-        in_stock = products.filter(stock_quantity__gt=F('low_stock_threshold')).count()
-        low_stock = products.filter(
-            stock_quantity__gt=0,
-            stock_quantity__lte=F('low_stock_threshold')
-        ).count()
-        out_of_stock = products.filter(stock_quantity=0).count()
+        all_products = list(products.select_related('category').prefetch_related('variants'))
+        in_stock = 0
+        low_stock = 0
+        out_of_stock = 0
+        stock_value = 0
+        total_units = 0
         
-        # Stock Value
-        stock_value = products.aggregate(
-            total=Sum(F('stock_quantity') * F('price'))
-        )['total'] or 0
-        
-        total_units = products.aggregate(total=Sum('stock_quantity'))['total'] or 0
+        for p in all_products:
+            active_variants = [v for v in p.variants.all() if v.is_active]
+            if active_variants:
+                is_out = all(v.stock_quantity == 0 for v in active_variants)
+                is_low = any(v.stock_quantity <= v.low_stock_threshold for v in active_variants)
+                variant_stock = sum(v.stock_quantity for v in active_variants)
+                total_units += variant_stock
+                stock_value += variant_stock * float(p.price)
+                if is_out:
+                    out_of_stock += 1
+                elif is_low:
+                    low_stock += 1
+                else:
+                    in_stock += 1
+            else:
+                total_units += p.stock_quantity
+                stock_value += p.stock_quantity * float(p.price)
+                if p.stock_quantity == 0:
+                    out_of_stock += 1
+                elif p.stock_quantity <= p.low_stock_threshold:
+                    low_stock += 1
+                else:
+                    in_stock += 1
         
         # Sales Statistics (Last 30 days)
         orders_30_days = Order.objects.filter(
@@ -95,16 +112,32 @@ class InventoryAnalyticsView(APIView):
             items=Sum('items__quantity')
         ).order_by('week')
         
-        # Category Stock Distribution
-        category_stock = products.values(
-            'category__id', 'category__name'
-        ).annotate(
-            product_count=Count('id'),
-            total_stock=Sum('stock_quantity'),
-            stock_value=Sum(F('stock_quantity') * F('price')),
-            out_of_stock_count=Count('id', filter=Q(stock_quantity=0)),
-            low_stock_count=Count('id', filter=Q(stock_quantity__gt=0, stock_quantity__lte=F('low_stock_threshold')))
-        ).order_by('-total_stock')
+        # Category Stock Distribution (variant-aware)
+        from collections import defaultdict
+        cat_data = defaultdict(lambda: {'product_count': 0, 'total_stock': 0, 'stock_value': 0, 'out_of_stock_count': 0, 'low_stock_count': 0})
+        for p in all_products:
+            cat_id = str(p.category_id)
+            cat_name = p.category.name if p.category else 'Uncategorized'
+            cat_data[(cat_id, cat_name)]['product_count'] += 1
+            active_variants = [v for v in p.variants.all() if v.is_active]
+            if active_variants:
+                p_stock = sum(v.stock_quantity for v in active_variants)
+                p_out = all(v.stock_quantity == 0 for v in active_variants)
+                p_low = any(v.stock_quantity <= v.low_stock_threshold for v in active_variants) and not p_out
+            else:
+                p_stock = p.stock_quantity
+                p_out = p.stock_quantity == 0
+                p_low = p.stock_quantity > 0 and p.stock_quantity <= p.low_stock_threshold
+            cat_data[(cat_id, cat_name)]['total_stock'] += p_stock
+            cat_data[(cat_id, cat_name)]['stock_value'] += p_stock * float(p.price)
+            if p_out:
+                cat_data[(cat_id, cat_name)]['out_of_stock_count'] += 1
+            elif p_low:
+                cat_data[(cat_id, cat_name)]['low_stock_count'] += 1
+        category_stock = [
+            {'category__id': k[0], 'category__name': k[1], **v}
+            for k, v in sorted(cat_data.items(), key=lambda x: -x[1]['total_stock'])
+        ]
         
         # Top Selling Products (Last 30 days)
         top_selling = OrderItem.objects.filter(
@@ -129,12 +162,25 @@ class InventoryAnalyticsView(APIView):
             'id', 'name', 'sku', 'stock_quantity', 'price'
         ).order_by('-stock_quantity')[:10]
         
-        # Low Stock Products
-        low_stock_products = products.filter(
-            stock_quantity__lte=F('low_stock_threshold')
-        ).values(
-            'id', 'name', 'sku', 'stock_quantity', 'low_stock_threshold', 'price', 'category__name'
-        ).order_by('stock_quantity')[:20]
+        # Low Stock Products (variant-aware)
+        low_stock_products_list = []
+        for p in all_products:
+            active_variants = [v for v in p.variants.all() if v.is_active]
+            if active_variants:
+                is_low = any(v.stock_quantity <= v.low_stock_threshold for v in active_variants)
+                p_stock = sum(v.stock_quantity for v in active_variants)
+            else:
+                is_low = p.stock_quantity <= p.low_stock_threshold
+                p_stock = p.stock_quantity
+            if is_low:
+                low_stock_products_list.append({
+                    'id': str(p.id), 'name': p.name, 'sku': p.sku,
+                    'stock_quantity': p_stock, 'threshold': p.low_stock_threshold,
+                    'category': p.category.name if p.category else '',
+                    'value': float(p_stock * p.price),
+                })
+        low_stock_products_list.sort(key=lambda x: x['stock_quantity'])
+        low_stock_products = low_stock_products_list[:20]
         
         # Stock Status Distribution for Chart
         stock_status_distribution = {
@@ -228,7 +274,7 @@ class InventoryAnalyticsView(APIView):
             ],
             'category_stock': [
                 {
-                    'category_id': str(c['category__id']) if c['category__id'] else None,
+                    'category_id': c['category__id'],
                     'category_name': c['category__name'] or 'Uncategorized',
                     'product_count': c['product_count'],
                     'total_stock': c['total_stock'] or 0,
@@ -259,18 +305,7 @@ class InventoryAnalyticsView(APIView):
                 }
                 for p in slow_moving
             ],
-            'low_stock_products': [
-                {
-                    'id': str(p['id']),
-                    'name': p['name'],
-                    'sku': p['sku'],
-                    'stock_quantity': p['stock_quantity'],
-                    'threshold': p['low_stock_threshold'],
-                    'category': p['category__name'],
-                    'value': float(p['stock_quantity'] * p['price']),
-                }
-                for p in low_stock_products
-            ],
+            'low_stock_products': low_stock_products,
             'recent_stock_movements': movements_data,
         })
 
