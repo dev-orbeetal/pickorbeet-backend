@@ -31,9 +31,4 @@ class Migration(migrations.Migration):
                 'ordering': ['-created_at'],
             },
         ),
-        migrations.AddField(
-            model_name='productvariant',
-            name='low_stock_threshold',
-            field=models.PositiveIntegerField(default=10),
-        ),
     ]
