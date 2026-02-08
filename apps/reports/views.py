@@ -472,56 +472,35 @@ class StockReportView(APIView):
     permission_classes = [IsAuthenticated, IsStaffUser]
 
     def get(self, request):
-        products = Product.objects.filter(is_active=True)
+        from collections import defaultdict
         
-        total_products = products.count()
-        in_stock = products.filter(stock_quantity__gt=F('low_stock_threshold')).count()
-        low_stock = products.filter(
-            stock_quantity__gt=0,
-            stock_quantity__lte=F('low_stock_threshold')
-        ).count()
-        out_of_stock = products.filter(stock_quantity=0).count()
+        products_qs = Product.objects.filter(
+            is_active=True
+        ).select_related('category').prefetch_related('variants').order_by('category__name', 'name')
         
-        # Calculate stock value
-        stock_value = products.aggregate(
-            total=Sum(F('stock_quantity') * F('price'))
-        )['total'] or 0
-        
-        total_units = products.aggregate(total=Sum('stock_quantity'))['total'] or 0
-        
-        # Variant stats
-        total_variants = ProductVariant.objects.filter(product__is_active=True).count()
-        variant_units = ProductVariant.objects.filter(
-            product__is_active=True
-        ).aggregate(total=Sum('stock_quantity'))['total'] or 0
-        
-        # Low stock products details
-        low_stock_products = products.filter(
-            stock_quantity__lte=F('low_stock_threshold')
-        ).values(
-            'id', 'name', 'sku', 'stock_quantity', 'low_stock_threshold'
-        ).order_by('stock_quantity')[:20]
-        
-        # Category-wise stock
-        category_stock = products.values(
-            'category__id', 'category__name'
-        ).annotate(
-            product_count=Count('id'),
-            total_stock=Sum('stock_quantity'),
-            stock_value=Sum(F('stock_quantity') * F('price'))
-        ).order_by('-total_stock')
-        
-        # Full product list with variants for detailed stock report
-        all_products_qs = products.select_related(
-            'category'
-        ).prefetch_related(
-            'variants'
-        ).order_by('category__name', 'name')
+        total_products = 0
+        in_stock = 0
+        low_stock = 0
+        out_of_stock = 0
+        stock_value = 0
+        total_units = 0
+        total_variants = 0
+        variant_units = 0
         
         all_products = []
-        for p in all_products_qs:
+        low_stock_products_list = []
+        cat_data = defaultdict(lambda: {'product_count': 0, 'total_stock': 0, 'stock_value': 0})
+        
+        for p in products_qs:
+            total_products += 1
+            active_variants = [v for v in p.variants.all() if v.is_active]
+            has_variants = len(active_variants) > 0
+            
+            # Build variant data
             variants_data = []
             for v in p.variants.all():
+                total_variants += 1
+                variant_units += v.stock_quantity
                 variants_data.append({
                     'id': str(v.id),
                     'sku': v.sku,
@@ -533,6 +512,46 @@ class StockReportView(APIView):
                     'stock_value': float((v.price or p.price) * v.stock_quantity),
                 })
             
+            # Effective stock: use variant sum for variant products, product stock otherwise
+            if has_variants:
+                effective_stock = sum(v.stock_quantity for v in active_variants)
+                effective_value = sum(
+                    float((v.price or p.price) * v.stock_quantity) for v in active_variants
+                )
+                is_out = all(v.stock_quantity == 0 for v in active_variants)
+                is_low = any(v.stock_quantity <= v.low_stock_threshold for v in active_variants)
+            else:
+                effective_stock = p.stock_quantity
+                effective_value = float(p.price * p.stock_quantity)
+                is_out = p.stock_quantity == 0
+                is_low = p.stock_quantity <= p.low_stock_threshold
+            
+            total_units += effective_stock
+            stock_value += effective_value
+            
+            if is_out:
+                out_of_stock += 1
+            elif is_low:
+                low_stock += 1
+            else:
+                in_stock += 1
+            
+            # Category aggregation
+            cat_key = (str(p.category_id), p.category.name if p.category else 'Uncategorized')
+            cat_data[cat_key]['product_count'] += 1
+            cat_data[cat_key]['total_stock'] += effective_stock
+            cat_data[cat_key]['stock_value'] += effective_value
+            
+            # Low stock list
+            if is_low or is_out:
+                low_stock_products_list.append({
+                    'id': str(p.id),
+                    'name': p.name,
+                    'sku': p.sku,
+                    'stock_quantity': effective_stock,
+                    'low_stock_threshold': p.low_stock_threshold,
+                })
+            
             all_products.append({
                 'id': str(p.id),
                 'name': p.name,
@@ -540,13 +559,15 @@ class StockReportView(APIView):
                 'barcode': p.barcode,
                 'category': p.category.name if p.category else 'Uncategorized',
                 'price': float(p.price),
-                'stock_quantity': p.stock_quantity,
+                'stock_quantity': effective_stock,
                 'low_stock_threshold': p.low_stock_threshold,
-                'stock_value': float(p.price * p.stock_quantity),
-                'has_variants': len(variants_data) > 0,
+                'stock_value': effective_value,
+                'has_variants': has_variants,
                 'variants': variants_data,
                 'total_variant_stock': sum(v['stock_quantity'] for v in variants_data),
             })
+        
+        low_stock_products_list.sort(key=lambda x: x['stock_quantity'])
         
         # Save stock report
         report, _ = StockReport.objects.update_or_create(
@@ -574,16 +595,16 @@ class StockReportView(APIView):
                 'total_variants': total_variants,
                 'total_variant_units': variant_units,
             },
-            'low_stock_products': list(low_stock_products),
+            'low_stock_products': low_stock_products_list[:20],
             'category_stock': [
                 {
-                    'category_id': str(c['category__id']),
-                    'category_name': c['category__name'],
-                    'product_count': c['product_count'],
-                    'total_stock': c['total_stock'],
-                    'stock_value': float(c['stock_value'] or 0),
+                    'category_id': k[0],
+                    'category_name': k[1],
+                    'product_count': v['product_count'],
+                    'total_stock': v['total_stock'],
+                    'stock_value': float(v['stock_value']),
                 }
-                for c in category_stock
+                for k, v in sorted(cat_data.items(), key=lambda x: -x[1]['total_stock'])
             ],
             'all_products': all_products,
         })
