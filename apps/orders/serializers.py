@@ -254,8 +254,8 @@ class InShopOrderItemSerializer(serializers.Serializer):
 class InShopOrderSerializer(serializers.Serializer):
     """Serializer for creating in-shop orders (POS)."""
     customer_name = serializers.CharField(max_length=200, required=False)
-    customer_phone = serializers.CharField(max_length=20, required=False)
-    customer_email = serializers.EmailField(required=False)
+    customer_phone = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    customer_email = serializers.EmailField(required=False, allow_blank=True)
     items = InShopOrderItemSerializer(many=True)
     discount = serializers.DecimalField(max_digits=10, decimal_places=2, default=0)
     payment_method = serializers.ChoiceField(choices=['cash', 'card', 'mobile_banking'])
