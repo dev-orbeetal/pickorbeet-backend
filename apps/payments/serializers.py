@@ -3,6 +3,7 @@ Serializers for payments app.
 """
 from rest_framework import serializers
 from .models import Payment, Refund
+from apps.orders.models import Order
 
 
 class PaymentSerializer(serializers.ModelSerializer):
@@ -15,6 +16,45 @@ class PaymentSerializer(serializers.ModelSerializer):
                   'amount', 'currency', 'transaction_id', 'bank_transaction_id',
                   'card_type', 'card_brand', 'created_at', 'completed_at']
         read_only_fields = ['id', 'created_at', 'completed_at']
+
+
+class OrderPaymentSerializer(serializers.ModelSerializer):
+    """Serializer that presents Order data as payment records."""
+    transaction_id = serializers.SerializerMethodField()
+    payment_method = serializers.SerializerMethodField()
+    amount = serializers.DecimalField(source='total', max_digits=10, decimal_places=2)
+    status = serializers.SerializerMethodField()
+    order = serializers.SerializerMethodField()
+    gateway_response = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Order
+        fields = ['id', 'transaction_id', 'order', 'payment_method', 'amount',
+                  'status', 'created_at', 'gateway_response']
+
+    def get_transaction_id(self, obj):
+        return obj.transaction_id or f"ORD-{obj.order_number}"
+
+    def get_payment_method(self, obj):
+        if obj.payment_method:
+            return obj.payment_method
+        return 'cash' if obj.order_type == 'in_shop' else 'cod'
+
+    def get_status(self, obj):
+        return obj.payment_status
+
+    def get_order(self, obj):
+        return {
+            'id': str(obj.id),
+            'order_number': obj.order_number,
+        }
+
+    def get_gateway_response(self, obj):
+        # Check if there's a linked Payment record with gateway data
+        payment = obj.payments.first() if hasattr(obj, 'payments') else None
+        if payment and payment.gateway_response:
+            return payment.gateway_response
+        return None
 
 
 class InitiatePaymentSerializer(serializers.Serializer):

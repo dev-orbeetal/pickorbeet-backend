@@ -13,8 +13,9 @@ from django.utils.decorators import method_decorator
 import uuid
 from .models import Payment, Refund
 from .serializers import (
-    PaymentSerializer, InitiatePaymentSerializer, PaymentCallbackSerializer,
-    RefundSerializer, CreateRefundSerializer, ProcessRefundSerializer
+    PaymentSerializer, OrderPaymentSerializer, InitiatePaymentSerializer,
+    PaymentCallbackSerializer, RefundSerializer, CreateRefundSerializer,
+    ProcessRefundSerializer
 )
 from apps.orders.models import Order
 from apps.accounts.permissions import IsStaffUser, IsAccountant
@@ -253,12 +254,14 @@ class PaymentCancelView(APIView):
 
 
 class PaymentListView(generics.ListAPIView):
-    """Admin: List all payments."""
-    serializer_class = PaymentSerializer
-    permission_classes = [IsAuthenticated, IsAccountant]
+    """Admin: List all orders as payment records."""
+    serializer_class = OrderPaymentSerializer
+    permission_classes = [IsAuthenticated, IsStaffUser]
 
     def get_queryset(self):
-        return Payment.objects.all().select_related('order')
+        return Order.objects.exclude(
+            order_status='cancelled'
+        ).prefetch_related('payments').order_by('-created_at')
 
 
 class PaymentDetailView(generics.RetrieveAPIView):
