@@ -156,10 +156,14 @@ class CustomerListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated, IsStaffUser]
 
     def get_queryset(self):
-        from django.db.models import Count, Sum
-        return User.objects.filter(role='customer').annotate(
+        from django.db.models import Count, Sum, Q
+        return User.objects.filter(
+            role='customer'
+        ).annotate(
             order_count=Count('orders'),
             total_spent=Sum('orders__total_amount')
+        ).filter(
+            order_count__gt=0
         )
 
 
