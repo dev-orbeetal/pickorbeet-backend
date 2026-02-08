@@ -2,7 +2,7 @@
 Serializers for products app.
 """
 from rest_framework import serializers
-from .models import Category, SubCategory, Product, ProductImage, ProductVariant
+from .models import Category, SubCategory, Product, ProductImage, ProductVariant, ContactMessage
 
 
 class ProductImageSerializer(serializers.ModelSerializer):
@@ -133,3 +133,21 @@ class ProductStockUpdateSerializer(serializers.Serializer):
         if value < 0:
             raise serializers.ValidationError("Quantity cannot be negative.")
         return value
+
+
+class ContactMessageSubmitSerializer(serializers.ModelSerializer):
+    """Serializer for public contact form submission."""
+
+    class Meta:
+        model = ContactMessage
+        fields = ['name', 'email', 'phone', 'subject', 'message']
+
+
+class ContactMessageSerializer(serializers.ModelSerializer):
+    """Serializer for admin contact message management."""
+
+    class Meta:
+        model = ContactMessage
+        fields = ['id', 'name', 'email', 'phone', 'subject', 'message',
+                  'status', 'admin_notes', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'name', 'email', 'phone', 'subject', 'message', 'created_at', 'updated_at']

@@ -329,3 +329,34 @@ class StoreSettings(models.Model):
             return settings.barcode_prefix if settings else 'ZZ'
         except Exception:
             return 'ZZ'
+
+
+class ContactMessage(models.Model):
+    """Customer contact form submissions."""
+
+    STATUS_CHOICES = [
+        ('new', 'New'),
+        ('read', 'Read'),
+        ('replied', 'Replied'),
+        ('archived', 'Archived'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=200)
+    email = models.EmailField()
+    phone = models.CharField(max_length=20, blank=True, default='')
+    subject = models.CharField(max_length=300)
+    message = models.TextField()
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='new')
+    admin_notes = models.TextField(blank=True, default='')
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Contact Message'
+        verbose_name_plural = 'Contact Messages'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.name} - {self.subject}"

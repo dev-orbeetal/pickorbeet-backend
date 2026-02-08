@@ -12,7 +12,8 @@ from .views import (
     BarcodeSearchView, ProductStockUpdateView, LowStockProductsView,
     ProductVariantListCreateView, ProductVariantDetailView,
     VariantStockUpdateView, InventoryItemsView,
-    StoreSettingsView, PublicStoreSettingsView
+    StoreSettingsView, PublicStoreSettingsView,
+    PublicContactSubmitView, AdminContactMessageListView, AdminContactMessageDetailView
 )
 
 urlpatterns = [
@@ -43,4 +44,9 @@ urlpatterns = [
     path('admin/variants/<uuid:variant_id>/stock/', VariantStockUpdateView.as_view(), name='variant_stock_update'),
     path('admin/inventory/', InventoryItemsView.as_view(), name='inventory_items'),
     path('admin/settings/', StoreSettingsView.as_view(), name='store_settings'),
+    
+    # Contact messages
+    path('contact/', PublicContactSubmitView.as_view(), name='contact_submit'),
+    path('admin/contact/', AdminContactMessageListView.as_view(), name='admin_contact_list'),
+    path('admin/contact/<uuid:pk>/', AdminContactMessageDetailView.as_view(), name='admin_contact_detail'),
 ]

@@ -8,12 +8,12 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import models
 from django.db.models import Q
-from .models import Category, SubCategory, Product, ProductImage, ProductVariant
+from .models import Category, SubCategory, Product, ProductImage, ProductVariant, ContactMessage
 from .serializers import (
     CategorySerializer, CategoryListSerializer, SubCategorySerializer,
     ProductListSerializer, ProductDetailSerializer, ProductCreateUpdateSerializer,
     ProductImageSerializer, ProductVariantSerializer, BarcodeProductSerializer,
-    ProductStockUpdateSerializer
+    ProductStockUpdateSerializer, ContactMessageSubmitSerializer, ContactMessageSerializer
 )
 from apps.accounts.permissions import IsStaffUser, IsSeller
 from apps.reports.models import StockMovement
@@ -620,3 +620,56 @@ class StoreSettingsView(APIView):
         data = {field: getattr(settings, field) for field in self.SETTINGS_FIELDS}
         data['message'] = 'Settings updated successfully'
         return Response(data)
+
+
+class PublicContactSubmitView(APIView):
+    """Public endpoint for customers to submit contact messages."""
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = ContactMessageSubmitSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(
+            {'message': 'Your message has been sent successfully. We will get back to you soon.'},
+            status=status.HTTP_201_CREATED
+        )
+
+
+class AdminContactMessageListView(generics.ListAPIView):
+    """Admin endpoint to list all contact messages."""
+    serializer_class = ContactMessageSerializer
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def get_queryset(self):
+        qs = ContactMessage.objects.all()
+        # Filter by status
+        msg_status = self.request.query_params.get('status')
+        if msg_status:
+            qs = qs.filter(status=msg_status)
+        # Search
+        search = self.request.query_params.get('search')
+        if search:
+            qs = qs.filter(
+                Q(name__icontains=search) |
+                Q(email__icontains=search) |
+                Q(subject__icontains=search) |
+                Q(message__icontains=search)
+            )
+        return qs
+
+
+class AdminContactMessageDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """Admin endpoint to view, update status/notes, or delete a contact message."""
+    serializer_class = ContactMessageSerializer
+    permission_classes = [IsAuthenticated, IsStaffUser]
+    queryset = ContactMessage.objects.all()
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        # Auto-mark as read when viewed
+        if instance.status == 'new':
+            instance.status = 'read'
+            instance.save(update_fields=['status', 'updated_at'])
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
