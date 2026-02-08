@@ -157,14 +157,24 @@ class CustomerListView(generics.ListAPIView):
 
     def get_queryset(self):
         from django.db.models import Count, Sum, Q
-        return User.objects.filter(
+        queryset = User.objects.filter(
             role='customer'
         ).annotate(
             order_count=Count('orders'),
-            total_spent=Sum('orders__total_amount')
+            total_spent=Sum('orders__total')
         ).filter(
             order_count__gt=0
-        )
+        ).order_by('-date_joined')
+        
+        search = self.request.query_params.get('search', '')
+        if search:
+            queryset = queryset.filter(
+                Q(first_name__icontains=search) |
+                Q(last_name__icontains=search) |
+                Q(email__icontains=search) |
+                Q(phone__icontains=search)
+            )
+        return queryset
 
 
 class GoogleAuthView(APIView):
