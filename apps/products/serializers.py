@@ -114,6 +114,14 @@ class ProductCreateUpdateSerializer(serializers.ModelSerializer):
                   'cost_price', 'size', 'color', 'material', 'stock_quantity',
                   'low_stock_threshold', 'is_active', 'is_featured']
 
+    def validate_sku(self, value):
+        """Convert empty string to None to avoid unique constraint violation."""
+        return value.strip() if value and value.strip() else None
+
+    def validate_barcode(self, value):
+        """Convert empty string to None to avoid unique constraint violation."""
+        return value.strip() if value and value.strip() else None
+
 
 class BarcodeProductSerializer(serializers.ModelSerializer):
     """Serializer for barcode scan response."""

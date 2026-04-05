@@ -182,6 +182,15 @@ class AdminProductListCreateView(generics.ListCreateAPIView):
             'category', 'subcategory'
         ).prefetch_related('variants')
 
+    def create(self, request, *args, **kwargs):
+        try:
+            return super().create(request, *args, **kwargs)
+        except Exception as e:
+            return Response(
+                {'detail': f'Failed to create product: {str(e)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
 
 class AdminProductDetailView(generics.RetrieveUpdateDestroyAPIView):
     """Admin: Retrieve, update, delete product."""

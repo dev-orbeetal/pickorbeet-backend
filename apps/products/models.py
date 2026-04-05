@@ -151,11 +151,17 @@ class Product(models.Model):
         
         # Generate barcode if not exists (auto-generate unique barcode with prefix)
         if not self.barcode:
+            import random as _random
             from apps.products.models import StoreSettings
             prefix = StoreSettings.get_barcode_prefix()
             timestamp = str(int(__import__('time').time()))[-10:]
-            random_suffix = str(__import__('random').randint(10, 99))
-            self.barcode = f"{prefix}-{timestamp}{random_suffix}"
+            random_suffix = str(_random.randint(1000, 9999))
+            candidate = f"{prefix}-{timestamp}{random_suffix}"
+            # Ensure barcode uniqueness
+            while Product.objects.filter(barcode=candidate).exclude(pk=self.pk).exists():
+                random_suffix = str(_random.randint(1000, 9999))
+                candidate = f"{prefix}-{timestamp}{random_suffix}"
+            self.barcode = candidate
         
         # Generate barcode image
         if self.barcode and not self.barcode_image:
