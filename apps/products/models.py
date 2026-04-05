@@ -140,9 +140,14 @@ class Product(models.Model):
             if self.sku:
                 self.slug = slugify(f"{self.name}-{self.sku}")
             else:
-                # Use part of UUID for uniqueness if no SKU
                 unique_suffix = str(self.id)[:8] if self.id else str(uuid.uuid4())[:8]
                 self.slug = f"{base_slug}-{unique_suffix}"
+            # Ensure slug uniqueness
+            original_slug = self.slug
+            counter = 1
+            while Product.objects.filter(slug=self.slug).exclude(pk=self.pk).exists():
+                self.slug = f"{original_slug}-{counter}"
+                counter += 1
         
         # Generate barcode if not exists (auto-generate unique barcode with prefix)
         if not self.barcode:

@@ -193,6 +193,20 @@ class AdminProductDetailView(generics.RetrieveUpdateDestroyAPIView):
             return ProductCreateUpdateSerializer
         return ProductDetailSerializer
 
+    def destroy(self, request, *args, **kwargs):
+        product = self.get_object()
+        try:
+            product.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except models.ProtectedError:
+            # Product has orders — soft-delete by deactivating
+            product.is_active = False
+            product.save(update_fields=['is_active'])
+            return Response(
+                {'detail': 'Product has existing orders and cannot be permanently deleted. It has been deactivated instead.'},
+                status=status.HTTP_200_OK
+            )
+
 
 class ProductImageUploadView(generics.CreateAPIView):
     """Admin: Upload product images."""
