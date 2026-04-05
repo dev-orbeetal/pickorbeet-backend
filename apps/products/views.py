@@ -204,17 +204,14 @@ class AdminProductDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def destroy(self, request, *args, **kwargs):
         product = self.get_object()
-        try:
-            product.delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        except models.ProtectedError:
-            # Product has orders — soft-delete by deactivating
-            product.is_active = False
-            product.save(update_fields=['is_active'])
-            return Response(
-                {'detail': 'Product has existing orders and cannot be permanently deleted. It has been deactivated instead.'},
-                status=status.HTTP_200_OK
-            )
+        # Delete product images from storage
+        for img in product.images.all():
+            if img.image:
+                img.image.delete(save=False)
+        if product.barcode_image:
+            product.barcode_image.delete(save=False)
+        product.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class ProductImageUploadView(generics.CreateAPIView):

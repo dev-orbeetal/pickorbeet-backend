@@ -366,7 +366,7 @@ class OrderItem(models.Model):
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='items')
-    product = models.ForeignKey('products.Product', on_delete=models.PROTECT, related_name='order_items')
+    product = models.ForeignKey('products.Product', on_delete=models.SET_NULL, null=True, blank=True, related_name='order_items')
     variant = models.ForeignKey(
         'products.ProductVariant', 
         on_delete=models.SET_NULL, 
