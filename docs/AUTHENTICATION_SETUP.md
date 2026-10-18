@@ -1,6 +1,6 @@
 # Authentication Credentials Setup Guide
 
-This guide provides step-by-step instructions for setting up external authentication services for the Zzuhana e-commerce platform.
+This guide provides step-by-step instructions for setting up external authentication services for the Pickorbeet e-commerce platform.
 
 ---
 
@@ -22,7 +22,7 @@ Google OAuth allows users to sign in/sign up using their Google account.
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Click **Select a Project** → **New Project**
-3. Enter project name (e.g., "Zzuhana E-commerce")
+3. Enter project name (e.g., "Pickorbeet E-commerce")
 4. Click **Create**
 
 ### Step 2: Enable Required APIs
@@ -37,7 +37,7 @@ Google OAuth allows users to sign in/sign up using their Google account.
 1. Go to **APIs & Services** → **OAuth consent screen**
 2. Select **External** (for public users) or **Internal** (for organization only)
 3. Fill in the required fields:
-   - **App name**: Zzuhana
+   - **App name**: Pickorbeet
    - **User support email**: your-email@example.com
    - **App logo**: Upload your logo (optional)
    - **App domain**: Your production domain
@@ -57,7 +57,7 @@ Google OAuth allows users to sign in/sign up using their Google account.
 2. Click **Create Credentials** → **OAuth client ID**
 3. Select **Web application**
 4. Configure:
-   - **Name**: Zzuhana Web Client
+   - **Name**: Pickorbeet Web Client
    - **Authorized JavaScript origins**:
      ```
      http://localhost:3000
@@ -99,7 +99,7 @@ SMTP is required for sending verification emails, password resets, and order not
 #### Step 2: Create App Password
 1. Go to [App Passwords](https://myaccount.google.com/apppasswords)
 2. Select **Mail** and **Other (Custom name)**
-3. Enter "Zzuhana" and click **Generate**
+3. Enter "Pickorbeet" and click **Generate**
 4. Copy the 16-character password
 
 #### Step 3: Add to Environment
@@ -110,7 +110,7 @@ EMAIL_PORT=587
 EMAIL_USE_TLS=True
 EMAIL_HOST_USER=your-email@gmail.com
 EMAIL_HOST_PASSWORD=your-16-char-app-password
-DEFAULT_FROM_EMAIL=Zzuhana <your-email@gmail.com>
+DEFAULT_FROM_EMAIL=Pickorbeet <your-email@gmail.com>
 ```
 
 ### Option B: SendGrid (Recommended for Production)
@@ -122,7 +122,7 @@ DEFAULT_FROM_EMAIL=Zzuhana <your-email@gmail.com>
 #### Step 2: Create API Key
 1. Go to **Settings** → **API Keys**
 2. Click **Create API Key**
-3. Name: "Zzuhana Production"
+3. Name: "Pickorbeet Production"
 4. Select **Full Access** or **Restricted Access** with Mail Send permission
 5. Copy the API key
 
@@ -140,7 +140,7 @@ EMAIL_PORT=587
 EMAIL_USE_TLS=True
 EMAIL_HOST_USER=apikey
 EMAIL_HOST_PASSWORD=your-sendgrid-api-key
-DEFAULT_FROM_EMAIL=Zzuhana <noreply@yourdomain.com>
+DEFAULT_FROM_EMAIL=Pickorbeet <noreply@yourdomain.com>
 ```
 
 ### Option C: Amazon SES (Enterprise Scale)
@@ -168,7 +168,7 @@ EMAIL_PORT=587
 EMAIL_USE_TLS=True
 EMAIL_HOST_USER=your-ses-smtp-username
 EMAIL_HOST_PASSWORD=your-ses-smtp-password
-DEFAULT_FROM_EMAIL=Zzuhana <noreply@yourdomain.com>
+DEFAULT_FROM_EMAIL=Pickorbeet <noreply@yourdomain.com>
 ```
 
 ---
@@ -186,7 +186,7 @@ NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
 
 # Site Configuration
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
-NEXT_PUBLIC_SITE_NAME=Zzuhana
+NEXT_PUBLIC_SITE_NAME=Pickorbeet
 ```
 
 ### Server Environment Variables (`.env`)
@@ -198,7 +198,7 @@ SECRET_KEY=your-super-secret-key-here
 ALLOWED_HOSTS=localhost,127.0.0.1
 
 # Database
-DATABASE_URL=postgres://user:password@localhost:5432/zzuhana
+DATABASE_URL=postgres://user:password@localhost:5432/pickorbeet
 
 # CORS
 CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001
@@ -214,7 +214,7 @@ EMAIL_PORT=587
 EMAIL_USE_TLS=True
 EMAIL_HOST_USER=your-email@gmail.com
 EMAIL_HOST_PASSWORD=your-app-password
-DEFAULT_FROM_EMAIL=Zzuhana <your-email@gmail.com>
+DEFAULT_FROM_EMAIL=Pickorbeet <your-email@gmail.com>
 
 # JWT Settings
 ACCESS_TOKEN_LIFETIME=60  # minutes
@@ -372,7 +372,7 @@ python manage.py shell
 from django.core.mail import send_mail
 send_mail(
     'Test Email',
-    'This is a test email from Zzuhana.',
+    'This is a test email from Pickorbeet.',
     'noreply@yourdomain.com',
     ['your-email@example.com'],
     fail_silently=False,

@@ -3,7 +3,7 @@ Admin configuration for products app.
 """
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import Category, SubCategory, Product, ProductImage, ProductVariant, StoreSettings
+from .models import Category, SubCategory, Product, ProductImage, ProductVariant, StoreSettings, HomepageBanner
 
 
 class SubCategoryInline(admin.TabularInline):
@@ -115,6 +115,20 @@ class ProductVariantAdmin(admin.ModelAdmin):
     list_display = ['product', 'sku', 'size', 'color', 'price', 'stock_quantity', 'is_active']
     list_filter = ['is_active', 'size', 'color']
     search_fields = ['product__name', 'sku', 'barcode']
+
+
+@admin.register(HomepageBanner)
+class HomepageBannerAdmin(admin.ModelAdmin):
+    list_display = ['placement', 'display_order', 'is_active', 'link', 'image_preview']
+    list_filter = ['placement', 'is_active']
+    list_editable = ['display_order', 'is_active']
+    ordering = ['placement', 'display_order']
+
+    def image_preview(self, obj):
+        if obj.image:
+            return format_html('<img src="{}" width="80" height="40" style="object-fit:cover" />', obj.image.url)
+        return '-'
+    image_preview.short_description = 'Preview'
 
 
 @admin.register(StoreSettings)

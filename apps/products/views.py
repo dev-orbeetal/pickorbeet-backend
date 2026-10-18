@@ -7,13 +7,14 @@ from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import models
-from django.db.models import Q
-from .models import Category, SubCategory, Product, ProductImage, ProductVariant, ContactMessage
+from django.db.models import F, Q
+from .models import Category, SubCategory, Product, ProductImage, ProductVariant, ContactMessage, HomepageBanner
 from .serializers import (
     CategorySerializer, CategoryListSerializer, SubCategorySerializer,
     ProductListSerializer, ProductDetailSerializer, ProductCreateUpdateSerializer,
     ProductImageSerializer, ProductVariantSerializer, BarcodeProductSerializer,
-    ProductStockUpdateSerializer, ContactMessageSubmitSerializer, ContactMessageSerializer
+    ProductStockUpdateSerializer, ContactMessageSubmitSerializer, ContactMessageSerializer,
+    HomepageBannerSerializer,
 )
 from apps.accounts.permissions import IsStaffUser, IsSeller
 from apps.reports.models import StockMovement
@@ -95,6 +96,13 @@ class ProductListView(generics.ListAPIView):
             queryset = queryset.filter(price__gte=min_price)
         if max_price:
             queryset = queryset.filter(price__lte=max_price)
+
+        on_sale = self.request.query_params.get('on_sale')
+        if on_sale in ('1', 'true', 'True'):
+            queryset = queryset.filter(
+                compare_price__isnull=False,
+                compare_price__gt=F('price'),
+            )
         
         return queryset
 
@@ -116,6 +124,20 @@ class FeaturedProductsView(generics.ListAPIView):
     
     def get_queryset(self):
         return Product.objects.filter(is_active=True, is_featured=True)[:12]
+
+
+class HomepageBannerListView(generics.ListAPIView):
+    """Public list of manually uploaded homepage banners."""
+    serializer_class = HomepageBannerSerializer
+    permission_classes = [AllowAny]
+    pagination_class = None
+
+    def get_queryset(self):
+        queryset = HomepageBanner.objects.filter(is_active=True)
+        placement = self.request.query_params.get('placement')
+        if placement in ('hero', 'promo'):
+            queryset = queryset.filter(placement=placement)
+        return queryset
 
 
 class CategoryProductsView(generics.ListAPIView):

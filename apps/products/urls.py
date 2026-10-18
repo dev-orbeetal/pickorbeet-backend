@@ -5,6 +5,7 @@ from django.urls import path
 from .views import (
     CategoryListView, CategoryDetailView, SubCategoryListView,
     ProductListView, ProductDetailView, FeaturedProductsView, CategoryProductsView,
+    HomepageBannerListView,
     AdminCategoryListCreateView, AdminCategoryDetailView,
     AdminSubCategoryListCreateView, AdminSubCategoryDetailView,
     AdminProductListCreateView, AdminProductDetailView,
@@ -22,6 +23,7 @@ urlpatterns = [
     path('categories/<slug:slug>/', CategoryDetailView.as_view(), name='category_detail'),
     path('categories/<slug:category_slug>/subcategories/', SubCategoryListView.as_view(), name='subcategory_list'),
     path('', ProductListView.as_view(), name='product_list'),
+    path('banners/', HomepageBannerListView.as_view(), name='homepage_banners'),
     path('featured/', FeaturedProductsView.as_view(), name='featured_products'),
     path('by-category/', CategoryProductsView.as_view(), name='products_by_category'),
     path('settings/public/', PublicStoreSettingsView.as_view(), name='public_store_settings'),

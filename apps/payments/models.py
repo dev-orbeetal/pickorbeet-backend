@@ -1,5 +1,5 @@
 """
-Payment models for Zzuhana E-commerce.
+Payment models for Pickorbeet E-commerce.
 """
 from django.db import models
 from django.conf import settings

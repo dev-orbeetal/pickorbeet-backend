@@ -1,5 +1,5 @@
 """
-WSGI config for Zzuhana project.
+WSGI config for Pickorbeet project.
 """
 import os
 from django.core.wsgi import get_wsgi_application

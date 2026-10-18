@@ -1,5 +1,5 @@
 """
-Product models for Zzuhana E-commerce.
+Product models for Pickorbeet E-commerce.
 """
 from django.db import models
 from django.conf import settings
@@ -293,8 +293,8 @@ class StoreSettings(models.Model):
     )
     contact_phone_1 = models.CharField(max_length=20, blank=True, default='+880 1234-567890')
     contact_phone_2 = models.CharField(max_length=20, blank=True, default='+880 1234-567891')
-    contact_email_1 = models.EmailField(blank=True, default='contact@zzuhana.com')
-    contact_email_2 = models.EmailField(blank=True, default='support@zzuhana.com')
+    contact_email_1 = models.EmailField(blank=True, default='contact@pickorbeet.com')
+    contact_email_2 = models.EmailField(blank=True, default='support@pickorbeet.com')
     business_hours = models.TextField(
         blank=True,
         default='Sat - Thu: 10:00 AM - 8:00 PM\nFriday: Closed',
@@ -340,6 +340,32 @@ class StoreSettings(models.Model):
             return settings.barcode_prefix if settings else 'ZZ'
         except Exception:
             return 'ZZ'
+
+
+class HomepageBanner(models.Model):
+    """Manually uploaded homepage images for the hero slider and promo slots."""
+
+    PLACEMENT_CHOICES = [
+        ('hero', 'Hero slider'),
+        ('promo', 'Promo banner'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    image = models.ImageField(upload_to='banners/')
+    link = models.CharField(max_length=500, blank=True, default='', help_text='Optional URL opened when the banner is clicked')
+    placement = models.CharField(max_length=10, choices=PLACEMENT_CHOICES, default='hero')
+    display_order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Homepage Banner'
+        verbose_name_plural = 'Homepage Banners'
+        ordering = ['placement', 'display_order', 'created_at']
+
+    def __str__(self):
+        return f"{self.get_placement_display()} #{self.display_order}"
 
 
 class ContactMessage(models.Model):

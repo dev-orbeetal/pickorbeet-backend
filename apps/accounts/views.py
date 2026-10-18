@@ -415,7 +415,7 @@ class VerifyEmailView(APIView):
             refresh = RefreshToken.for_user(user)
             
             return Response({
-                'message': 'Email verified successfully! Welcome to Zzuhana!',
+                'message': 'Email verified successfully! Welcome to Pickorbeet!',
                 'access': str(refresh.access_token),
                 'refresh': str(refresh),
                 'user': {

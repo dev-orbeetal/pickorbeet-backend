@@ -1,6 +1,6 @@
-# Zzuhana E-commerce Backend
+# Pickorbeet E-commerce Backend
 
-Django REST API backend for Zzuhana clothing e-commerce platform.
+Django REST API backend for Pickorbeet clothing e-commerce platform.
 
 ## Tech Stack
 
@@ -39,7 +39,7 @@ cp .env.example .env
 Create PostgreSQL database:
 
 ```sql
-CREATE DATABASE zzuhana_db;
+CREATE DATABASE pickorbeet_db;
 ```
 
 ### 5. Run Migrations

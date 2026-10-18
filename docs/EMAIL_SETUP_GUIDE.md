@@ -1,4 +1,4 @@
-# Email Setup Guide for Zzuhana
+# Email Setup Guide for Pickorbeet
 
 Complete guide for setting up email with aPanel mail server and Cloudflare DNS.
 
@@ -13,7 +13,7 @@ Your current setup uses Gmail SMTP. To complete it:
 1. Go to [Google Account Security](https://myaccount.google.com/security)
 2. Enable **2-Step Verification** if not already enabled
 3. Go to [App Passwords](https://myaccount.google.com/apppasswords)
-4. Select **Mail** and **Other (Custom name)** → Enter "Zzuhana Server"
+4. Select **Mail** and **Other (Custom name)** → Enter "Pickorbeet Server"
 5. Click **Generate**
 6. Copy the **16-character password** (e.g., `abcd efgh ijkl mnop`)
 
@@ -42,7 +42,7 @@ Remove spaces from the app password.
 
 #### Step 2: Create Email Domain
 1. Click **Add Mail Domain**
-2. Enter domain: `zzuhana.com`
+2. Enter domain: `pickorbeet.com`
 3. Click **Create**
 
 #### Step 3: Create Email Accounts
@@ -50,9 +50,9 @@ Create these email accounts:
 
 | Email | Purpose |
 |-------|---------|
-| `noreply@zzuhana.com` | Transactional emails (order confirmations, password reset) |
-| `support@zzuhana.com` | Customer support |
-| `admin@zzuhana.com` | Admin notifications |
+| `noreply@pickorbeet.com` | Transactional emails (order confirmations, password reset) |
+| `support@pickorbeet.com` | Customer support |
+| `admin@pickorbeet.com` | Admin notifications |
 
 For each account:
 1. Click **Add Email Account**
@@ -63,9 +63,9 @@ For each account:
 
 #### Step 4: Get SMTP Settings from aPanel
 In aPanel Email settings, find:
-- **SMTP Server**: Usually `mail.zzuhana.com` or `your-server-ip`
+- **SMTP Server**: Usually `mail.pickorbeet.com` or `your-server-ip`
 - **SMTP Port**: `587` (TLS) or `465` (SSL)
-- **Username**: `noreply@zzuhana.com`
+- **Username**: `noreply@pickorbeet.com`
 - **Password**: The password you set
 
 ---
@@ -74,14 +74,14 @@ In aPanel Email settings, find:
 
 #### Step 1: Login to Cloudflare
 1. Go to [Cloudflare Dashboard](https://dash.cloudflare.com)
-2. Select your domain `zzuhana.com`
+2. Select your domain `pickorbeet.com`
 3. Go to **DNS** → **Records**
 
 #### Step 2: Add MX Records (Mail Exchange)
 
 | Type | Name | Mail Server | Priority | TTL |
 |------|------|-------------|----------|-----|
-| MX | `@` | `mail.zzuhana.com` | 10 | Auto |
+| MX | `@` | `mail.pickorbeet.com` | 10 | Auto |
 
 Or if using server IP directly:
 | Type | Name | Mail Server | Priority | TTL |
@@ -112,7 +112,7 @@ v=spf1 ip4:185.123.456.789 a mx ~all
 #### Step 5: Add DKIM Record (Email Authentication)
 
 1. In aPanel, go to **Email** → **DKIM** or **Email Authentication**
-2. Generate DKIM key for `zzuhana.com`
+2. Generate DKIM key for `pickorbeet.com`
 3. Copy the DKIM public key
 4. In Cloudflare, add:
 
@@ -126,7 +126,7 @@ The name might be `default._domainkey` or `mail._domainkey` depending on aPanel.
 
 | Type | Name | Content | TTL |
 |------|------|---------|-----|
-| TXT | `_dmarc` | `v=DMARC1; p=quarantine; rua=mailto:admin@zzuhana.com` | Auto |
+| TXT | `_dmarc` | `v=DMARC1; p=quarantine; rua=mailto:admin@pickorbeet.com` | Auto |
 
 ---
 
@@ -135,12 +135,12 @@ The name might be `default._domainkey` or `mail._domainkey` depending on aPanel.
 ```env
 # Email Configuration (aPanel Mail Server)
 EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
-EMAIL_HOST=mail.zzuhana.com
+EMAIL_HOST=mail.pickorbeet.com
 EMAIL_PORT=587
 EMAIL_USE_TLS=True
-EMAIL_HOST_USER=noreply@zzuhana.com
+EMAIL_HOST_USER=noreply@pickorbeet.com
 EMAIL_HOST_PASSWORD=your-email-password-here
-DEFAULT_FROM_EMAIL=Zzuhana <noreply@zzuhana.com>
+DEFAULT_FROM_EMAIL=Pickorbeet <noreply@pickorbeet.com>
 ```
 
 Or if using SSL on port 465:
@@ -165,12 +165,12 @@ A       admin       your-server-ip      Proxied     Auto
 
 # Mail Records (DNS Only - Gray Cloud)
 A       mail        your-server-ip      DNS only    Auto
-MX      @           mail.zzuhana.com    Priority 10 Auto
+MX      @           mail.pickorbeet.com    Priority 10 Auto
 
 # Email Authentication (TXT Records)
 TXT     @           v=spf1 ip4:YOUR_IP a mx ~all              Auto
 TXT     default._domainkey   v=DKIM1; k=rsa; p=YOUR_KEY       Auto
-TXT     _dmarc      v=DMARC1; p=quarantine; rua=mailto:admin@zzuhana.com   Auto
+TXT     _dmarc      v=DMARC1; p=quarantine; rua=mailto:admin@pickorbeet.com   Auto
 ```
 
 ---
@@ -188,8 +188,8 @@ from django.core.mail import send_mail
 from django.conf import settings
 
 send_mail(
-    'Test Email from Zzuhana',
-    'This is a test email from Zzuhana e-commerce.',
+    'Test Email from Pickorbeet',
+    'This is a test email from Pickorbeet e-commerce.',
     settings.DEFAULT_FROM_EMAIL,
     ['your-personal-email@gmail.com'],
     fail_silently=False,
@@ -199,13 +199,13 @@ send_mail(
 ### Test 2: Check DNS Records
 ```bash
 # Check MX record
-dig MX zzuhana.com
+dig MX pickorbeet.com
 
 # Check SPF record
-dig TXT zzuhana.com
+dig TXT pickorbeet.com
 
 # Check DKIM record
-dig TXT default._domainkey.zzuhana.com
+dig TXT default._domainkey.pickorbeet.com
 ```
 
 ### Test 3: Online Tools
@@ -229,7 +229,7 @@ dig TXT default._domainkey.zzuhana.com
 
 ### Connection Refused
 1. Check if mail server is running in aPanel
-2. Verify port is open: `telnet mail.zzuhana.com 587`
+2. Verify port is open: `telnet mail.pickorbeet.com 587`
 3. Check firewall rules
 
 ### Authentication Failed
@@ -242,20 +242,20 @@ dig TXT default._domainkey.zzuhana.com
 ## Quick Checklist
 
 ### aPanel Setup
-- [ ] Mail domain created for zzuhana.com
-- [ ] Email account noreply@zzuhana.com created
+- [ ] Mail domain created for pickorbeet.com
+- [ ] Email account noreply@pickorbeet.com created
 - [ ] DKIM key generated
 
 ### Cloudflare DNS
-- [ ] MX record pointing to mail.zzuhana.com
+- [ ] MX record pointing to mail.pickorbeet.com
 - [ ] A record for mail subdomain (DNS only, not proxied)
 - [ ] SPF TXT record added
 - [ ] DKIM TXT record added
 - [ ] DMARC TXT record added
 
 ### Server Configuration
-- [ ] EMAIL_HOST set to mail.zzuhana.com
-- [ ] EMAIL_HOST_USER set to noreply@zzuhana.com
+- [ ] EMAIL_HOST set to mail.pickorbeet.com
+- [ ] EMAIL_HOST_USER set to noreply@pickorbeet.com
 - [ ] EMAIL_HOST_PASSWORD set
 - [ ] DEFAULT_FROM_EMAIL set
 - [ ] Test email sent successfully
@@ -272,17 +272,17 @@ EMAIL_PORT=587
 EMAIL_USE_TLS=True
 EMAIL_HOST_USER=hatg966@gmail.com
 EMAIL_HOST_PASSWORD=your-16-char-app-password
-DEFAULT_FROM_EMAIL=Zzuhana <noreply@zzuhana.com>
+DEFAULT_FROM_EMAIL=Pickorbeet <noreply@pickorbeet.com>
 ```
 
 For aPanel Mail (professional):
 ```env
 EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
-EMAIL_HOST=mail.zzuhana.com
+EMAIL_HOST=mail.pickorbeet.com
 EMAIL_PORT=587
 EMAIL_USE_TLS=True
-EMAIL_HOST_USER=noreply@zzuhana.com
+EMAIL_HOST_USER=noreply@pickorbeet.com
 EMAIL_HOST_PASSWORD=your-email-password
-DEFAULT_FROM_EMAIL=Zzuhana <noreply@zzuhana.com>
+DEFAULT_FROM_EMAIL=Pickorbeet <noreply@pickorbeet.com>
 ```
 

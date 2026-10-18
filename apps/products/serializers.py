@@ -2,7 +2,7 @@
 Serializers for products app.
 """
 from rest_framework import serializers
-from .models import Category, SubCategory, Product, ProductImage, ProductVariant, ContactMessage
+from .models import Category, SubCategory, Product, ProductImage, ProductVariant, ContactMessage, HomepageBanner
 
 
 class ProductImageSerializer(serializers.ModelSerializer):
@@ -141,6 +141,14 @@ class ProductStockUpdateSerializer(serializers.Serializer):
         if value < 0:
             raise serializers.ValidationError("Quantity cannot be negative.")
         return value
+
+
+class HomepageBannerSerializer(serializers.ModelSerializer):
+    """Public serializer for uploaded homepage banners."""
+
+    class Meta:
+        model = HomepageBanner
+        fields = ['id', 'image', 'link', 'placement', 'display_order']
 
 
 class ContactMessageSubmitSerializer(serializers.ModelSerializer):

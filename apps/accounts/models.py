@@ -1,5 +1,5 @@
 """
-Custom User Model and Account related models for Zzuhana E-commerce.
+Custom User Model and Account related models for Pickorbeet E-commerce.
 """
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models

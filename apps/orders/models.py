@@ -1,5 +1,5 @@
 """
-Order models for Zzuhana E-commerce.
+Order models for Pickorbeet E-commerce.
 """
 from django.db import models
 from django.conf import settings

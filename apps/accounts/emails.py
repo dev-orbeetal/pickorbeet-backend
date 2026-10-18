@@ -1,5 +1,5 @@
 """
-Email utilities for Zzuhana - Beautiful themed email templates.
+Email utilities for Pickorbeet - Beautiful themed email templates.
 Theme colors: Burgundy (#8B0000), Gold (#D4AF37), Cream (#F5F5DC)
 """
 from django.core.mail import send_mail
@@ -8,14 +8,14 @@ from django.utils.html import strip_tags
 
 
 def get_base_email_template(content):
-    """Base email template with Zzuhana branding."""
+    """Base email template with Pickorbeet branding."""
     return f"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Zzuhana</title>
+    <title>Pickorbeet</title>
 </head>
 <body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #F5F5DC;">
     <table role="presentation" style="width: 100%; border-collapse: collapse;">
@@ -25,7 +25,7 @@ def get_base_email_template(content):
                     <!-- Header -->
                     <tr>
                         <td style="background: linear-gradient(135deg, #8B0000 0%, #6B0000 100%); padding: 30px 40px; border-radius: 16px 16px 0 0; text-align: center;">
-                            <h1 style="margin: 0; color: #D4AF37; font-size: 32px; font-weight: 700; letter-spacing: 2px;">ZZUHANA</h1>
+                            <h1 style="margin: 0; color: #D4AF37; font-size: 32px; font-weight: 700; letter-spacing: 2px;">PICKORBEET</h1>
                             <p style="margin: 8px 0 0 0; color: rgba(255,255,255,0.8); font-size: 14px; letter-spacing: 1px;">Premium Fashion & Lifestyle</p>
                         </td>
                     </tr>
@@ -44,16 +44,16 @@ def get_base_email_template(content):
                             <table role="presentation" style="margin: 0 auto 20px auto;">
                                 <tr>
                                     <td style="padding: 0 8px;">
-                                        <a href="https://facebook.com/zzuhana" style="color: #8B0000; text-decoration: none; font-size: 14px;">Facebook</a>
+                                        <a href="https://facebook.com/pickorbeet" style="color: #8B0000; text-decoration: none; font-size: 14px;">Facebook</a>
                                     </td>
                                     <td style="padding: 0 8px; color: #D4AF37;">•</td>
                                     <td style="padding: 0 8px;">
-                                        <a href="https://instagram.com/zzuhana" style="color: #8B0000; text-decoration: none; font-size: 14px;">Instagram</a>
+                                        <a href="https://instagram.com/pickorbeet" style="color: #8B0000; text-decoration: none; font-size: 14px;">Instagram</a>
                                     </td>
                                 </tr>
                             </table>
                             <p style="margin: 0; color: #999; font-size: 12px;">
-                                © 2024 Zzuhana. All rights reserved.<br>
+                                © 2024 Pickorbeet. All rights reserved.<br>
                                 <a href="{settings.FRONTEND_URL}/unsubscribe" style="color: #8B0000; text-decoration: none;">Unsubscribe</a> | 
                                 <a href="{settings.FRONTEND_URL}/privacy" style="color: #8B0000; text-decoration: none;">Privacy Policy</a>
                             </p>
@@ -90,7 +90,7 @@ def send_otp_email(user, otp_code):
     <div style="margin-top: 30px; padding-top: 30px; border-top: 1px solid #eee;">
         <p style="margin: 0; color: #999; font-size: 12px; text-align: center;">
             For security reasons, never share this code with anyone.<br>
-            Zzuhana staff will never ask for your verification code.
+            Pickorbeet staff will never ask for your verification code.
         </p>
     </div>
     """
@@ -99,7 +99,7 @@ def send_otp_email(user, otp_code):
     plain_message = strip_tags(html_message)
     
     send_mail(
-        subject='🔐 Your Zzuhana Verification Code',
+        subject='🔐 Your Pickorbeet Verification Code',
         message=plain_message,
         from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=[user.email],
@@ -115,7 +115,7 @@ def send_welcome_email(user):
         <div style="width: 100px; height: 100px; margin: 0 auto 20px auto; background: linear-gradient(135deg, #D4AF37 0%, #B8960C 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
             <span style="font-size: 50px;">🎉</span>
         </div>
-        <h2 style="margin: 0 0 10px 0; color: #8B0000; font-size: 28px; font-weight: 700;">Welcome to Zzuhana!</h2>
+        <h2 style="margin: 0 0 10px 0; color: #8B0000; font-size: 28px; font-weight: 700;">Welcome to Pickorbeet!</h2>
         <p style="margin: 0 0 30px 0; color: #666; font-size: 18px;">Congratulations, {user.first_name}! 🎊</p>
     </div>
     
@@ -172,7 +172,7 @@ def send_welcome_email(user):
     plain_message = strip_tags(html_message)
     
     send_mail(
-        subject='🎉 Welcome to Zzuhana - Your Account is Ready!',
+        subject='🎉 Welcome to Pickorbeet - Your Account is Ready!',
         message=plain_message,
         from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=[user.email],
@@ -188,14 +188,14 @@ def send_google_welcome_email(user):
         <div style="width: 100px; height: 100px; margin: 0 auto 20px auto; background: linear-gradient(135deg, #D4AF37 0%, #B8960C 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
             <span style="font-size: 50px;">✨</span>
         </div>
-        <h2 style="margin: 0 0 10px 0; color: #8B0000; font-size: 28px; font-weight: 700;">Welcome to Zzuhana!</h2>
+        <h2 style="margin: 0 0 10px 0; color: #8B0000; font-size: 28px; font-weight: 700;">Welcome to Pickorbeet!</h2>
         <p style="margin: 0 0 10px 0; color: #666; font-size: 18px;">Hello {user.first_name}! 👋</p>
         <p style="margin: 0 0 30px 0; color: #999; font-size: 14px;">Signed in with Google</p>
     </div>
     
     <div style="background: linear-gradient(135deg, #F5F5DC 0%, #EDE8D0 100%); padding: 25px; border-radius: 12px; margin-bottom: 30px;">
         <p style="margin: 0 0 15px 0; color: #333; font-size: 16px; line-height: 1.6;">
-            Thank you for joining Zzuhana! Your account has been created successfully using your Google account.
+            Thank you for joining Pickorbeet! Your account has been created successfully using your Google account.
         </p>
         <p style="margin: 0; color: #333; font-size: 16px; line-height: 1.6;">
             You can now enjoy a seamless shopping experience with us. Discover our exclusive collection of premium fashion items curated just for you.
@@ -250,7 +250,7 @@ def send_google_welcome_email(user):
     plain_message = strip_tags(html_message)
     
     send_mail(
-        subject='✨ Welcome to Zzuhana - Let\'s Get Started!',
+        subject='✨ Welcome to Pickorbeet - Let\'s Get Started!',
         message=plain_message,
         from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=[user.email],
@@ -297,7 +297,7 @@ def send_password_reset_email(user, reset_url):
     plain_message = strip_tags(html_message)
     
     send_mail(
-        subject='🔒 Reset Your Zzuhana Password',
+        subject='🔒 Reset Your Pickorbeet Password',
         message=plain_message,
         from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=[user.email],
@@ -319,7 +319,7 @@ def send_password_changed_email(user):
     
     <div style="background: linear-gradient(135deg, #F5F5DC 0%, #EDE8D0 100%); padding: 25px; border-radius: 12px; margin-bottom: 30px;">
         <p style="margin: 0; color: #333; font-size: 16px; line-height: 1.6;">
-            Your Zzuhana account password was successfully changed. If you made this change, no further action is required.
+            Your Pickorbeet account password was successfully changed. If you made this change, no further action is required.
         </p>
     </div>
     
@@ -335,7 +335,7 @@ def send_password_changed_email(user):
     plain_message = strip_tags(html_message)
     
     send_mail(
-        subject='✅ Your Zzuhana Password Was Changed',
+        subject='✅ Your Pickorbeet Password Was Changed',
         message=plain_message,
         from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=[user.email],

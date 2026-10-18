@@ -1,5 +1,5 @@
 """
-Django settings for Zzuhana E-commerce project.
+Django settings for Pickorbeet E-commerce project.
 """
 import os
 from pathlib import Path
@@ -87,7 +87,7 @@ WSGI_APPLICATION = 'core.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('DB_NAME', default='zzuhana_db'),
+        'NAME': config('DB_NAME', default='pickorbeet_db'),
         'USER': config('DB_USER', default='postgres'),
         'PASSWORD': config('DB_PASSWORD', default=''),
         'HOST': config('DB_HOST', default='localhost'),
@@ -162,12 +162,12 @@ EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
 EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
 EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
-DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='Zzuhana <noreply@zzuhana.com>')
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='Pickorbeet <noreply@pickorbeet.com>')
 
 # CORS Settings
 CORS_ALLOWED_ORIGINS = config(
     'CORS_ALLOWED_ORIGINS',
-    default='http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001,https://www.zzuhana.com,https://zzuhana.com,https://admin.zzuhana.com',
+    default='http://localhost:3000,http://localhost:3001,http://localhost:3666,http://127.0.0.1:3000,http://127.0.0.1:3001,http://127.0.0.1:3666,https://www.pickorbeet.com,https://pickorbeet.com,https://admin.pickorbeet.com',
     cast=lambda v: [s.strip() for s in v.split(',')]
 )
 CORS_ALLOW_CREDENTIALS = config('CORS_ALLOW_CREDENTIALS', default=True, cast=bool)
@@ -175,7 +175,7 @@ CORS_ALLOW_CREDENTIALS = config('CORS_ALLOW_CREDENTIALS', default=True, cast=boo
 # CSRF Settings
 CSRF_TRUSTED_ORIGINS = config(
     'CSRF_TRUSTED_ORIGINS',
-    default='http://localhost:3000,http://localhost:3001,https://www.zzuhana.com,https://zzuhana.com,https://admin.zzuhana.com',
+    default='http://localhost:3000,http://localhost:3001,http://localhost:3666,http://127.0.0.1:3000,http://127.0.0.1:3666,https://www.pickorbeet.com,https://pickorbeet.com,https://admin.pickorbeet.com',
     cast=lambda v: [s.strip() for s in v.split(',')]
 )
 CSRF_COOKIE_SECURE = config('CSRF_COOKIE_SECURE', default=False, cast=bool)
@@ -189,21 +189,21 @@ SSLCOMMERZ_STORE_PASSWORD = config('SSLCOMMERZ_STORE_PASSWORD', default='')
 SSLCOMMERZ_SANDBOX = config('SSLCOMMERZ_SANDBOX', default=True, cast=bool)
 
 # Frontend URLs - Check os.environ first for production servers
-FRONTEND_URL = os.environ.get('FRONTEND_URL') or config('FRONTEND_URL', default='https://www.zzuhana.com')
-ADMIN_PANEL_URL = os.environ.get('ADMIN_PANEL_URL') or config('ADMIN_PANEL_URL', default='https://admin.zzuhana.com')
+FRONTEND_URL = os.environ.get('FRONTEND_URL') or config('FRONTEND_URL', default='https://www.pickorbeet.com')
+ADMIN_PANEL_URL = os.environ.get('ADMIN_PANEL_URL') or config('ADMIN_PANEL_URL', default='https://admin.pickorbeet.com')
 
 # Jazzmin Admin Configuration
 JAZZMIN_SETTINGS = {
-    "site_title": "Zzuhana Admin",
-    "site_header": "Zzuhana",
-    "site_brand": "Zzuhana",
+    "site_title": "Pickorbeet Admin",
+    "site_header": "Pickorbeet",
+    "site_brand": "Pickorbeet",
     "site_logo": "images/logo.png",
     "login_logo": "images/logo.png",
     "login_logo_dark": "images/logo-dark.png",
     "site_logo_classes": "img-circle",
     "site_icon": "images/favicon.ico",
-    "welcome_sign": "Welcome to Zzuhana Admin Panel",
-    "copyright": "Zzuhana Ltd",
+    "welcome_sign": "Welcome to Pickorbeet Admin Panel",
+    "copyright": "Pickorbeet Ltd",
     "search_model": ["accounts.User", "products.Product", "orders.Order"],
     "user_avatar": None,
     

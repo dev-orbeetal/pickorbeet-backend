@@ -1,5 +1,5 @@
 """
-URL configuration for Zzuhana E-commerce project.
+URL configuration for Pickorbeet E-commerce project.
 """
 from django.contrib import admin
 from django.urls import path, include
@@ -11,11 +11,11 @@ from drf_yasg import openapi
 
 schema_view = get_schema_view(
     openapi.Info(
-        title="Zzuhana E-commerce API",
+        title="Pickorbeet E-commerce API",
         default_version='v1',
-        description="API documentation for Zzuhana E-commerce Platform",
-        terms_of_service="https://www.zzuhana.com/terms/",
-        contact=openapi.Contact(email="contact@zzuhana.com"),
+        description="API documentation for Pickorbeet E-commerce Platform",
+        terms_of_service="https://www.pickorbeet.com/terms/",
+        contact=openapi.Contact(email="contact@pickorbeet.com"),
         license=openapi.License(name="BSD License"),
     ),
     public=True,

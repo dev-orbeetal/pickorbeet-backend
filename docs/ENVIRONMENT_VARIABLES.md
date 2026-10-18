@@ -1,6 +1,6 @@
 # Environment Variables Reference
 
-Complete list of all environment variables used in the Zzuhana e-commerce platform.
+Complete list of all environment variables used in the Pickorbeet e-commerce platform.
 
 ---
 
@@ -16,7 +16,7 @@ Complete list of all environment variables used in the Zzuhana e-commerce platfo
 ### Database Configuration
 | Variable | Type | Default | Used In | Description |
 |----------|------|---------|---------|-------------|
-| `DB_NAME` | string | `zzuhana_db` | `settings.py:90` | PostgreSQL database name |
+| `DB_NAME` | string | `pickorbeet_db` | `settings.py:90` | PostgreSQL database name |
 | `DB_USER` | string | `postgres` | `settings.py:91` | PostgreSQL user |
 | `DB_PASSWORD` | string | `` | `settings.py:92` | PostgreSQL password |
 | `DB_HOST` | string | `localhost` | `settings.py:93` | PostgreSQL host |
@@ -37,7 +37,7 @@ Complete list of all environment variables used in the Zzuhana e-commerce platfo
 | `EMAIL_USE_TLS` | boolean | `True` | `settings.py:162` | Use TLS for SMTP |
 | `EMAIL_HOST_USER` | string | `` | `settings.py:163` | SMTP username/email |
 | `EMAIL_HOST_PASSWORD` | string | `` | `settings.py:164` | SMTP password or app password |
-| `DEFAULT_FROM_EMAIL` | string | `Zzuhana <noreply@zzuhana.com>` | `settings.py:165` | Default sender email address |
+| `DEFAULT_FROM_EMAIL` | string | `Pickorbeet <noreply@pickorbeet.com>` | `settings.py:165` | Default sender email address |
 
 ### CORS & CSRF Settings
 | Variable | Type | Default | Used In | Description |
@@ -88,7 +88,7 @@ DEBUG=False
 ALLOWED_HOSTS=localhost,127.0.0.1,your-domain.com
 
 # Database
-DB_NAME=zzuhana_db
+DB_NAME=pickorbeet_db
 DB_USER=postgres
 DB_PASSWORD=your-db-password
 DB_HOST=localhost
@@ -105,7 +105,7 @@ EMAIL_PORT=587
 EMAIL_USE_TLS=True
 EMAIL_HOST_USER=your-email@gmail.com
 EMAIL_HOST_PASSWORD=your-16-char-app-password
-DEFAULT_FROM_EMAIL=Zzuhana <noreply@zzuhana.com>
+DEFAULT_FROM_EMAIL=Pickorbeet <noreply@pickorbeet.com>
 
 # CORS & CSRF
 CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001,https://your-domain.com
@@ -132,8 +132,8 @@ ADMIN_PANEL_URL=http://localhost:3001
 
 ```env
 PORT=3000
-NEXT_PUBLIC_API_URL=https://server.zzuhana.com/api/v1
-NEXT_PUBLIC_ADMIN_URL=https://admin.zzuhana.com
+NEXT_PUBLIC_API_URL=https://server.pickorbeet.com/api/v1
+NEXT_PUBLIC_ADMIN_URL=https://admin.pickorbeet.com
 NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
 ```
 
@@ -151,8 +151,9 @@ SESSION_COOKIE_SECURE=False
 SSLCOMMERZ_SANDBOX=True
 EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend
 
-# Client
-NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+# Client (local `make up` uses these ports)
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8666/api/v1
+NEXT_PUBLIC_SITE_URL=http://127.0.0.1:3666
 ```
 
 ### Production
