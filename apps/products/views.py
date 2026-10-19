@@ -126,6 +126,15 @@ class FeaturedProductsView(generics.ListAPIView):
         return Product.objects.filter(is_active=True, is_featured=True)[:12]
 
 
+class HomepageConfigView(APIView):
+    """Public homepage layout driven by admin configuration."""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        from .homepage import build_homepage
+        return Response(build_homepage(request))
+
+
 class HomepageBannerListView(generics.ListAPIView):
     """Public list of manually uploaded homepage banners."""
     serializer_class = HomepageBannerSerializer

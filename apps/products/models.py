@@ -352,6 +352,9 @@ class HomepageBanner(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     image = models.ImageField(upload_to='banners/')
+    title = models.CharField(max_length=160, blank=True, default='')
+    subtitle = models.CharField(max_length=240, blank=True, default='')
+    button_label = models.CharField(max_length=80, blank=True, default='')
     link = models.CharField(max_length=500, blank=True, default='', help_text='Optional URL opened when the banner is clicked')
     placement = models.CharField(max_length=10, choices=PLACEMENT_CHOICES, default='hero')
     display_order = models.PositiveIntegerField(default=0)
@@ -366,6 +369,81 @@ class HomepageBanner(models.Model):
 
     def __str__(self):
         return f"{self.get_placement_display()} #{self.display_order}"
+
+
+class HomepageSection(models.Model):
+    """Admin-managed block on the public homepage."""
+
+    TYPE_CHOICES = [
+        ('hero', 'Hero slider'),
+        ('categories', 'Categories'),
+        ('benefits', 'Service benefits'),
+        ('products', 'Product row'),
+        ('promos', 'Promotional banners'),
+    ]
+    SOURCE_CHOICES = [
+        ('manual', 'Selected products'),
+        ('latest', 'Latest products'),
+        ('on_sale', 'Products on sale'),
+        ('featured', 'Featured products'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    key = models.SlugField(max_length=60, unique=True)
+    section_type = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    title = models.CharField(max_length=120, blank=True, default='')
+    subtitle = models.CharField(max_length=240, blank=True, default='')
+    is_enabled = models.BooleanField(default=True)
+    display_order = models.PositiveIntegerField(default=0)
+    item_limit = models.PositiveIntegerField(default=8)
+    view_all_label = models.CharField(max_length=80, blank=True, default='')
+    view_all_url = models.CharField(max_length=300, blank=True, default='')
+    product_source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='manual')
+
+    class Meta:
+        ordering = ['display_order', 'title']
+        verbose_name = 'Homepage Section'
+        verbose_name_plural = 'Homepage Sections'
+
+    def __str__(self):
+        return self.title or self.key
+
+
+class HomepageSectionProduct(models.Model):
+    """Product assigned to a homepage section, in admin-defined order."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    section = models.ForeignKey(HomepageSection, on_delete=models.CASCADE, related_name='section_products')
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='homepage_placements')
+    display_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['display_order', 'id']
+        unique_together = ['section', 'product']
+        verbose_name = 'Section Product'
+        verbose_name_plural = 'Section Products'
+
+    def __str__(self):
+        return f'{self.section} — {self.product}'
+
+
+class HomepageBenefit(models.Model):
+    """Trust or service item shown in the benefits section."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    title = models.CharField(max_length=120)
+    description = models.CharField(max_length=200, blank=True, default='')
+    icon = models.CharField(max_length=40, default='shield', help_text='shield, truck, card, or returns')
+    display_order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['display_order', 'title']
+        verbose_name = 'Homepage Benefit'
+        verbose_name_plural = 'Homepage Benefits'
+
+    def __str__(self):
+        return self.title
 
 
 class ContactMessage(models.Model):

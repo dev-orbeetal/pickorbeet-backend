@@ -3,7 +3,10 @@ Admin configuration for products app.
 """
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import Category, SubCategory, Product, ProductImage, ProductVariant, StoreSettings, HomepageBanner
+from .models import (
+    Category, SubCategory, Product, ProductImage, ProductVariant, StoreSettings,
+    HomepageBanner, HomepageSection, HomepageSectionProduct, HomepageBenefit,
+)
 
 
 class SubCategoryInline(admin.TabularInline):
@@ -119,16 +122,46 @@ class ProductVariantAdmin(admin.ModelAdmin):
 
 @admin.register(HomepageBanner)
 class HomepageBannerAdmin(admin.ModelAdmin):
-    list_display = ['placement', 'display_order', 'is_active', 'link', 'image_preview']
+    list_display = ['placement', 'title', 'display_order', 'is_active', 'link', 'image_preview']
     list_filter = ['placement', 'is_active']
     list_editable = ['display_order', 'is_active']
     ordering = ['placement', 'display_order']
+    fields = ['image', 'title', 'subtitle', 'button_label', 'link', 'placement', 'display_order', 'is_active']
 
     def image_preview(self, obj):
         if obj.image:
             return format_html('<img src="{}" width="80" height="40" style="object-fit:cover" />', obj.image.url)
         return '-'
     image_preview.short_description = 'Preview'
+
+
+class HomepageSectionProductInline(admin.TabularInline):
+    model = HomepageSectionProduct
+    extra = 0
+    autocomplete_fields = ['product']
+    ordering = ['display_order']
+
+
+@admin.register(HomepageSection)
+class HomepageSectionAdmin(admin.ModelAdmin):
+    list_display = ['title', 'key', 'section_type', 'is_enabled', 'display_order', 'item_limit', 'product_source']
+    list_filter = ['section_type', 'is_enabled', 'product_source']
+    list_editable = ['is_enabled', 'display_order', 'item_limit']
+    search_fields = ['title', 'key', 'subtitle']
+    prepopulated_fields = {'key': ('title',)}
+    inlines = [HomepageSectionProductInline]
+    fieldsets = (
+        (None, {'fields': ('title', 'key', 'section_type', 'subtitle', 'is_enabled', 'display_order')}),
+        ('Product row', {'fields': ('product_source', 'item_limit', 'view_all_label', 'view_all_url')}),
+    )
+
+
+@admin.register(HomepageBenefit)
+class HomepageBenefitAdmin(admin.ModelAdmin):
+    list_display = ['title', 'description', 'icon', 'display_order', 'is_active']
+    list_editable = ['display_order', 'is_active']
+    list_filter = ['is_active']
+    search_fields = ['title', 'description']
 
 
 @admin.register(StoreSettings)

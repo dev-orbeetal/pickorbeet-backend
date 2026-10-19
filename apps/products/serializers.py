@@ -148,7 +148,7 @@ class HomepageBannerSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = HomepageBanner
-        fields = ['id', 'image', 'link', 'placement', 'display_order']
+        fields = ['id', 'image', 'title', 'subtitle', 'button_label', 'link', 'placement', 'display_order']
 
 
 class ContactMessageSubmitSerializer(serializers.ModelSerializer):
