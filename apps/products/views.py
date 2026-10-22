@@ -7,7 +7,7 @@ from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import models
-from django.db.models import F, Q
+from django.db.models import F, Prefetch, Q
 from .models import Category, SubCategory, Product, ProductImage, ProductVariant, ContactMessage, HomepageBanner
 from .serializers import (
     CategorySerializer, CategoryListSerializer, SubCategorySerializer,
@@ -20,6 +20,14 @@ from apps.accounts.permissions import IsStaffUser, IsSeller
 from apps.reports.models import StockMovement
 
 
+def public_categories():
+    """Active categories with active subcategories, in admin display order."""
+    active_subcategories = SubCategory.objects.filter(is_active=True).order_by('display_order', 'name')
+    return Category.objects.filter(is_active=True).prefetch_related(
+        Prefetch('subcategories', queryset=active_subcategories)
+    )
+
+
 # Public Views
 class CategoryListView(generics.ListAPIView):
     """List all active categories with subcategories."""
@@ -27,7 +35,7 @@ class CategoryListView(generics.ListAPIView):
     permission_classes = [AllowAny]
     
     def get_queryset(self):
-        return Category.objects.filter(is_active=True).prefetch_related('subcategories')
+        return public_categories()
 
 
 class CategoryDetailView(generics.RetrieveAPIView):
@@ -37,7 +45,7 @@ class CategoryDetailView(generics.RetrieveAPIView):
     lookup_field = 'slug'
     
     def get_queryset(self):
-        return Category.objects.filter(is_active=True)
+        return public_categories()
 
 
 class SubCategoryListView(generics.ListAPIView):
@@ -133,6 +141,30 @@ class HomepageConfigView(APIView):
     def get(self, request):
         from .homepage import build_homepage
         return Response(build_homepage(request))
+
+
+def _logo_url(settings_obj, request):
+    if not settings_obj.logo:
+        return None
+    url = settings_obj.logo.url
+    if request is not None:
+        return request.build_absolute_uri(url)
+    return url
+
+
+class AdminHomepageBannerListCreateView(generics.ListCreateAPIView):
+    """Admin: list and upload homepage hero slides and side cards."""
+    serializer_class = HomepageBannerSerializer
+    permission_classes = [IsAuthenticated, IsStaffUser]
+    pagination_class = None
+    queryset = HomepageBanner.objects.all()
+
+
+class AdminHomepageBannerDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """Admin: update or delete a homepage banner."""
+    serializer_class = HomepageBannerSerializer
+    permission_classes = [IsAuthenticated, IsStaffUser]
+    queryset = HomepageBanner.objects.all()
 
 
 class HomepageBannerListView(generics.ListAPIView):
@@ -626,6 +658,7 @@ class PublicStoreSettingsView(APIView):
         from .models import StoreSettings
         settings = StoreSettings.get_settings()
         return Response({
+            'logo': _logo_url(settings, request),
             'popular_searches': settings.popular_searches,
             'contact_address': settings.contact_address,
             'contact_phone_1': settings.contact_phone_1,
@@ -648,11 +681,15 @@ class StoreSettingsView(APIView):
         'map_embed_url',
     ]
 
+    def _payload(self, settings, request):
+        data = {field: getattr(settings, field) for field in self.SETTINGS_FIELDS}
+        data['logo'] = _logo_url(settings, request)
+        return data
+
     def get(self, request):
         from .models import StoreSettings
         settings = StoreSettings.get_settings()
-        data = {field: getattr(settings, field) for field in self.SETTINGS_FIELDS}
-        return Response(data)
+        return Response(self._payload(settings, request))
 
     def patch(self, request):
         from .models import StoreSettings
@@ -664,11 +701,14 @@ class StoreSettingsView(APIView):
             if value is not None:
                 setattr(settings, field, value)
                 updated = True
+        if 'logo' in request.FILES:
+            settings.logo = request.FILES['logo']
+            updated = True
         
         if updated:
             settings.save()
         
-        data = {field: getattr(settings, field) for field in self.SETTINGS_FIELDS}
+        data = self._payload(settings, request)
         data['message'] = 'Settings updated successfully'
         return Response(data)
 

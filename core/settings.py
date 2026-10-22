@@ -167,7 +167,7 @@ DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='Pickorbeet <noreply@p
 # CORS Settings
 CORS_ALLOWED_ORIGINS = config(
     'CORS_ALLOWED_ORIGINS',
-    default='http://localhost:3000,http://localhost:3001,http://localhost:3666,http://127.0.0.1:3000,http://127.0.0.1:3001,http://127.0.0.1:3666,https://www.pickorbeet.com,https://pickorbeet.com,https://admin.pickorbeet.com',
+    default='http://localhost:3000,http://localhost:3001,http://localhost:3777,http://127.0.0.1:3000,http://127.0.0.1:3001,http://127.0.0.1:3777,https://www.pickorbeet.com,https://pickorbeet.com,https://admin.pickorbeet.com',
     cast=lambda v: [s.strip() for s in v.split(',')]
 )
 CORS_ALLOW_CREDENTIALS = config('CORS_ALLOW_CREDENTIALS', default=True, cast=bool)
@@ -175,7 +175,7 @@ CORS_ALLOW_CREDENTIALS = config('CORS_ALLOW_CREDENTIALS', default=True, cast=boo
 # CSRF Settings
 CSRF_TRUSTED_ORIGINS = config(
     'CSRF_TRUSTED_ORIGINS',
-    default='http://localhost:3000,http://localhost:3001,http://localhost:3666,http://127.0.0.1:3000,http://127.0.0.1:3666,https://www.pickorbeet.com,https://pickorbeet.com,https://admin.pickorbeet.com',
+    default='http://localhost:3000,http://localhost:3001,http://localhost:3777,http://127.0.0.1:3000,http://127.0.0.1:3777,https://www.pickorbeet.com,https://pickorbeet.com,https://admin.pickorbeet.com',
     cast=lambda v: [s.strip() for s in v.split(',')]
 )
 CSRF_COOKIE_SECURE = config('CSRF_COOKIE_SECURE', default=False, cast=bool)
@@ -301,3 +301,10 @@ DELIVERY_CHARGE_OUTSIDE_DHAKA = 120
 
 # Low Stock Alert Threshold
 LOW_STOCK_THRESHOLD = 10
+
+# Exported Zzuhana admin panel, served at /admin/.
+ADMIN_PANEL_DIST = BASE_DIR / 'admin_panel' / 'out'
+
+from core.py314_compat import apply as _apply_py314_compat
+
+_apply_py314_compat()

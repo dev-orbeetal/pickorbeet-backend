@@ -55,7 +55,13 @@ class SubCategory(models.Model):
     name = models.CharField(max_length=100)
     slug = models.SlugField(max_length=120, blank=True)
     description = models.TextField(blank=True, null=True)
-    image = models.ImageField(upload_to='subcategories/', blank=True, null=True)
+    image = models.ImageField(
+        'Cover image',
+        upload_to='subcategories/',
+        blank=True,
+        null=True,
+        help_text='Shown on the homepage category card. A square image works best.',
+    )
     is_active = models.BooleanField(default=True)
     display_order = models.PositiveIntegerField(default=0)
     
@@ -271,6 +277,13 @@ class ProductVariant(models.Model):
 
 class StoreSettings(models.Model):
     """Singleton model for store settings including barcode prefix."""
+
+    logo = models.ImageField(
+        upload_to='store/',
+        blank=True,
+        null=True,
+        help_text='Store logo shown in the shop header and footer.',
+    )
     
     barcode_prefix = models.CharField(
         max_length=10, 
@@ -346,8 +359,8 @@ class HomepageBanner(models.Model):
     """Manually uploaded homepage images for the hero slider and promo slots."""
 
     PLACEMENT_CHOICES = [
-        ('hero', 'Hero slider'),
-        ('promo', 'Promo banner'),
+        ('hero', 'Hero slider (left)'),
+        ('promo', 'Side card (right)'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -356,7 +369,12 @@ class HomepageBanner(models.Model):
     subtitle = models.CharField(max_length=240, blank=True, default='')
     button_label = models.CharField(max_length=80, blank=True, default='')
     link = models.CharField(max_length=500, blank=True, default='', help_text='Optional URL opened when the banner is clicked')
-    placement = models.CharField(max_length=10, choices=PLACEMENT_CHOICES, default='hero')
+    placement = models.CharField(
+        max_length=10,
+        choices=PLACEMENT_CHOICES,
+        default='hero',
+        help_text='Hero images rotate in the left slider. The first two active side cards appear on the right, in display order.',
+    )
     display_order = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)

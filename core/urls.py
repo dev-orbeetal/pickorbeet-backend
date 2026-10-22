@@ -2,7 +2,8 @@
 URL configuration for Pickorbeet E-commerce project.
 """
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path, include, re_path
+from core.admin_panel import redirect_panel_path, serve_admin_panel
 from django.conf import settings
 from django.conf.urls.static import static
 from rest_framework import permissions
@@ -23,8 +24,14 @@ schema_view = get_schema_view(
 )
 
 urlpatterns = [
-    # Django Admin (Jazzmin)
-    path('admin/', admin.site.urls),
+    # Zzuhana admin panel (static export). Jazzmin stays available for models
+    # the panel does not edit.
+    re_path(r'^admin/(?P<path>.*)$', serve_admin_panel, name='admin_panel'),
+    re_path(
+        r'^(?P<page>login|dashboard|orders|products|categories|pos|coupons|inventory|barcode-labels|low-stock|reports|payments|staff|customers|contact|settings|money-management)(?P<rest>/.*)?$',
+        redirect_panel_path,
+    ),
+    path('django-admin/', admin.site.urls),
     
     # API Documentation
     path('api/docs/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),

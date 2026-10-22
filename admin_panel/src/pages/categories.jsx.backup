@@ -1,0 +1,528 @@
+import { useState, useRef, useEffect } from 'react';
+import { Plus, Edit, Trash2, FolderOpen, Image, Upload, Star, X } from 'lucide-react';
+import toast from 'react-hot-toast';
+import AdminLayout from '@/components/layout/AdminLayout';
+import {
+  useGetCategoriesQuery,
+  useCreateCategoryMutation,
+  useUpdateCategoryMutation,
+  useDeleteCategoryMutation
+} from '@/store/api/categoriesApi';
+
+export default function CategoriesPage() {
+  // Only run query on client-side when token is available
+  const token = typeof window !== 'undefined' ? localStorage.getItem('admin_access_token') : null;
+  const { data: categoriesData, isLoading: loading, error, isFetching, status, fulfilledTimeStamp } = useGetCategoriesQuery(undefined, {
+    skip: !token,
+  });
+  const [createCategory] = useCreateCategoryMutation();
+  const [updateCategory] = useUpdateCategoryMutation();
+  const [deleteCategory] = useDeleteCategoryMutation();
+
+  const categories = Array.isArray(categoriesData?.results || categoriesData)
+    ? (categoriesData?.results || categoriesData)
+    : [];
+
+  // Comprehensive debugging
+  console.log('=== Categories Debug ===');
+  console.log('token exists:', !!token);
+  console.log('query skipped:', !token);
+  console.log('isLoading:', loading);
+  console.log('isFetching:', isFetching);
+  console.log('status:', status);
+  console.log('fulfilledTimeStamp:', fulfilledTimeStamp);
+  console.log('data:', categoriesData);
+  console.log('categories:', categories);
+  console.log('error:', error);
+  console.log('========================');
+
+  // Handle error
+  if (error) {
+    console.error('Failed to fetch categories:', error);
+    toast.error(`Failed to load categories: ${error.status || 'Unknown error'}`);
+  }
+
+  // Force show data after 5 seconds even if still loading
+  const [forceShow, setForceShow] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (loading && !forceShow) {
+        console.log('Forcing show after timeout');
+        setForceShow(true);
+      }
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [loading, forceShow]);
+
+  const [showModal, setShowModal] = useState(false);
+  const [editingCategory, setEditingCategory] = useState(null);
+  const [formData, setFormData] = useState({
+    name: '',
+    description: '',
+    tagline: '',
+    display_order: 0,
+    featured_order: 0,
+    is_active: true,
+    is_featured: false,
+  });
+  const [imageFile, setImageFile] = useState(null);
+  const [bannerFile, setBannerFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [bannerPreview, setBannerPreview] = useState(null);
+  const imageInputRef = useRef(null);
+  const bannerInputRef = useRef(null);
+
+  const handleImageChange = (e, type) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (type === 'image') {
+          setImageFile(file);
+          setImagePreview(reader.result);
+        } else {
+          setBannerFile(file);
+          setBannerPreview(reader.result);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const clearImage = (type) => {
+    if (type === 'image') {
+      setImageFile(null);
+      setImagePreview(null);
+      if (imageInputRef.current) imageInputRef.current.value = '';
+    } else {
+      setBannerFile(null);
+      setBannerPreview(null);
+      if (bannerInputRef.current) bannerInputRef.current.value = '';
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const submitData = new FormData();
+      submitData.append('name', formData.name);
+      submitData.append('description', formData.description || '');
+      submitData.append('tagline', formData.tagline || '');
+      submitData.append('display_order', formData.display_order);
+      submitData.append('featured_order', formData.featured_order);
+      submitData.append('is_active', formData.is_active);
+      submitData.append('is_featured', formData.is_featured);
+
+      if (imageFile) {
+        submitData.append('image', imageFile);
+      }
+      if (bannerFile) {
+        submitData.append('banner_image', bannerFile);
+      }
+
+      if (editingCategory) {
+        await updateCategory({ id: editingCategory.id, data: submitData }).unwrap();
+        toast.success('Category updated');
+      } else {
+        await createCategory(submitData).unwrap();
+        toast.success('Category created');
+      }
+      resetForm();
+    } catch (error) {
+      toast.error(error?.data?.name?.[0] || 'Operation failed');
+    }
+  };
+
+  const resetForm = () => {
+    setShowModal(false);
+    setEditingCategory(null);
+    setFormData({
+      name: '',
+      description: '',
+      tagline: '',
+      display_order: 0,
+      featured_order: 0,
+      is_active: true,
+      is_featured: false,
+    });
+    setImageFile(null);
+    setBannerFile(null);
+    setImagePreview(null);
+    setBannerPreview(null);
+  };
+
+  const handleEdit = (category) => {
+    setEditingCategory(category);
+    setFormData({
+      name: category.name,
+      description: category.description || '',
+      tagline: category.tagline || '',
+      display_order: category.display_order,
+      featured_order: category.featured_order || 0,
+      is_active: category.is_active,
+      is_featured: category.is_featured || false,
+    });
+    setImagePreview(category.image || null);
+    setBannerPreview(category.banner_image || null);
+    setShowModal(true);
+  };
+
+  const handleDelete = async (id) => {
+    if (!confirm('Are you sure? This will also affect all products in this category.')) return;
+    try {
+      await deleteCategory(id).unwrap();
+      toast.success('Category deleted');
+    } catch (error) {
+      toast.error('Failed to delete category');
+    }
+  };
+
+  return (
+    <AdminLayout title="Categories">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <p className="text-gray-600">Manage product categories with images and featured banners</p>
+        </div>
+        <button
+          onClick={() => {
+            resetForm();
+            setShowModal(true);
+          }}
+          className="btn btn-primary"
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          Add Category
+        </button>
+      </div>
+
+      {/* Featured Categories Banner */}
+      {categories.filter(c => c.is_featured).length > 0 && (
+        <div className="mb-8">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <Star className="w-5 h-5 text-yellow-500" />
+            Featured Categories (Homepage Banners)
+          </h3>
+          <div className="grid md:grid-cols-2 gap-4">
+            {categories.filter(c => c.is_featured).sort((a, b) => a.featured_order - b.featured_order).map((category) => (
+              <div key={category.id} className="relative rounded-xl overflow-hidden h-48 group">
+                {category.banner_image ? (
+                  <img src={category.banner_image} alt={category.name} className="w-full h-full object-cover" />
+                ) : category.image ? (
+                  <img src={category.image} alt={category.name} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-900" />
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent" />
+                <div className="absolute bottom-4 left-4 right-4">
+                  <span className="px-2 py-1 bg-yellow-500 text-yellow-900 text-xs font-bold rounded mb-2 inline-block">
+                    Featured #{category.featured_order || 1}
+                  </span>
+                  <h4 className="text-white text-xl font-bold">{category.name}</h4>
+                  {category.tagline && <p className="text-white/80 text-sm">{category.tagline}</p>}
+                </div>
+                <button
+                  onClick={() => handleEdit(category)}
+                  className="absolute top-4 right-4 p-2 bg-white/20 backdrop-blur-sm rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <Edit className="w-4 h-4 text-white" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Categories Grid */}
+      <h3 className="text-lg font-semibold text-gray-900 mb-4">All Categories</h3>
+
+      {/* Debug Panel */}
+      <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-xs">
+        <strong>Debug Info:</strong><br />
+        token exists: {token ? 'true' : 'false'}<br />
+        query skipped: {!token ? 'true' : 'false'}<br />
+        isLoading: {loading ? 'true' : 'false'}<br />
+        isFetching: {isFetching ? 'true' : 'false'}<br />
+        status: {status}<br />
+        categories count: {categories.length}<br />
+        forceShow: {forceShow ? 'true' : 'false'}<br />
+        {error && <span className="text-red-600">Error: {JSON.stringify(error)}</span>}
+      </div>
+
+      {error && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-red-800">Error loading categories: {error.status || 'Unknown'}</p>
+          <p className="text-red-600 text-sm">{error.data?.detail || 'Please check your connection and try again'}</p>
+        </div>
+      )}
+      <div className="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        {loading && !forceShow ? (
+          [...Array(8)].map((_, i) => (
+            <div key={i} className="card p-6 animate-pulse">
+              <div className="h-40 bg-gray-200 rounded-lg mb-4" />
+              <div className="h-4 bg-gray-200 rounded w-3/4" />
+            </div>
+          ))
+        ) : categories.length === 0 ? (
+          <div className="col-span-full text-center py-12 text-gray-500">
+            <FolderOpen className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+            <p>No categories found. Create your first category.</p>
+          </div>
+        ) : (
+          Array.isArray(categories) && categories.map((category) => (
+            <div key={category.id} className="card overflow-hidden group">
+              {/* Category Image */}
+              <div className="relative h-40 bg-gray-100">
+                {category.image ? (
+                  <img src={category.image} alt={category.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200">
+                    <Image className="w-12 h-12 text-gray-300" />
+                  </div>
+                )}
+                {category.is_featured && (
+                  <span className="absolute top-2 left-2 px-2 py-1 bg-yellow-500 text-yellow-900 text-xs font-bold rounded">
+                    Featured
+                  </span>
+                )}
+              </div>
+
+              {/* Category Info */}
+              <div className="p-4">
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <h3 className="font-semibold text-gray-900">{category.name}</h3>
+                    <p className="text-sm text-gray-500">{category.product_count || 0} products</p>
+                  </div>
+                  <span className={`badge ${category.is_active ? 'badge-success' : 'badge-gray'}`}>
+                    {category.is_active ? 'Active' : 'Inactive'}
+                  </span>
+                </div>
+
+                {category.tagline && (
+                  <p className="text-sm text-gray-600 mb-2 italic">"{category.tagline}"</p>
+                )}
+
+                {category.description && (
+                  <p className="text-sm text-gray-600 mb-3 line-clamp-2">{category.description}</p>
+                )}
+
+                {/* Subcategories */}
+                {category.subcategories?.length > 0 && (
+                  <div className="mb-3">
+                    <p className="text-xs text-gray-500 mb-1">Subcategories:</p>
+                    <div className="flex flex-wrap gap-1">
+                      {Array.isArray(category.subcategories) && category.subcategories.slice(0, 3).map((sub) => (
+                        <span key={sub.id} className="text-xs bg-gray-100 px-2 py-1 rounded">{sub.name}</span>
+                      ))}
+                      {category.subcategories.length > 3 && (
+                        <span className="text-xs bg-gray-100 px-2 py-1 rounded">+{category.subcategories.length - 3}</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2 pt-3 border-t">
+                  <button onClick={() => handleEdit(category)} className="flex-1 btn btn-secondary text-sm">
+                    <Edit className="w-4 h-4 mr-1" />
+                    Edit
+                  </button>
+                </button>
+              </div>
+            </div>
+              </div>
+      ))
+          )}
+    </div>
+
+        {/* Modal */ }
+  {
+    showModal && (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+        <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl my-8">
+          <div className="p-6 border-b flex items-center justify-between">
+            <h2 className="text-xl font-semibold text-gray-900">
+              {editingCategory ? 'Edit Category' : 'Add New Category'}
+            </h2>
+            <button onClick={resetForm} className="p-2 hover:bg-gray-100 rounded-lg">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <form onSubmit={handleSubmit} className="p-6 space-y-6">
+            {/* Basic Info */}
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+                <input
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  className="input"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tagline</label>
+                <input
+                  type="text"
+                  value={formData.tagline}
+                  onChange={(e) => setFormData({ ...formData, tagline: e.target.value })}
+                  className="input"
+                  placeholder="e.g., Luxury Collection 2024"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+              <textarea
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                className="input"
+                rows={3}
+              />
+            </div>
+
+            {/* Images */}
+            <div className="grid md:grid-cols-2 gap-6">
+              {/* Category Image */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Category Image</label>
+                <div className="relative">
+                  {imagePreview ? (
+                    <div className="relative h-40 rounded-lg overflow-hidden">
+                      <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => clearImage('image')}
+                        className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="flex flex-col items-center justify-center h-40 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-500 transition-colors">
+                      <Upload className="w-8 h-8 text-gray-400 mb-2" />
+                      <span className="text-sm text-gray-500">Upload category image</span>
+                      <span className="text-xs text-gray-400">Recommended: 400x500px</span>
+                      <input
+                        ref={imageInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => handleImageChange(e, 'image')}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
+                </div>
+              </div>
+
+              {/* Banner Image */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Banner Image <span className="text-gray-400">(for featured section)</span>
+                </label>
+                <div className="relative">
+                  {bannerPreview ? (
+                    <div className="relative h-40 rounded-lg overflow-hidden">
+                      <img src={bannerPreview} alt="Banner Preview" className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => clearImage('banner')}
+                        className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="flex flex-col items-center justify-center h-40 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-500 transition-colors">
+                      <Upload className="w-8 h-8 text-gray-400 mb-2" />
+                      <span className="text-sm text-gray-500">Upload banner image</span>
+                      <span className="text-xs text-gray-400">Recommended: 1920x800px</span>
+                      <input
+                        ref={bannerInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => handleImageChange(e, 'banner')}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Featured Settings */}
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <h3 className="font-medium text-yellow-800 mb-3 flex items-center gap-2">
+                <Star className="w-4 h-4" />
+                Homepage Featured Settings
+              </h3>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id="is_featured"
+                    checked={formData.is_featured}
+                    onChange={(e) => setFormData({ ...formData, is_featured: e.target.checked })}
+                    className="mr-2 w-4 h-4"
+                  />
+                  <label htmlFor="is_featured" className="text-sm text-gray-700">
+                    Show as featured on homepage
+                  </label>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Featured Order</label>
+                  <input
+                    type="number"
+                    value={formData.featured_order}
+                    onChange={(e) => setFormData({ ...formData, featured_order: parseInt(e.target.value) || 0 })}
+                    className="input"
+                    min="0"
+                    disabled={!formData.is_featured}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Display Settings */}
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Display Order</label>
+                <input
+                  type="number"
+                  value={formData.display_order}
+                  onChange={(e) => setFormData({ ...formData, display_order: parseInt(e.target.value) || 0 })}
+                  className="input"
+                  min="0"
+                />
+              </div>
+              <div className="flex items-center pt-6">
+                <input
+                  type="checkbox"
+                  id="is_active"
+                  checked={formData.is_active}
+                  onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
+                  className="mr-2 w-4 h-4"
+                />
+                <label htmlFor="is_active" className="text-sm text-gray-700">Active (visible on store)</label>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-4 border-t">
+              <button type="button" onClick={resetForm} className="flex-1 btn btn-secondary">
+                Cancel
+              </button>
+              <button type="submit" className="flex-1 btn btn-primary">
+                {editingCategory ? 'Update Category' : 'Create Category'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )
+  }
+    </AdminLayout >
+  );
+}

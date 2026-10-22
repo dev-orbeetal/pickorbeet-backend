@@ -12,7 +12,18 @@ from .models import (
 class SubCategoryInline(admin.TabularInline):
     model = SubCategory
     extra = 1
+    fields = ['name', 'slug', 'image', 'cover_preview', 'display_order', 'is_active']
+    readonly_fields = ['cover_preview']
     prepopulated_fields = {'slug': ('name',)}
+
+    def cover_preview(self, obj):
+        if getattr(obj, 'image', None):
+            return format_html(
+                '<img src="{}" width="48" height="48" style="object-fit:cover;border-radius:6px" />',
+                obj.image.url,
+            )
+        return '—'
+    cover_preview.short_description = 'Preview'
 
 
 @admin.register(Category)
@@ -33,11 +44,21 @@ class CategoryAdmin(admin.ModelAdmin):
 
 @admin.register(SubCategory)
 class SubCategoryAdmin(admin.ModelAdmin):
-    list_display = ['name', 'category', 'slug', 'display_order', 'is_active', 'product_count']
+    list_display = ['name', 'category', 'cover_preview', 'slug', 'display_order', 'is_active', 'product_count']
     list_filter = ['is_active', 'category']
     search_fields = ['name', 'description']
     prepopulated_fields = {'slug': ('name',)}
     ordering = ['category', 'display_order', 'name']
+    fields = ['category', 'name', 'slug', 'description', 'image', 'display_order', 'is_active']
+
+    def cover_preview(self, obj):
+        if obj.image:
+            return format_html(
+                '<img src="{}" width="48" height="48" style="object-fit:cover;border-radius:6px" />',
+                obj.image.url,
+            )
+        return '—'
+    cover_preview.short_description = 'Cover'
 
 
 class ProductImageInline(admin.TabularInline):

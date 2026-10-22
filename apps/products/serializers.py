@@ -39,7 +39,7 @@ class SubCategoryListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SubCategory
-        fields = ['id', 'name', 'slug', 'image']
+        fields = ['id', 'name', 'slug', 'image', 'display_order']
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -76,7 +76,7 @@ class ProductListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = ['id', 'name', 'slug', 'sku', 'barcode', 'category', 'category_name', 
-                  'subcategory', 'subcategory_name', 'price', 'compare_price',
+                  'subcategory', 'subcategory_name', 'short_description', 'price', 'compare_price',
                   'primary_image', 'discount_percentage', 'stock_quantity',
                   'low_stock_threshold',
                   'is_low_stock', 'is_out_of_stock', 'is_featured', 'is_active',
@@ -148,7 +148,7 @@ class HomepageBannerSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = HomepageBanner
-        fields = ['id', 'image', 'title', 'subtitle', 'button_label', 'link', 'placement', 'display_order']
+        fields = ['id', 'image', 'title', 'subtitle', 'button_label', 'link', 'placement', 'display_order', 'is_active']
 
 
 class ContactMessageSubmitSerializer(serializers.ModelSerializer):

@@ -101,6 +101,7 @@ yarn-error.log*
 
 # Next.js build output
 .next
+admin_panel/out
 
 # Nuxt.js build / generate output
 .nuxt

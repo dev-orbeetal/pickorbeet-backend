@@ -152,8 +152,8 @@ SSLCOMMERZ_SANDBOX=True
 EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend
 
 # Client (local `make up` uses these ports)
-NEXT_PUBLIC_API_URL=http://127.0.0.1:8666/api/v1
-NEXT_PUBLIC_SITE_URL=http://127.0.0.1:3666
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8777/api/v1
+NEXT_PUBLIC_SITE_URL=http://127.0.0.1:3777
 ```
 
 ### Production
