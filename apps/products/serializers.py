@@ -5,8 +5,21 @@ from rest_framework import serializers
 from .models import Category, SubCategory, Product, ProductImage, ProductVariant, ContactMessage, HomepageBanner
 
 
+class RelativeImageField(serializers.ImageField):
+    """Keep image paths on this site (/media/...) instead of another host."""
+
+    def to_representation(self, value):
+        if not value:
+            return None
+        try:
+            return value.url
+        except AttributeError:
+            return None
+
+
 class ProductImageSerializer(serializers.ModelSerializer):
     """Serializer for product images."""
+    image = RelativeImageField()
 
     class Meta:
         model = ProductImage
@@ -25,6 +38,7 @@ class ProductVariantSerializer(serializers.ModelSerializer):
 
 class SubCategorySerializer(serializers.ModelSerializer):
     """Serializer for subcategories."""
+    image = RelativeImageField(required=False, allow_null=True)
     product_count = serializers.ReadOnlyField()
 
     class Meta:
@@ -36,6 +50,7 @@ class SubCategorySerializer(serializers.ModelSerializer):
 
 class SubCategoryListSerializer(serializers.ModelSerializer):
     """Minimal serializer for subcategory lists."""
+    image = RelativeImageField(required=False, allow_null=True)
 
     class Meta:
         model = SubCategory
@@ -44,6 +59,8 @@ class SubCategoryListSerializer(serializers.ModelSerializer):
 
 class CategorySerializer(serializers.ModelSerializer):
     """Serializer for categories with subcategories."""
+    image = RelativeImageField(required=False, allow_null=True)
+    banner_image = RelativeImageField(required=False, allow_null=True)
     subcategories = SubCategoryListSerializer(many=True, read_only=True)
     product_count = serializers.ReadOnlyField()
 
@@ -57,6 +74,8 @@ class CategorySerializer(serializers.ModelSerializer):
 
 class CategoryListSerializer(serializers.ModelSerializer):
     """Minimal serializer for category lists."""
+    image = RelativeImageField(required=False, allow_null=True)
+    banner_image = RelativeImageField(required=False, allow_null=True)
 
     class Meta:
         model = Category
@@ -145,6 +164,7 @@ class ProductStockUpdateSerializer(serializers.Serializer):
 
 class HomepageBannerSerializer(serializers.ModelSerializer):
     """Public serializer for uploaded homepage banners."""
+    image = RelativeImageField()
 
     class Meta:
         model = HomepageBanner

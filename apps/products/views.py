@@ -1,6 +1,8 @@
 """
 Views for products app.
 """
+import uuid
+
 from rest_framework import generics, status, filters
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -111,8 +113,25 @@ class ProductListView(generics.ListAPIView):
                 compare_price__isnull=False,
                 compare_price__gt=F('price'),
             )
-        
+
+        ids_param = self.request.query_params.get('ids')
+        if ids_param is not None:
+            valid_ids = []
+            for raw in ids_param.split(',')[:50]:
+                try:
+                    valid_ids.append(uuid.UUID(raw.strip()))
+                except (ValueError, AttributeError):
+                    continue
+            queryset = queryset.filter(id__in=valid_ids) if valid_ids else queryset.none()
+
         return queryset
+
+    def paginate_queryset(self, queryset):
+        # Wishlist lookups ask for a specific id set and should not be clipped
+        # by the default page size.
+        if self.request.query_params.get('ids') is not None:
+            return None
+        return super().paginate_queryset(queryset)
 
 
 class ProductDetailView(generics.RetrieveAPIView):
