@@ -35,9 +35,9 @@ export default function Sidebar() {
   return (
     <aside className="fixed left-0 top-0 h-screen w-64 bg-sidebar-bg text-white flex flex-col z-50">
       {/* Logo */}
-      <div className="p-6 border-b border-gray-700">
+      <div className="p-6 border-b border-white/10">
         <Link href="/dashboard" className="text-2xl font-bold text-primary-400">
-          Zzuhana
+          PickOrbeet
         </Link>
         <p className="text-xs text-gray-400 mt-1">Admin Panel</p>
       </div>

@@ -458,7 +458,7 @@ export default function POSPage() {
         `}</style>
         <div ref={printRef} className="receipt-thermal">
           <div className="receipt-header">
-            <h1>ZZUHANA</h1>
+            <h1>PickOrbeet</h1>
             <p>Premium Clothing Store</p>
             <p>Dhaka, Bangladesh</p>
             <p>Tel: +880 1234-567890</p>
@@ -526,7 +526,7 @@ export default function POSPage() {
           <div className="receipt-footer">
             <p>Thank you for shopping!</p>
             <p>Exchange within 3 days with receipt</p>
-            <p style={{ marginTop: '2mm' }}>www.zzuhana.com</p>
+            <p style={{ marginTop: '2mm' }}>www.PickOrbeet.com</p>
           </div>
         </div>
       </div>

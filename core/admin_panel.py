@@ -1,4 +1,4 @@
-"""Serve the exported Zzuhana admin panel at /admin/."""
+"""Serve the exported PickOrbeet admin panel at /admin/."""
 import mimetypes
 from pathlib import Path
 

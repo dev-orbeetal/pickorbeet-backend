@@ -24,7 +24,7 @@ schema_view = get_schema_view(
 )
 
 urlpatterns = [
-    # Zzuhana admin panel (static export). Jazzmin stays available for models
+    # PickOrbeet admin panel (static export). Jazzmin stays available for models
     # the panel does not edit.
     re_path(r'^admin/(?P<path>.*)$', serve_admin_panel, name='admin_panel'),
     re_path(

@@ -139,10 +139,10 @@ export default function CouponsPage() {
             
             .voucher {
               width: 500px;
-              background: linear-gradient(135deg, #8B2942 0%, #6B1D32 100%);
+              background: linear-gradient(135deg, #202D70 0%, #141B4D 100%);
               border-radius: 20px;
               overflow: hidden;
-              box-shadow: 0 20px 60px rgba(139, 41, 66, 0.3);
+              box-shadow: 0 20px 60px rgba(32, 45, 112, 0.3);
               position: relative;
             }
             
@@ -168,7 +168,7 @@ export default function CouponsPage() {
               font-family: 'Playfair Display', serif;
               font-size: 32px;
               font-weight: 700;
-              color: #D4AF37;
+              color: #FF861F;
               letter-spacing: 2px;
               margin-bottom: 5px;
             }
@@ -192,14 +192,14 @@ export default function CouponsPage() {
             
             .discount-badge {
               display: inline-block;
-              background: linear-gradient(135deg, #D4AF37 0%, #B8962E 100%);
-              color: #1a1a1a;
+              background: linear-gradient(135deg, #FF861F 0%, #E86E00 100%);
+              color: #ffffff;
               font-size: 42px;
               font-weight: 700;
               padding: 15px 40px;
               border-radius: 12px;
               margin-bottom: 20px;
-              box-shadow: 0 4px 15px rgba(212, 175, 55, 0.3);
+              box-shadow: 0 4px 15px rgba(255, 134, 31, 0.3);
             }
             
             .coupon-name {
@@ -216,15 +216,15 @@ export default function CouponsPage() {
             }
             
             .code-container {
-              background: #f8f5f0;
-              border: 2px dashed #D4AF37;
+              background: #F5F7FC;
+              border: 2px dashed #FF861F;
               border-radius: 12px;
               padding: 20px;
               margin-bottom: 20px;
             }
             
             .code-label {
-              color: #8B2942;
+              color: #202D70;
               font-size: 11px;
               letter-spacing: 2px;
               text-transform: uppercase;
@@ -235,7 +235,7 @@ export default function CouponsPage() {
               font-family: 'Courier New', monospace;
               font-size: 32px;
               font-weight: bold;
-              color: #8B2942;
+              color: #202D70;
               letter-spacing: 3px;
             }
             
@@ -262,7 +262,7 @@ export default function CouponsPage() {
             }
             
             .validity strong {
-              color: #D4AF37;
+              color: #FF861F;
             }
             
             .decorative-circle {
@@ -298,7 +298,7 @@ export default function CouponsPage() {
             <div class="decorative-circle circle-right"></div>
             
             <div class="voucher-header">
-              <div class="logo">ZZUHANA</div>
+              <div class="logo">PickOrbeet</div>
               <div class="tagline">Premium Fashion & Lifestyle</div>
             </div>
             

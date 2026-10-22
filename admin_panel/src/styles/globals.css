@@ -6,7 +6,7 @@
 
 body {
   font-family: 'Inter', sans-serif;
-  @apply bg-gray-100 text-gray-900;
+  @apply bg-[#F5F7FC] text-[#172033];
 }
 
 @layer components {
@@ -31,11 +31,11 @@ body {
   }
   
   .input {
-    @apply w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors text-sm;
+    @apply w-full px-3 py-2 border border-[#E4E9F2] rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors text-sm;
   }
   
   .card {
-    @apply bg-white rounded-xl shadow-sm border border-gray-200 p-6;
+    @apply bg-white rounded-xl shadow-sm border border-[#E4E9F2] p-6;
   }
   
   .table-header {
@@ -51,7 +51,7 @@ body {
   }
   
   .stat-card {
-    @apply bg-white rounded-xl shadow-sm border border-gray-200 p-6;
+    @apply bg-white rounded-xl shadow-sm border border-[#E4E9F2] p-6;
   }
   
   .badge {

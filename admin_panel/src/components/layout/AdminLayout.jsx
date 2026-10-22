@@ -46,10 +46,10 @@ export default function AdminLayout({ children, title = 'Admin Panel' }) {
   return (
     <>
       <Head>
-        <title>{title} - Zzuhana Admin</title>
+        <title>{title} - PickOrbeet Admin</title>
       </Head>
 
-      <div className="min-h-screen bg-gray-100">
+      <div className="min-h-screen bg-[#F5F7FC]">
         {/* Sidebar */}
         <div className={`lg:block ${sidebarOpen ? 'block' : 'hidden'}`}>
           <Sidebar />

@@ -475,7 +475,7 @@ export default function OrderDetailPage() {
       <div className="hidden">
         <div ref={printRef} style={{ fontFamily: "'Inter', 'Segoe UI', sans-serif", color: '#1F1F1F', maxWidth: '800px', margin: '0 auto', padding: '0', background: '#ffffff' }}>
           {/* Thin elegant burgundy top accent */}
-          <div style={{ height: '4px', background: 'linear-gradient(90deg, #8B2942, #ED7A9A, #8B2942)' }} />
+          <div style={{ height: '4px', background: '#FF861F' }} />
 
           <div style={{ position: 'relative', padding: '32px 40px 36px' }}>
             {/* Very subtle heart watermark — barely visible */}
@@ -488,15 +488,15 @@ export default function OrderDetailPage() {
             <div style={{ position: 'relative', zIndex: 1 }}>
 
               {/* Header — Logo + Invoice Info */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '28px', paddingBottom: '20px', borderBottom: '1.5px solid #F5F0E6' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '28px', paddingBottom: '20px', borderBottom: '1.5px solid #E4E9F2' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                  <img src="/images/logo.png" alt="Zzuhana" style={{ height: '52px', width: 'auto' }} />
+                  <img src="/images/logo.png" alt="PickOrbeet" style={{ height: '52px', width: 'auto' }} />
                   <div>
-                    <p style={{ fontSize: '9px', color: '#8B2942', margin: 0, letterSpacing: '3px', textTransform: 'uppercase', fontWeight: '600' }}>Premium Fashion & Lifestyle</p>
+                    <p style={{ fontSize: '9px', color: '#202D70', margin: 0, letterSpacing: '3px', textTransform: 'uppercase', fontWeight: '600' }}>Premium Fashion & Lifestyle</p>
                   </div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <p style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: '22px', fontWeight: '700', margin: '0 0 4px 0', color: '#8B2942', letterSpacing: '1px' }}>INVOICE</p>
+                  <p style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: '22px', fontWeight: '700', margin: '0 0 4px 0', color: '#202D70', letterSpacing: '1px' }}>INVOICE</p>
                   <p style={{ fontSize: '13px', color: '#404040', fontWeight: '600', margin: '0 0 2px 0' }}>#{order.order_number}</p>
                   <p style={{ fontSize: '11px', color: '#A3A3A3', margin: 0 }}>{new Date(order.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
                 </div>
@@ -504,9 +504,9 @@ export default function OrderDetailPage() {
 
               {/* Two Column: Ship To + Order Info — cream cards */}
               <div style={{ display: 'flex', gap: '16px', marginBottom: '28px' }}>
-                <div style={{ flex: 1, background: '#FDFBF7', border: '1px solid #EDE5D4', borderRadius: '12px', padding: '18px 20px' }}>
-                  <p style={{ fontSize: '9px', textTransform: 'uppercase', letterSpacing: '2.5px', color: '#8B2942', fontWeight: '700', margin: '0 0 10px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ display: 'inline-block', width: '14px', height: '1.5px', background: '#8B2942', borderRadius: '1px' }} />
+                <div style={{ flex: 1, background: '#F5F7FC', border: '1px solid #E4E9F2', borderRadius: '12px', padding: '18px 20px' }}>
+                  <p style={{ fontSize: '9px', textTransform: 'uppercase', letterSpacing: '2.5px', color: '#202D70', fontWeight: '700', margin: '0 0 10px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ display: 'inline-block', width: '14px', height: '1.5px', background: '#202D70', borderRadius: '1px' }} />
                     Ship To
                   </p>
                   <p style={{ fontWeight: '700', fontSize: '14px', margin: '0 0 3px 0', color: '#1F1F1F' }}>{order.shipping_name}</p>
@@ -515,9 +515,9 @@ export default function OrderDetailPage() {
                   {order.shipping_address_line2 && <p style={{ fontSize: '12px', color: '#525252', margin: '0 0 2px 0' }}>{order.shipping_address_line2}</p>}
                   <p style={{ fontSize: '12px', color: '#525252', margin: 0 }}>{order.shipping_city}, {order.shipping_district}</p>
                 </div>
-                <div style={{ flex: 1, background: '#FDFBF7', border: '1px solid #EDE5D4', borderRadius: '12px', padding: '18px 20px' }}>
-                  <p style={{ fontSize: '9px', textTransform: 'uppercase', letterSpacing: '2.5px', color: '#8B2942', fontWeight: '700', margin: '0 0 10px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ display: 'inline-block', width: '14px', height: '1.5px', background: '#8B2942', borderRadius: '1px' }} />
+                <div style={{ flex: 1, background: '#F5F7FC', border: '1px solid #E4E9F2', borderRadius: '12px', padding: '18px 20px' }}>
+                  <p style={{ fontSize: '9px', textTransform: 'uppercase', letterSpacing: '2.5px', color: '#202D70', fontWeight: '700', margin: '0 0 10px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ display: 'inline-block', width: '14px', height: '1.5px', background: '#202D70', borderRadius: '1px' }} />
                     Order Details
                   </p>
                   <table style={{ fontSize: '12px', width: '100%' }}>
@@ -531,9 +531,9 @@ export default function OrderDetailPage() {
               </div>
 
               {/* Items Table — clean with burgundy header */}
-              <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0', marginBottom: '24px', borderRadius: '12px', overflow: 'hidden', border: '1px solid #EDE5D4' }}>
+              <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0', marginBottom: '24px', borderRadius: '12px', overflow: 'hidden', border: '1px solid #E4E9F2' }}>
                 <thead>
-                  <tr style={{ background: '#8B2942' }}>
+                  <tr style={{ background: '#202D70' }}>
                     <th style={{ textAlign: 'left', padding: '11px 14px', fontSize: '9px', textTransform: 'uppercase', letterSpacing: '1.5px', color: '#fff', fontWeight: '600' }}>#</th>
                     <th style={{ textAlign: 'left', padding: '11px 14px', fontSize: '9px', textTransform: 'uppercase', letterSpacing: '1.5px', color: '#fff', fontWeight: '600' }}>Item Description</th>
                     <th style={{ textAlign: 'center', padding: '11px 14px', fontSize: '9px', textTransform: 'uppercase', letterSpacing: '1.5px', color: '#fff', fontWeight: '600' }}>Qty</th>
@@ -543,7 +543,7 @@ export default function OrderDetailPage() {
                 </thead>
                 <tbody>
                   {order.items?.map((item, idx) => (
-                    <tr key={item.id} style={{ background: idx % 2 === 0 ? '#ffffff' : '#FDFBF7' }}>
+                    <tr key={item.id} style={{ background: idx % 2 === 0 ? '#ffffff' : '#F5F7FC' }}>
                       <td style={{ padding: '11px 14px', fontSize: '12px', color: '#A3A3A3' }}>{idx + 1}</td>
                       <td style={{ padding: '11px 14px' }}>
                         <p style={{ fontSize: '13px', fontWeight: '600', margin: '0 0 2px 0', color: '#1F1F1F' }}>{item.product_name}</p>
@@ -555,7 +555,7 @@ export default function OrderDetailPage() {
                       </td>
                       <td style={{ padding: '11px 14px', textAlign: 'center', fontSize: '13px', color: '#1F1F1F' }}>{item.quantity}</td>
                       <td style={{ padding: '11px 14px', textAlign: 'right', fontSize: '13px', color: '#404040' }}>৳{parseFloat(item.unit_price).toLocaleString()}</td>
-                      <td style={{ padding: '11px 14px', textAlign: 'right', fontSize: '13px', fontWeight: '700', color: '#8B2942' }}>৳{parseFloat(item.total_price).toLocaleString()}</td>
+                      <td style={{ padding: '11px 14px', textAlign: 'right', fontSize: '13px', fontWeight: '700', color: '#202D70' }}>৳{parseFloat(item.total_price).toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -563,7 +563,7 @@ export default function OrderDetailPage() {
 
               {/* Totals — cream box */}
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '28px' }}>
-                <div style={{ background: '#FDFBF7', border: '1px solid #EDE5D4', borderRadius: '12px', padding: '16px 24px', minWidth: '280px' }}>
+                <div style={{ background: '#F5F7FC', border: '1px solid #E4E9F2', borderRadius: '12px', padding: '16px 24px', minWidth: '280px' }}>
                   <table style={{ width: '100%' }}>
                     <tbody>
                       <tr>
@@ -581,11 +581,11 @@ export default function OrderDetailPage() {
                         </tr>
                       )}
                       <tr>
-                        <td colSpan={2} style={{ padding: '8px 0 0 0' }}><div style={{ height: '1.5px', background: 'linear-gradient(90deg, transparent, #8B2942, transparent)', borderRadius: '1px' }} /></td>
+                        <td colSpan={2} style={{ padding: '8px 0 0 0' }}><div style={{ height: '1.5px', background: 'linear-gradient(90deg, transparent, #202D70, transparent)', borderRadius: '1px' }} /></td>
                       </tr>
                       <tr>
-                        <td style={{ padding: '10px 0 0 0', fontFamily: "'Playfair Display', Georgia, serif", fontSize: '16px', fontWeight: '700', color: '#8B2942' }}>Total</td>
-                        <td style={{ padding: '10px 0 0 0', fontFamily: "'Playfair Display', Georgia, serif", fontSize: '20px', fontWeight: '700', textAlign: 'right', color: '#8B2942' }}>৳{parseFloat(order.total).toLocaleString()}</td>
+                        <td style={{ padding: '10px 0 0 0', fontFamily: "'Playfair Display', Georgia, serif", fontSize: '16px', fontWeight: '700', color: '#202D70' }}>Total</td>
+                        <td style={{ padding: '10px 0 0 0', fontFamily: "'Playfair Display', Georgia, serif", fontSize: '20px', fontWeight: '700', textAlign: 'right', color: '#202D70' }}>৳{parseFloat(order.total).toLocaleString()}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -593,9 +593,9 @@ export default function OrderDetailPage() {
               </div>
 
               {/* Thank You Banner — soft cream with burgundy text */}
-              <div style={{ background: '#FDFBF7', border: '1px solid #EDE5D4', borderRadius: '12px', padding: '20px 30px', textAlign: 'center', marginBottom: '24px' }}>
-                <p style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: '18px', fontWeight: '700', color: '#8B2942', margin: '0 0 4px 0', letterSpacing: '0.5px' }}>
-                  Thank You for Choosing Zzuhana!
+              <div style={{ background: '#F5F7FC', border: '1px solid #E4E9F2', borderRadius: '12px', padding: '20px 30px', textAlign: 'center', marginBottom: '24px' }}>
+                <p style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: '18px', fontWeight: '700', color: '#202D70', margin: '0 0 4px 0', letterSpacing: '0.5px' }}>
+                  Thank You for Choosing PickOrbeet!
                 </p>
                 <p style={{ fontSize: '11px', color: '#737373', margin: 0, letterSpacing: '0.5px' }}>
                   Your style, our passion — we love having you!
@@ -603,13 +603,13 @@ export default function OrderDetailPage() {
               </div>
 
               {/* Footer — subtle divider */}
-              <div style={{ borderTop: '1px solid #F5F0E6', paddingTop: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ borderTop: '1px solid #E4E9F2', paddingTop: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <p style={{ fontSize: '11px', color: '#737373', margin: '0 0 2px 0' }}>For queries, contact us at support@zzuhana.com</p>
+                  <p style={{ fontSize: '11px', color: '#737373', margin: '0 0 2px 0' }}>For queries, contact us at support@PickOrbeet.com</p>
                   <p style={{ fontSize: '10px', color: '#A3A3A3', margin: 0 }}>This is a computer-generated invoice.</p>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <p style={{ fontSize: '12px', fontWeight: '600', color: '#8B2942', margin: '0 0 2px 0' }}>www.zzuhana.com</p>
+                  <p style={{ fontSize: '12px', fontWeight: '600', color: '#202D70', margin: '0 0 2px 0' }}>www.PickOrbeet.com</p>
                   <p style={{ fontSize: '10px', color: '#A3A3A3', margin: 0 }}>Follow us on social media</p>
                 </div>
               </div>
@@ -617,7 +617,7 @@ export default function OrderDetailPage() {
           </div>
 
           {/* Thin elegant burgundy bottom accent */}
-          <div style={{ height: '4px', background: 'linear-gradient(90deg, #8B2942, #ED7A9A, #8B2942)' }} />
+          <div style={{ height: '4px', background: '#FF861F' }} />
         </div>
       </div>
     </AdminLayout>

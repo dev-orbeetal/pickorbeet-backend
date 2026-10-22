@@ -1,6 +1,6 @@
-# Zzuhana Admin Panel
+# PickOrbeet Admin Panel
 
-Custom admin panel for Zzuhana E-commerce platform built with Next.js.
+Custom admin panel for PickOrbeet E-commerce platform built with Next.js.
 
 ## Tech Stack
 

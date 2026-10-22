@@ -175,7 +175,7 @@ export default function ReportsPage() {
     const ref = type === 'sales' ? salesPrintRef : stockPrintRef;
     const printWindow = window.open('', '_blank');
     printWindow.document.write(`
-      <html><head><title>${type === 'sales' ? 'Sales' : 'Stock'} Report — Zzuhana</title>
+      <html><head><title>${type === 'sales' ? 'Sales' : 'Stock'} Report — PickOrbeet</title>
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a1a; padding: 32px; font-size: 12px; }
@@ -201,7 +201,7 @@ export default function ReportsPage() {
         .footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #e5e5e5; display: flex; justify-content: space-between; font-size: 10px; color: #aaa; }
         @media print { body { padding: 16px; } }
       </style></head><body>${ref.current.innerHTML}
-      <div class="footer"><span>Generated on ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} by Zzuhana Admin</span><span>www.zzuhana.com</span></div>
+      <div class="footer"><span>Generated on ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} by PickOrbeet Admin</span><span>www.PickOrbeet.com</span></div>
       </body></html>
     `);
     printWindow.document.close();
@@ -417,7 +417,7 @@ export default function ReportsPage() {
           <div className="hidden">
             <div ref={salesPrintRef}>
               <div className="header">
-                <div><h1>Zzuhana</h1><p className="meta">Sales Report</p></div>
+                <div><h1>PickOrbeet</h1><p className="meta">Sales Report</p></div>
                 <div style={{ textAlign: 'right' }}><p className="bold">{dateRange.start_date} — {dateRange.end_date}</p></div>
               </div>
               {salesData && (
@@ -615,7 +615,7 @@ export default function ReportsPage() {
           <div className="hidden">
             <div ref={stockPrintRef}>
               <div className="header">
-                <div><h1>Zzuhana</h1><p className="meta">Stock Report</p></div>
+                <div><h1>PickOrbeet</h1><p className="meta">Stock Report</p></div>
                 <div style={{ textAlign: 'right' }}><p className="bold">{new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</p></div>
               </div>
               {stockData && (

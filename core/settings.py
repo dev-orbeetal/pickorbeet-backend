@@ -302,7 +302,7 @@ DELIVERY_CHARGE_OUTSIDE_DHAKA = 120
 # Low Stock Alert Threshold
 LOW_STOCK_THRESHOLD = 10
 
-# Exported Zzuhana admin panel, served at /admin/.
+# Exported PickOrbeet admin panel, served at /admin/.
 ADMIN_PANEL_DIST = BASE_DIR / 'admin_panel' / 'out'
 
 from core.py314_compat import apply as _apply_py314_compat

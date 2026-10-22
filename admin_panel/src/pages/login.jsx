@@ -56,13 +56,13 @@ export default function LoginPage() {
   return (
     <>
       <Head>
-        <title>Login - Zzuhana Admin</title>
+        <title>Login - PickOrbeet Admin</title>
       </Head>
 
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-[#202D70] flex items-center justify-center p-4">
         <div className="w-full max-w-md">
           <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-primary-400">Zzuhana</h1>
+            <h1 className="text-3xl font-bold text-primary-400">PickOrbeet</h1>
             <p className="text-gray-400 mt-2">Admin Panel</p>
           </div>
 
@@ -81,7 +81,7 @@ export default function LoginPage() {
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                     className="input pl-10"
-                    placeholder="admin@zzuhana.com"
+                    placeholder="admin@PickOrbeet.com"
                     required
                   />
                 </div>

@@ -667,7 +667,7 @@ export default function SettingsPage() {
                   value={formData.contact_email_1}
                   onChange={(e) => handleChange('contact_email_1', e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                  placeholder="contact@zzuhana.com"
+                  placeholder="contact@PickOrbeet.com"
                 />
               </div>
               <div>
@@ -680,7 +680,7 @@ export default function SettingsPage() {
                   value={formData.contact_email_2}
                   onChange={(e) => handleChange('contact_email_2', e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                  placeholder="support@zzuhana.com"
+                  placeholder="support@PickOrbeet.com"
                 />
               </div>
               <div className="md:col-span-2">
