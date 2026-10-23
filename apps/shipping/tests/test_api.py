@@ -182,4 +182,9 @@ class ShipmentEndpointTests(ShopTestCase):
         shipment = response.json()['shipment']
         self.assertEqual(shipment['tracking_code'], 'SF123456789BD')
         self.assertEqual(shipment['courier_name'], 'Steadfast Courier')
+        self.assertEqual(shipment['events'][0]['source'], 'booking')
         self.assertNotIn('cod_amount', shipment)
+
+        by_code = APIClient().post('/api/v1/orders/track/', {'tracking_code': 'sf123456789bd'}, format='json')
+        self.assertEqual(by_code.status_code, 200)
+        self.assertEqual(by_code.json()['order_number'], self.order.order_number)

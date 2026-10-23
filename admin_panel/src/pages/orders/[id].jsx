@@ -9,7 +9,8 @@ import {
 import toast from 'react-hot-toast';
 import { useReactToPrint } from 'react-to-print';
 import AdminLayout from '@/components/layout/AdminLayout';
-import { useGetOrderQuery, useUpdateOrderStatusMutation } from '@/store/api/ordersApi';
+import { useGetOrderQuery, useUpdateOrderStatusMutation, useBookShipmentMutation, useRefreshShipmentMutation } from '@/store/api/ordersApi';
+import SteadfastCard from '@/components/orders/SteadfastCard';
 import { getMediaUrl, routeId } from '@/lib/utils';
 
 const ALL_STATUSES = [
@@ -151,6 +152,8 @@ export default function OrderDetailPage() {
     skip: !id,
   });
   const [updateOrderStatus, { isLoading: updating }] = useUpdateOrderStatusMutation();
+  const [bookShipment, { isLoading: booking }] = useBookShipmentMutation();
+  const [refreshShipment, { isLoading: refreshingCourier }] = useRefreshShipmentMutation();
 
   if (error) {
     toast.error('Failed to fetch order');
@@ -171,6 +174,24 @@ export default function OrderDetailPage() {
       setStatusModal({ open: false, target: null });
     } catch (error) {
       toast.error('Failed to update status');
+    }
+  };
+
+  const handleBook = async (note) => {
+    try {
+      await bookShipment({ id, note }).unwrap();
+      toast.success('Parcel booked with Steadfast');
+    } catch (error) {
+      toast.error(error?.data?.error || 'Could not book this parcel');
+    }
+  };
+
+  const handleRefreshCourier = async () => {
+    try {
+      await refreshShipment(id).unwrap();
+      toast.success('Courier status updated');
+    } catch (error) {
+      toast.error(error?.data?.error || 'Could not refresh the courier status');
     }
   };
 
@@ -247,7 +268,10 @@ export default function OrderDetailPage() {
             <div className="flex items-center justify-between mb-2">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">Order Status</h2>
-                <p className="text-sm text-gray-500">Tracking: {order.tracking_number}</p>
+                <p className="text-sm text-gray-500">
+                  Reference: {order.tracking_number}
+                  {order.shipment?.tracking_code ? ` · Steadfast ${order.shipment.tracking_code}` : ''}
+                </p>
               </div>
               <span className={`badge text-sm px-3 py-1 ${getStatusColor(order.order_status)}`}>
                 {order.order_status.replace(/_/g, ' ')}
@@ -398,6 +422,14 @@ export default function OrderDetailPage() {
 
         {/* Sidebar */}
         <div className="space-y-6">
+          <SteadfastCard
+            order={order}
+            onBook={handleBook}
+            onRefresh={handleRefreshCourier}
+            booking={booking}
+            refreshing={refreshingCourier}
+          />
+
           {/* Customer Info */}
           <div className="card p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Customer</h2>
@@ -522,7 +554,10 @@ export default function OrderDetailPage() {
                   </p>
                   <table style={{ fontSize: '12px', width: '100%' }}>
                     <tbody>
-                      <tr><td style={{ color: '#737373', paddingBottom: '5px', paddingRight: '12px' }}>Tracking:</td><td style={{ fontWeight: '600', color: '#1F1F1F', paddingBottom: '5px' }}>{order.tracking_number}</td></tr>
+                      <tr><td style={{ color: '#737373', paddingBottom: '5px', paddingRight: '12px' }}>Reference:</td><td style={{ fontWeight: '600', color: '#1F1F1F', paddingBottom: '5px' }}>{order.tracking_number}</td></tr>
+                      {order.shipment?.tracking_code && (
+                        <tr><td style={{ color: '#737373', paddingBottom: '5px', paddingRight: '12px' }}>Steadfast:</td><td style={{ fontWeight: '600', color: '#1F1F1F', paddingBottom: '5px' }}>{order.shipment.tracking_code}</td></tr>
+                      )}
                       <tr><td style={{ color: '#737373', paddingBottom: '5px', paddingRight: '12px' }}>Status:</td><td style={{ fontWeight: '600', color: '#1F1F1F', textTransform: 'capitalize', paddingBottom: '5px' }}>{order.order_status.replace(/_/g, ' ')}</td></tr>
                       <tr><td style={{ color: '#737373', paddingRight: '12px' }}>Payment:</td><td style={{ fontWeight: '600', color: '#1F1F1F', textTransform: 'capitalize' }}>{order.payment_status}{order.payment_method ? ` (${order.payment_method})` : ''}</td></tr>
                     </tbody>

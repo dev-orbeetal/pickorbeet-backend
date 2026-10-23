@@ -109,6 +109,15 @@ class CheckoutSelectionTests(ShopTestCase):
         self.assertEqual(response.json()['order']['subtotal'], '5297.00')
         self.assertFalse(CartItem.objects.exists())
 
+    def test_checkout_records_the_payment_method(self):
+        response = self.api.post(
+            '/api/v1/orders/checkout/',
+            {**self.address, 'payment_method': 'cod', 'item_ids': [str(self.line_a.id)]},
+            format='json',
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()['order']['payment_method'], 'cod')
+
     def test_unknown_selection_is_rejected(self):
         other = make_product()
         stranger_cart = Cart.objects.create(session_key='someone-else')
@@ -195,6 +204,7 @@ class MyOrdersTests(ShopTestCase):
         row = open_orders['results'][0]
         self.assertEqual(row['tracking_code'], 'SF123456789BD')
         self.assertEqual(row['shipment_status_group'], 'in_review')
+        self.assertEqual(row['shipment_status_label'], 'In review')
         self.assertEqual(row['preview_images'], [])
         everything = self.api.get('/api/v1/orders/my-orders/').json()
         self.assertEqual(everything['count'], 5)

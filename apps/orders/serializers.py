@@ -242,6 +242,7 @@ class OrderListSerializer(serializers.ModelSerializer):
     item_count = serializers.ReadOnlyField()
     shipment_status = serializers.SerializerMethodField()
     shipment_status_group = serializers.SerializerMethodField()
+    shipment_status_label = serializers.SerializerMethodField()
     tracking_code = serializers.SerializerMethodField()
     tracking_url = serializers.SerializerMethodField()
     preview_images = serializers.SerializerMethodField()
@@ -254,7 +255,7 @@ class OrderListSerializer(serializers.ModelSerializer):
                   'order_type', 'order_status', 'payment_status', 'total',
                   'item_count', 'extra_item_count', 'created_at', 'updated_at',
                   'shipped_at', 'delivered_at', 'is_inside_dhaka',
-                  'shipment_status', 'shipment_status_group',
+                  'shipment_status', 'shipment_status_group', 'shipment_status_label',
                   'tracking_code', 'tracking_url', 'preview_images', 'preview_item']
 
     def _shipment(self, obj):
@@ -267,6 +268,10 @@ class OrderListSerializer(serializers.ModelSerializer):
     def get_shipment_status_group(self, obj):
         shipment = self._shipment(obj)
         return status_group(shipment.status) if shipment else None
+
+    def get_shipment_status_label(self, obj):
+        shipment = self._shipment(obj)
+        return shipment.status_label if shipment else None
 
     def get_tracking_code(self, obj):
         shipment = self._shipment(obj)
@@ -383,6 +388,12 @@ class CheckoutSerializer(serializers.Serializer):
     
     notes = serializers.CharField(required=False, allow_blank=True)
 
+    # bKash, Nagad, and cards continue through SSLCommerz after the order is created.
+    payment_method = serializers.ChoiceField(
+        choices=['bkash', 'nagad', 'card', 'cod'],
+        required=False,
+    )
+
     # Optional subset of cart line ids. Omit to order the whole cart.
     item_ids = serializers.ListField(child=serializers.UUIDField(), required=False, allow_empty=False,
                                      max_length=100)
@@ -436,13 +447,14 @@ class OrderStatusUpdateSerializer(serializers.Serializer):
 
 class TrackOrderSerializer(serializers.Serializer):
     """Serializer for tracking order."""
-    order_number = serializers.CharField(required=False)
-    tracking_number = serializers.CharField(required=False)
-    phone = serializers.CharField(required=False)
+    order_number = serializers.CharField(required=False, allow_blank=True)
+    tracking_number = serializers.CharField(required=False, allow_blank=True)
+    tracking_code = serializers.CharField(required=False, allow_blank=True)
+    phone = serializers.CharField(required=False, allow_blank=True)
 
     def validate(self, attrs):
-        if not attrs.get('order_number') and not attrs.get('tracking_number'):
+        if not any(attrs.get(key) for key in ('order_number', 'tracking_number', 'tracking_code')):
             raise serializers.ValidationError(
-                "Either order_number or tracking_number is required."
+                "Enter an order number or a Steadfast tracking code."
             )
         return attrs

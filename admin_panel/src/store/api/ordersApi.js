@@ -59,6 +59,30 @@ export const ordersApi = baseApi.injectEndpoints({
       ],
     }),
 
+    bookShipment: builder.mutation({
+      query: ({ id, note }) => ({
+        url: `/orders/admin/${id}/shipment/`,
+        method: 'POST',
+        body: note ? { note } : {},
+      }),
+      invalidatesTags: (result, error, { id }) => [
+        { type: 'Orders', id },
+        { type: 'Orders', id: 'LIST' },
+        'Dashboard',
+      ],
+    }),
+
+    refreshShipment: builder.mutation({
+      query: (id) => ({
+        url: `/orders/admin/${id}/shipment/refresh/`,
+        method: 'POST',
+      }),
+      invalidatesTags: (result, error, id) => [
+        { type: 'Orders', id },
+        { type: 'Orders', id: 'LIST' },
+      ],
+    }),
+
     // Delivery Options
     getDeliveryOptions: builder.query({
       query: () => '/orders/admin/delivery-options/',
@@ -101,6 +125,8 @@ export const {
   useUpdateOrderStatusMutation,
   useCreateInShopOrderMutation,
   useDeleteOrderMutation,
+  useBookShipmentMutation,
+  useRefreshShipmentMutation,
   useGetDeliveryOptionsQuery,
   useCreateDeliveryOptionMutation,
   useUpdateDeliveryOptionMutation,

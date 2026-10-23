@@ -33,6 +33,16 @@ def public_shipment_summary(order):
     shipment = getattr(order, 'shipment', None)
     if shipment is None or not shipment.consignment_id:
         return None
+    events = []
+    for event in shipment.events.all()[:12]:
+        events.append({
+            'source': event.source,
+            'status': event.status,
+            'status_group': status_group(event.status) if event.status else None,
+            'message': event.message,
+            'occurred_at': event.occurred_at,
+            'created_at': event.created_at,
+        })
     return {
         'courier': shipment.courier,
         'courier_name': shipment.get_courier_display(),
@@ -43,6 +53,7 @@ def public_shipment_summary(order):
         'status_label': shipment.status_label,
         'status_message': shipment.status_message,
         'status_updated_at': shipment.status_updated_at,
+        'events': events,
     }
 
 
@@ -264,6 +275,7 @@ class CheckoutView(APIView):
                 coupon=coupon,
                 coupon_code=coupon_code if coupon else None,
                 notes=data.get('notes', ''),
+                payment_method=data.get('payment_method'),
             )
             
             # Set billing address if different
@@ -350,6 +362,8 @@ class CustomerOrderListView(generics.ListAPIView):
             queryset = queryset.filter(
                 Q(order_number__icontains=search)
                 | Q(tracking_number__icontains=search)
+                | Q(shipment__tracking_code__icontains=search)
+                | Q(shipment__consignment_id__icontains=search)
                 | Q(items__product_name__icontains=search)
                 | Q(items__product_sku__icontains=search)
             ).distinct()
@@ -434,45 +448,59 @@ class CustomerOrderDeliveryView(APIView):
         return Response(OrderDetailSerializer(order, context={'request': request}).data)
 
 
+def _find_trackable_order(data):
+    """Match an order number, the internal reference, or a Steadfast tracking code."""
+    phone = (data.get('phone') or '').strip()
+
+    def narrowed(queryset):
+        if not phone:
+            return queryset
+        return queryset.filter(Q(shipping_phone=phone) | Q(guest_phone=phone))
+
+    base = Order.objects.select_related('shipment')
+    order_number = (data.get('order_number') or '').strip()
+    if order_number:
+        hit = narrowed(base.filter(order_number=order_number)).first()
+        if hit:
+            return hit
+    tracking_number = (data.get('tracking_number') or '').strip()
+    if tracking_number:
+        hit = narrowed(base.filter(tracking_number=tracking_number)).first()
+        if hit:
+            return hit
+    code = (data.get('tracking_code') or '').strip()
+    if code:
+        return narrowed(base.filter(
+            Q(shipment__tracking_code__iexact=code) | Q(shipment__consignment_id=code)
+        )).first()
+    return None
+
+
 class TrackOrderView(APIView):
-    """Track order by order number or tracking number."""
+    """Track an order by its number, internal reference, or Steadfast tracking code."""
     permission_classes = [AllowAny]
 
     def post(self, request):
         serializer = TrackOrderSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        data = serializer.validated_data
-        query = Q()
-        
-        if data.get('order_number'):
-            query |= Q(order_number=data['order_number'])
-        if data.get('tracking_number'):
-            query |= Q(tracking_number=data['tracking_number'])
-        
-        if data.get('phone'):
-            query &= (Q(shipping_phone=data['phone']) | Q(guest_phone=data['phone']))
-        
-        try:
-            order = Order.objects.select_related('shipment').get(query)
-            return Response({
-                'order_number': order.order_number,
-                'tracking_number': order.tracking_number,
-                'order_status': order.order_status,
-                'payment_status': order.payment_status,
-                'created_at': order.created_at,
-                'shipped_at': order.shipped_at,
-                'delivered_at': order.delivered_at,
-                'status_history': OrderStatusHistorySerializer(
-                    order.status_history.all(), many=True
-                ).data,
-                'shipment': public_shipment_summary(order),
-            })
-        except Order.DoesNotExist:
-            return Response(
-                {'error': 'Order not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
+        order = _find_trackable_order(serializer.validated_data)
+        if order is None:
+            return Response({'error': 'Order not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({
+            'id': str(order.pk),
+            'order_number': order.order_number,
+            'tracking_number': order.tracking_number,
+            'order_status': order.order_status,
+            'payment_status': order.payment_status,
+            'created_at': order.created_at,
+            'shipped_at': order.shipped_at,
+            'delivered_at': order.delivered_at,
+            'status_history': OrderStatusHistorySerializer(
+                order.status_history.all(), many=True
+            ).data,
+            'shipment': public_shipment_summary(order),
+        })
 
 
 # Admin/Staff Order Views
@@ -482,7 +510,8 @@ class AdminOrderListView(generics.ListAPIView):
     permission_classes = [IsAuthenticated, IsStaffUser]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['order_status', 'payment_status', 'order_type']
-    search_fields = ['order_number', 'tracking_number', 'shipping_name', 'shipping_phone']
+    search_fields = ['order_number', 'tracking_number', 'shipping_name', 'shipping_phone',
+                     'shipment__tracking_code', 'shipment__consignment_id']
     ordering_fields = ['created_at', 'total']
 
     def get_queryset(self):

@@ -4,6 +4,7 @@ import { Search, Filter, Eye, Trash2, ChevronLeft, ChevronRight } from 'lucide-r
 import toast from 'react-hot-toast';
 import AdminLayout from '@/components/layout/AdminLayout';
 import { useGetOrdersQuery, useDeleteOrderMutation } from '@/store/api/ordersApi';
+import { courierBadgeClass } from '@/components/orders/SteadfastCard';
 
 export default function OrdersPage() {
   const [filters, setFilters] = useState({
@@ -132,6 +133,7 @@ export default function OrdersPage() {
                 <th className="text-left py-4 px-4 table-header">Items</th>
                 <th className="text-left py-4 px-4 table-header">Total</th>
                 <th className="text-left py-4 px-4 table-header">Status</th>
+                <th className="text-left py-4 px-4 table-header">Courier</th>
                 <th className="text-left py-4 px-4 table-header">Payment</th>
                 <th className="text-left py-4 px-4 table-header">Date</th>
                 <th className="text-left py-4 px-4 table-header">Actions</th>
@@ -140,13 +142,13 @@ export default function OrdersPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="9" className="text-center py-8 text-gray-500">
+                  <td colSpan="10" className="text-center py-8 text-gray-500">
                     Loading...
                   </td>
                 </tr>
               ) : orders.length === 0 ? (
                 <tr>
-                  <td colSpan="9" className="text-center py-8 text-gray-500">
+                  <td colSpan="10" className="text-center py-8 text-gray-500">
                     No orders found
                   </td>
                 </tr>
@@ -168,6 +170,18 @@ export default function OrdersPage() {
                       <span className={`badge ${getStatusBadge(order.order_status)}`}>
                         {order.order_status.replace('_', ' ')}
                       </span>
+                    </td>
+                    <td className="py-4 px-4">
+                      {order.tracking_code ? (
+                        <div>
+                          <span className={`badge border ${courierBadgeClass(order.shipment_status_group)}`}>
+                            {order.shipment_status_label || order.shipment_status}
+                          </span>
+                          <p className="text-xs text-gray-500 mt-1">{order.tracking_code}</p>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-400">Not booked</span>
+                      )}
                     </td>
                     <td className="py-4 px-4">
                       <span className={`badge ${getPaymentBadge(order.payment_status)}`}>
