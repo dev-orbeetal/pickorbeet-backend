@@ -8,7 +8,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import transaction
 from django.utils import timezone
-from django.db.models import Q
+from django.db.models import Count, Q
 from decimal import Decimal
 from .models import Order, OrderItem, OrderStatusHistory, Cart, CartItem, Coupon, CouponUsage, DeliveryOption
 from .serializers import (
@@ -16,11 +16,32 @@ from .serializers import (
     OrderListSerializer, OrderDetailSerializer, CheckoutSerializer,
     InShopOrderSerializer, OrderStatusUpdateSerializer, TrackOrderSerializer,
     OrderStatusHistorySerializer, CouponSerializer, CouponCreateSerializer,
-    ValidateCouponSerializer, ApplyCouponSerializer, DeliveryOptionSerializer
+    ValidateCouponSerializer, ApplyCouponSerializer, DeliveryOptionSerializer,
+    DeliveryUpdateSerializer,
 )
 from apps.products.models import Product, ProductVariant
 from apps.reports.models import StockMovement
 from apps.accounts.permissions import IsStaffUser, IsSeller, IsSuperAdmin
+from apps.shipping.services import status_group
+from .services import DeliveryUpdateError, change_order_status, update_delivery_details
+
+
+def public_shipment_summary(order):
+    """Courier details safe to show on the public tracking page."""
+    shipment = getattr(order, 'shipment', None)
+    if shipment is None or not shipment.consignment_id:
+        return None
+    return {
+        'courier': shipment.courier,
+        'courier_name': shipment.get_courier_display(),
+        'tracking_code': shipment.tracking_code,
+        'tracking_url': shipment.tracking_url,
+        'status': shipment.status,
+        'status_group': status_group(shipment.status),
+        'status_label': shipment.status_label,
+        'status_message': shipment.status_message,
+        'status_updated_at': shipment.status_updated_at,
+    }
 
 
 # Cart Views
@@ -183,6 +204,24 @@ class CheckoutView(APIView):
             )
         
         data = serializer.validated_data
+
+        # Order the whole cart, or only the lines the customer selected.
+        cart_items = cart.items.select_related('product', 'variant')
+        item_ids = data.get('item_ids')
+        if item_ids:
+            cart_items = cart_items.filter(id__in=set(item_ids))
+        cart_items = list(cart_items)
+        if item_ids and len(cart_items) != len(set(item_ids)):
+            return Response(
+                {'error': 'Some selected items are no longer in your cart.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if not cart_items:
+            return Response(
+                {'error': 'Cart is empty'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        subtotal = sum((item.total_price for item in cart_items), Decimal('0'))
         
         # Validate coupon if provided
         coupon = None
@@ -194,10 +233,10 @@ class CheckoutView(APIView):
                 coupon = Coupon.objects.get(code=coupon_code)
                 can_use, message = coupon.can_be_used_by(
                     request.user if request.user.is_authenticated else None,
-                    cart.subtotal
+                    subtotal
                 )
                 if can_use:
-                    discount_amount = coupon.calculate_discount(cart.subtotal)
+                    discount_amount = coupon.calculate_discount(subtotal)
                 else:
                     return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
             except Coupon.DoesNotExist:
@@ -218,7 +257,7 @@ class CheckoutView(APIView):
                 shipping_city=data['shipping_city'],
                 shipping_district=data['shipping_district'],
                 shipping_postal_code=data.get('shipping_postal_code', ''),
-                subtotal=cart.subtotal,
+                subtotal=subtotal,
                 discount=discount_amount,
                 coupon=coupon,
                 coupon_code=coupon_code if coupon else None,
@@ -238,7 +277,7 @@ class CheckoutView(APIView):
             order.save()
             
             # Create order items (stock is reduced when order is confirmed)
-            for cart_item in cart.items.all():
+            for cart_item in cart_items:
                 OrderItem.objects.create(
                     order=order,
                     product=cart_item.product,
@@ -249,6 +288,7 @@ class CheckoutView(APIView):
                     color=cart_item.variant.color if cart_item.variant else cart_item.product.color,
                     quantity=cart_item.quantity,
                     unit_price=cart_item.unit_price,
+                    compare_price=cart_item.product.compare_price,
                 )
             
             # Create initial status history
@@ -269,8 +309,8 @@ class CheckoutView(APIView):
                 coupon.times_used += 1
                 coupon.save()
             
-            # Clear cart
-            cart.items.all().delete()
+            # Remove the ordered lines; unselected lines stay in the cart
+            CartItem.objects.filter(id__in=[item.id for item in cart_items]).delete()
         
         return Response({
             'message': 'Order created successfully',
@@ -279,13 +319,52 @@ class CheckoutView(APIView):
 
 
 # Order Views for Customers
+OPEN_ORDER_STATUSES = ['pending', 'confirmed', 'processing', 'shipped', 'out_for_delivery']
+
+
 class CustomerOrderListView(generics.ListAPIView):
-    """List orders for authenticated customer."""
+    """List orders for authenticated customer. ``?order_status=a,b`` filters by status."""
     serializer_class = OrderListSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return Order.objects.filter(user=self.request.user)
+        queryset = (
+            Order.objects.filter(user=self.request.user)
+            .select_related('shipment')
+            .prefetch_related('items__product__images')
+        )
+        statuses = self.request.query_params.get('order_status')
+        if statuses:
+            wanted = {value.strip() for value in statuses.split(',') if value.strip()}
+            if 'open' in wanted:
+                wanted.discard('open')
+                wanted.update(OPEN_ORDER_STATUSES)
+            queryset = queryset.filter(order_status__in=wanted)
+        return queryset
+
+
+class CustomerOrderSummaryView(APIView):
+    """Order counts by status for the account dashboard."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        rows = (
+            Order.objects.filter(user=request.user)
+            .values('order_status')
+            .annotate(count=Count('id'))
+        )
+        counts = {value: 0 for value, _ in Order.ORDER_STATUS_CHOICES}
+        for row in rows:
+            counts[row['order_status']] = row['count']
+        return Response({
+            'total': sum(counts.values()),
+            'counts': counts,
+            # "open" is everything still on its way to the customer
+            'open': sum(counts[s] for s in OPEN_ORDER_STATUSES),
+            'delivered': counts['delivered'],
+            'cancelled': counts['cancelled'],
+            'returned': counts['refunded'],
+        })
 
 
 class CustomerOrderDetailView(generics.RetrieveAPIView):
@@ -294,7 +373,25 @@ class CustomerOrderDetailView(generics.RetrieveAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return Order.objects.filter(user=self.request.user)
+        return Order.objects.filter(user=self.request.user).select_related('shipment')
+
+
+class CustomerOrderDeliveryView(APIView):
+    """Customer: change the delivery details of a pending order."""
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, pk):
+        order = Order.objects.filter(pk=pk, user=request.user).first()
+        if order is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = DeliveryUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            update_delivery_details(order, serializer.validated_data, changed_by=request.user)
+        except DeliveryUpdateError as exc:
+            return Response({'error': exc.message}, status=status.HTTP_400_BAD_REQUEST)
+        order = Order.objects.select_related('shipment').get(pk=pk)
+        return Response(OrderDetailSerializer(order, context={'request': request}).data)
 
 
 class TrackOrderView(APIView):
@@ -317,7 +414,7 @@ class TrackOrderView(APIView):
             query &= (Q(shipping_phone=data['phone']) | Q(guest_phone=data['phone']))
         
         try:
-            order = Order.objects.get(query)
+            order = Order.objects.select_related('shipment').get(query)
             return Response({
                 'order_number': order.order_number,
                 'tracking_number': order.tracking_number,
@@ -328,7 +425,8 @@ class TrackOrderView(APIView):
                 'delivered_at': order.delivered_at,
                 'status_history': OrderStatusHistorySerializer(
                     order.status_history.all(), many=True
-                ).data
+                ).data,
+                'shipment': public_shipment_summary(order),
             })
         except Order.DoesNotExist:
             return Response(
@@ -348,7 +446,7 @@ class AdminOrderListView(generics.ListAPIView):
     ordering_fields = ['created_at', 'total']
 
     def get_queryset(self):
-        return Order.objects.all().prefetch_related('items')
+        return Order.objects.all().select_related('shipment').prefetch_related('items__product__images')
 
 
 class AdminOrderDetailView(generics.RetrieveDestroyAPIView):
@@ -372,82 +470,6 @@ class UpdateOrderStatusView(APIView):
     """Admin: Update order status with automatic stock management."""
     permission_classes = [IsAuthenticated, IsStaffUser]
 
-    def _find_variant(self, item):
-        """Find the variant to update stock for. Handles cases where variant FK
-        is null but product has variants (e.g. SET_NULL after variant delete)."""
-        if item.variant:
-            return item.variant
-        # If product has variants, try to match by size/color from the order item snapshot
-        if item.product.variants.exists():
-            variant = item.product.variants.filter(
-                size=item.size, color=item.color, is_active=True
-            ).first()
-            if variant:
-                return variant
-            # Last resort: return first active variant
-            return item.product.variants.filter(is_active=True).first()
-        return None
-
-    def _reduce_stock(self, order):
-        """Reduce stock for all items in the order."""
-        if order.stock_reduced:
-            return
-        for item in order.items.select_related('product', 'variant').all():
-            variant = self._find_variant(item)
-            if variant:
-                prev = variant.stock_quantity
-                variant.stock_quantity = max(0, variant.stock_quantity - item.quantity)
-                variant.save(update_fields=['stock_quantity'])
-                StockMovement.objects.create(
-                    product=item.product, variant=variant,
-                    movement_type='out', quantity=-item.quantity,
-                    previous_stock=prev, new_stock=variant.stock_quantity,
-                    reason='sale', reference_order=order,
-                    note=f'Order #{order.order_number}',
-                )
-            else:
-                prev = item.product.stock_quantity
-                item.product.stock_quantity = max(0, item.product.stock_quantity - item.quantity)
-                item.product.save(update_fields=['stock_quantity'])
-                StockMovement.objects.create(
-                    product=item.product, variant=None,
-                    movement_type='out', quantity=-item.quantity,
-                    previous_stock=prev, new_stock=item.product.stock_quantity,
-                    reason='sale', reference_order=order,
-                    note=f'Order #{order.order_number}',
-                )
-        order.stock_reduced = True
-
-    def _restore_stock(self, order):
-        """Restore stock for all items in the order."""
-        if not order.stock_reduced:
-            return
-        for item in order.items.select_related('product', 'variant').all():
-            variant = self._find_variant(item)
-            if variant:
-                prev = variant.stock_quantity
-                variant.stock_quantity += item.quantity
-                variant.save(update_fields=['stock_quantity'])
-                StockMovement.objects.create(
-                    product=item.product, variant=variant,
-                    movement_type='return', quantity=item.quantity,
-                    previous_stock=prev, new_stock=variant.stock_quantity,
-                    reason='return', reference_order=order,
-                    note=f'Order #{order.order_number} cancelled/refunded',
-                )
-            else:
-                prev = item.product.stock_quantity
-                item.product.stock_quantity += item.quantity
-                item.product.save(update_fields=['stock_quantity'])
-                StockMovement.objects.create(
-                    product=item.product, variant=None,
-                    movement_type='return', quantity=item.quantity,
-                    previous_stock=prev, new_stock=item.product.stock_quantity,
-                    reason='return', reference_order=order,
-                    note=f'Order #{order.order_number} cancelled/refunded',
-                )
-        order.stock_reduced = False
-
     def post(self, request, pk):
         serializer = OrderStatusUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -460,43 +482,12 @@ class UpdateOrderStatusView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        new_status = serializer.validated_data['status']
-        note = serializer.validated_data.get('note', '')
-        
-        # Statuses where stock should be deducted
-        STOCK_DEDUCTED_STATUSES = {'confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered'}
-        
-        with transaction.atomic():
-            order.order_status = new_status
-            
-            # Update timestamps
-            if new_status == 'confirmed':
-                order.confirmed_at = timezone.now()
-            elif new_status == 'shipped':
-                order.shipped_at = timezone.now()
-            elif new_status == 'delivered':
-                order.delivered_at = timezone.now()
-                order.payment_status = 'paid'
-            elif new_status == 'refunded':
-                order.payment_status = 'refunded'
-            
-            # Stock management: reduce when entering confirmed+ statuses, restore when going back
-            if new_status in STOCK_DEDUCTED_STATUSES:
-                self._reduce_stock(order)
-            else:
-                # pending, cancelled, refunded → restore stock if it was reduced
-                self._restore_stock(order)
-            
-            order.save()
-            
-            # Create status history
-            OrderStatusHistory.objects.create(
-                order=order,
-                status=new_status,
-                note=note,
-                changed_by=request.user
-            )
-        
+        change_order_status(
+            order,
+            serializer.validated_data['status'],
+            note=serializer.validated_data.get('note', ''),
+            changed_by=request.user,
+        )
         return Response(OrderDetailSerializer(order, context={'request': request}).data)
 
 
@@ -568,6 +559,7 @@ class InShopOrderView(APIView):
                     color=item['variant'].color if item['variant'] else item['product'].color,
                     quantity=item['quantity'],
                     unit_price=item['unit_price'],
+                    compare_price=item['product'].compare_price,
                 )
                 
                 # Update stock

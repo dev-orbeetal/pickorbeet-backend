@@ -5,6 +5,24 @@ from rest_framework import serializers
 from django.conf import settings
 from .models import Order, OrderItem, OrderStatusHistory, Cart, CartItem, Coupon, CouponUsage, DeliveryOption
 from apps.products.serializers import ProductListSerializer
+from apps.shipping.serializers import serialize_shipment
+from apps.shipping.services import ShipmentError, normalize_phone, status_group
+from .services import can_edit_delivery
+
+
+def discount_percent(compare_price, price):
+    """Whole-percent saving, matching Product.discount_percentage."""
+    if compare_price and price is not None and compare_price > price:
+        return int(((compare_price - price) / compare_price) * 100)
+    return 0
+
+
+def absolute_media(request, path):
+    if not path:
+        return None
+    if request and not path.startswith('http'):
+        return request.build_absolute_uri(path)
+    return path
 
 
 class DeliveryOptionSerializer(serializers.ModelSerializer):
@@ -91,16 +109,35 @@ class CouponUsageSerializer(serializers.ModelSerializer):
 class CartItemSerializer(serializers.ModelSerializer):
     """Serializer for cart items."""
     product_name = serializers.CharField(source='product.name', read_only=True)
+    product_slug = serializers.CharField(source='product.slug', read_only=True)
     product_image = serializers.SerializerMethodField()
+    short_description = serializers.CharField(source='product.short_description', read_only=True)
     unit_price = serializers.ReadOnlyField()
     total_price = serializers.ReadOnlyField()
+    compare_price = serializers.DecimalField(source='product.compare_price', max_digits=10,
+                                             decimal_places=2, read_only=True)
+    discount_percentage = serializers.SerializerMethodField()
+    stock_quantity = serializers.SerializerMethodField()
+    is_out_of_stock = serializers.SerializerMethodField()
     size = serializers.CharField(source='variant.size', read_only=True)
     color = serializers.CharField(source='variant.color', read_only=True)
 
     class Meta:
         model = CartItem
-        fields = ['id', 'product', 'variant', 'product_name', 'product_image',
-                  'quantity', 'unit_price', 'total_price', 'size', 'color']
+        fields = ['id', 'product', 'variant', 'product_name', 'product_slug', 'product_image',
+                  'short_description', 'quantity', 'unit_price', 'total_price', 'compare_price',
+                  'discount_percentage', 'stock_quantity', 'is_out_of_stock', 'size', 'color']
+
+    def get_discount_percentage(self, obj):
+        return discount_percent(obj.product.compare_price, obj.unit_price)
+
+    def get_stock_quantity(self, obj):
+        return obj.variant.stock_quantity if obj.variant else obj.product.stock_quantity
+
+    def get_is_out_of_stock(self, obj):
+        if obj.variant:
+            return obj.variant.stock_quantity == 0 or not obj.variant.is_active
+        return obj.product.is_out_of_stock
 
     def get_product_image(self, obj):
         if obj.product.primary_image:
@@ -145,12 +182,21 @@ class UpdateCartItemSerializer(serializers.Serializer):
 class OrderItemSerializer(serializers.ModelSerializer):
     """Serializer for order items."""
     product_image = serializers.SerializerMethodField()
+    product_slug = serializers.SerializerMethodField()
+    discount_percentage = serializers.SerializerMethodField()
 
     class Meta:
         model = OrderItem
-        fields = ['id', 'product', 'variant', 'product_name', 'product_sku',
-                  'product_image', 'size', 'color', 'quantity', 'unit_price', 'total_price']
+        fields = ['id', 'product', 'variant', 'product_name', 'product_sku', 'product_slug',
+                  'product_image', 'size', 'color', 'quantity', 'unit_price', 'compare_price',
+                  'discount_percentage', 'total_price']
         read_only_fields = ['id', 'total_price']
+
+    def get_product_slug(self, obj):
+        return obj.product.slug if obj.product else None
+
+    def get_discount_percentage(self, obj):
+        return discount_percent(obj.compare_price, obj.unit_price)
 
     def get_product_image(self, obj):
         if obj.product:
@@ -177,12 +223,50 @@ class OrderListSerializer(serializers.ModelSerializer):
     """Serializer for order lists."""
     customer_name = serializers.ReadOnlyField()
     item_count = serializers.ReadOnlyField()
+    shipment_status = serializers.SerializerMethodField()
+    shipment_status_group = serializers.SerializerMethodField()
+    tracking_code = serializers.SerializerMethodField()
+    preview_images = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
         fields = ['id', 'order_number', 'tracking_number', 'customer_name',
                   'order_type', 'order_status', 'payment_status', 'total',
-                  'item_count', 'created_at']
+                  'item_count', 'created_at', 'shipment_status', 'shipment_status_group',
+                  'tracking_code', 'preview_images']
+
+    def _shipment(self, obj):
+        return getattr(obj, 'shipment', None)
+
+    def get_shipment_status(self, obj):
+        shipment = self._shipment(obj)
+        return shipment.status if shipment else None
+
+    def get_shipment_status_group(self, obj):
+        shipment = self._shipment(obj)
+        return status_group(shipment.status) if shipment else None
+
+    def get_tracking_code(self, obj):
+        shipment = self._shipment(obj)
+        if shipment is None:
+            return None
+        return shipment.tracking_code or None
+
+    def get_preview_images(self, obj):
+        request = self.context.get('request')
+        images = []
+        for item in obj.items.all():
+            if len(images) == 3:
+                break
+            if not item.product:
+                continue
+            # Works on prefetched images instead of one query per product.
+            product_images = list(item.product.images.all())
+            image = next((img for img in product_images if img.is_primary), None)
+            image = image or (product_images[0] if product_images else None)
+            if image:
+                images.append(absolute_media(request, image.image.url))
+        return images
 
 
 class OrderDetailSerializer(serializers.ModelSerializer):
@@ -193,6 +277,9 @@ class OrderDetailSerializer(serializers.ModelSerializer):
     customer_email = serializers.ReadOnlyField()
     customer_phone = serializers.ReadOnlyField()
     processed_by_name = serializers.CharField(source='processed_by.full_name', read_only=True)
+    item_count = serializers.ReadOnlyField()
+    shipment = serializers.SerializerMethodField()
+    can_edit_delivery = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
@@ -207,9 +294,15 @@ class OrderDetailSerializer(serializers.ModelSerializer):
                   'billing_address_line2', 'billing_city', 'billing_district',
                   'billing_postal_code', 'subtotal', 'delivery_charge',
                   'discount', 'total', 'coupon_code', 'payment_method', 'transaction_id',
-                  'processed_by', 'processed_by_name', 'notes',
-                  'items', 'status_history', 'created_at', 'updated_at',
-                  'confirmed_at', 'shipped_at', 'delivered_at']
+                  'processed_by', 'processed_by_name', 'notes', 'item_count',
+                  'items', 'status_history', 'shipment', 'can_edit_delivery',
+                  'created_at', 'updated_at', 'confirmed_at', 'shipped_at', 'delivered_at']
+
+    def get_shipment(self, obj):
+        return serialize_shipment(obj, self.context)
+
+    def get_can_edit_delivery(self, obj):
+        return can_edit_delivery(obj)
 
 
 class CheckoutSerializer(serializers.Serializer):
@@ -242,6 +335,32 @@ class CheckoutSerializer(serializers.Serializer):
     coupon_code = serializers.CharField(required=False, allow_blank=True, max_length=50)
     
     notes = serializers.CharField(required=False, allow_blank=True)
+
+    # Optional subset of cart line ids. Omit to order the whole cart.
+    item_ids = serializers.ListField(child=serializers.UUIDField(), required=False, allow_empty=False,
+                                     max_length=100)
+
+
+class DeliveryUpdateSerializer(serializers.Serializer):
+    """Fields a customer may change on a pending order (send only what changes)."""
+    shipping_name = serializers.CharField(max_length=200, required=False)
+    shipping_phone = serializers.CharField(max_length=20, required=False)
+    shipping_address_line1 = serializers.CharField(max_length=255, required=False)
+    shipping_address_line2 = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    shipping_city = serializers.CharField(max_length=100, required=False)
+    shipping_district = serializers.CharField(max_length=100, required=False)
+    shipping_postal_code = serializers.CharField(max_length=20, required=False, allow_blank=True)
+
+    def validate_shipping_phone(self, value):
+        try:
+            return normalize_phone(value)
+        except ShipmentError as exc:
+            raise serializers.ValidationError(exc.message)
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError('Send at least one delivery field to change.')
+        return attrs
 
 
 class InShopOrderItemSerializer(serializers.Serializer):

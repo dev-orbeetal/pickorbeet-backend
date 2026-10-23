@@ -382,6 +382,10 @@ class OrderItem(models.Model):
     
     quantity = models.PositiveIntegerField(default=1)
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
+    compare_price = models.DecimalField(
+        max_digits=10, decimal_places=2, blank=True, null=True,
+        help_text='Snapshot of the product compare-at price when the order was placed',
+    )
     total_price = models.DecimalField(max_digits=10, decimal_places=2)
     
     created_at = models.DateTimeField(auto_now_add=True)

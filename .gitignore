@@ -137,3 +137,6 @@ public
 .pnp.*
 
 /scripts/
+
+# Files written by manage.py seed_demo_store
+/media/demo/

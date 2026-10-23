@@ -1,8 +1,10 @@
 """
 Admin configuration for orders app.
 """
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.utils.html import format_html
+from apps.shipping.admin import ShipmentInline
+from apps.shipping.services import ShipmentError, book_shipment
 from .models import Order, OrderItem, OrderStatusHistory, Cart, CartItem, Coupon, CouponUsage
 
 
@@ -31,7 +33,20 @@ class OrderAdmin(admin.ModelAdmin):
     readonly_fields = ['order_number', 'tracking_number', 'subtotal', 'total', 'created_at', 
                        'updated_at', 'confirmed_at', 'shipped_at', 'delivered_at']
     ordering = ['-created_at']
-    inlines = [OrderItemInline, OrderStatusHistoryInline]
+    inlines = [ShipmentInline, OrderItemInline, OrderStatusHistoryInline]
+    actions = ['book_with_steadfast']
+
+    @admin.action(description='Book with Steadfast')
+    def book_with_steadfast(self, request, queryset):
+        booked = 0
+        for order in queryset:
+            try:
+                book_shipment(order, request.user)
+                booked += 1
+            except ShipmentError as exc:
+                self.message_user(request, f'{order.order_number}: {exc.message}', messages.ERROR)
+        if booked:
+            self.message_user(request, f'Booked {booked} order(s) with Steadfast.', messages.SUCCESS)
     
     fieldsets = (
         ('Order Info', {

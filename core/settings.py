@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     'apps.orders',
     'apps.payments',
     'apps.reports',
+    'apps.shipping',
 ]
 
 MIDDLEWARE = [
@@ -140,6 +141,10 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
+    # Only views that opt in with ScopedRateThrottle use these.
+    'DEFAULT_THROTTLE_RATES': {
+        'shipment_refresh': config('SHIPMENT_REFRESH_RATE', default='10/min'),
+    },
 }
 
 # JWT Settings
@@ -223,6 +228,7 @@ JAZZMIN_SETTINGS = {
         "accounts",
         "products",
         "orders",
+        "shipping",
         "payments",
         "reports",
     ],
@@ -239,6 +245,8 @@ JAZZMIN_SETTINGS = {
         "products.ProductImage": "fas fa-image",
         "orders.Order": "fas fa-shopping-cart",
         "orders.OrderItem": "fas fa-shopping-basket",
+        "shipping.Shipment": "fas fa-truck",
+        "shipping.ShipmentEvent": "fas fa-stream",
         "payments.Payment": "fas fa-credit-card",
         "reports.StockReport": "fas fa-chart-bar",
         "reports.SalesReport": "fas fa-chart-line",
@@ -298,6 +306,16 @@ JAZZMIN_UI_TWEAKS = {
 # Delivery Charge Settings
 DELIVERY_CHARGE_INSIDE_DHAKA = 60
 DELIVERY_CHARGE_OUTSIDE_DHAKA = 120
+
+# Steadfast Courier. Keys stay on the server; apps and the website never call Steadfast.
+STEADFAST_BASE_URL = config('STEADFAST_BASE_URL', default='https://portal.packzy.com/api/v1')
+STEADFAST_API_KEY = config('STEADFAST_API_KEY', default='')
+STEADFAST_SECRET_KEY = config('STEADFAST_SECRET_KEY', default='')
+# Bearer token Steadfast sends to POST /api/v1/shipping/steadfast/webhook/
+STEADFAST_WEBHOOK_TOKEN = config('STEADFAST_WEBHOOK_TOKEN', default='')
+STEADFAST_TRACKING_URL = config('STEADFAST_TRACKING_URL', default='https://steadfast.com.bd/t/{code}')
+# Booking marks the order shipped; a confirmed courier delivery marks it delivered.
+STEADFAST_SYNC_ORDER_STATUS = config('STEADFAST_SYNC_ORDER_STATUS', default=True, cast=bool)
 
 # Low Stock Alert Threshold
 LOW_STOCK_THRESHOLD = 10

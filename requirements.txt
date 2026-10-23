@@ -36,6 +36,9 @@ google-auth==2.27.0
 google-auth-oauthlib==1.2.0
 google-auth-httplib2==0.2.0
 
+# HTTP client (Steadfast courier API)
+requests>=2.31,<3
+
 # Utils
 django-filter==23.5
 drf-yasg==1.21.7
