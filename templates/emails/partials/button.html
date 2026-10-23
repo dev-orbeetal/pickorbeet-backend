@@ -1,0 +1,9 @@
+<!--[if mso]>
+<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ href }}" style="height:44px;v-text-anchor:middle;width:{{ width|default:'230' }}px;" arcsize="28%" stroke="f" fillcolor="{{ bg }}">
+  <w:anchorlock/>
+  <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:15px;font-weight:bold;">{{ label }}</center>
+</v:roundrect>
+<![endif]-->
+<!--[if !mso]><!-->
+<a href="{{ href }}" target="_blank" style="display:inline-block;background-color:{{ bg }};color:#ffffff;font-family:{{ font }};font-size:15px;line-height:20px;font-weight:700;text-decoration:none;padding:13px 26px;border-radius:12px;mso-hide:all;">{{ label }}</a>
+<!--<![endif]-->

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="x-apple-disable-message-reformatting">
+  <title>PickOrbeet</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+  <!--[if gte mso 9]>
+  <xml>
+    <o:OfficeDocumentSettings>
+      <o:PixelsPerInch>96</o:PixelsPerInch>
+    </o:OfficeDocumentSettings>
+  </xml>
+  <![endif]-->
+  <style>
+    body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+    table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+    img { -ms-interpolation-mode: bicubic; border: 0; outline: none; text-decoration: none; }
+    body { margin: 0; padding: 0; width: 100% !important; height: 100% !important; }
+    @media only screen and (max-width: 620px) {
+      .mail-card { width: 100% !important; }
+      .stack { display: block !important; width: 100% !important; max-width: 100% !important; }
+      .pad-sm { padding-right: 0 !important; padding-bottom: 16px !important; }
+    }
+    {% if motion %}
+    @media (prefers-reduced-motion: no-preference) {
+      .mail-card { animation: mailRise .6s cubic-bezier(.16, 1, .3, 1) both; }
+      .mail-hero { animation: mailFloat 4.8s ease-in-out .35s infinite; }
+      .mail-tile, .mail-step { animation: mailRise .5s cubic-bezier(.16, 1, .3, 1) both; }
+      .mail-star { animation: mailStar .45s cubic-bezier(.16, 1, .3, 1) both; }
+      .mail-d1 { animation-delay: .08s; }
+      .mail-d2 { animation-delay: .16s; }
+      .mail-d3 { animation-delay: .24s; }
+      .mail-d4 { animation-delay: .32s; }
+      .mail-d5 { animation-delay: .4s; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .mail-card, .mail-hero, .mail-tile, .mail-step, .mail-star { animation: none !important; }
+    }
+    @keyframes mailRise {
+      from { opacity: 0; transform: translateY(14px); }
+      to { opacity: 1; transform: none; }
+    }
+    @keyframes mailFloat {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-6px); }
+    }
+    @keyframes mailStar {
+      from { opacity: 0; transform: scale(.45); }
+      to { opacity: 1; transform: none; }
+    }
+    {% endif %}
+  </style>
+</head>
+<body style="margin:0;padding:0;background-color:#E4ECFD;font-family:{{ font }};color:#172033;">
+  <div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">{{ preheader }}</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#E4ECFD" style="background-color:#E4ECFD;margin:0;padding:0;">
+    <tr>
+      <td align="center" style="padding:24px 12px;">
+        <table role="presentation" class="mail-card" width="600" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="width:600px;max-width:600px;background-color:#ffffff;border-radius:24px;box-shadow:0 12px 40px rgba(32,45,112,0.08);">
+          {% include "emails/partials/header.html" %}
+          <tr>
+            <td class="mail-pad" style="padding:8px 28px 28px;font-family:{{ font }};">
+              {% block content %}{% endblock %}
+            </td>
+          </tr>
+          {% include "emails/partials/footer.html" %}
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

@@ -27,9 +27,15 @@ python-barcode==0.15.1
 # reportlab - temporarily removed due to Python 3.13 compatibility
 # xhtml2pdf==0.2.11
 
-# Celery for async tasks (optional)
+# Celery for async tasks (notification delivery)
 celery==5.3.4
 redis==5.0.1
+
+# Live inbox socket and mobile push
+channels==4.3.2
+channels-redis==4.3.0
+daphne==4.2.3
+firebase-admin==6.9.0
 
 # Google OAuth
 google-auth==2.27.0

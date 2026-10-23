@@ -4,6 +4,7 @@ URL configuration for Pickorbeet E-commerce project.
 from django.contrib import admin
 from django.urls import path, include, re_path
 from core.admin_panel import redirect_panel_path, serve_admin_panel
+from core.email_preview import email_preview, email_preview_index
 from django.conf import settings
 from django.conf.urls.static import static
 from rest_framework import permissions
@@ -44,6 +45,11 @@ urlpatterns = [
     path('api/v1/payments/', include('apps.payments.urls')),
     path('api/v1/reports/', include('apps.reports.urls')),
     path('api/v1/shipping/', include('apps.shipping.urls')),
+    path('api/v1/notifications/', include('apps.notifications.urls')),
+    # Same templates the inbox receives. The view is 404 outside DEBUG, and the
+    # motion stylesheet is added only for this browser preview.
+    path('emails/preview/', email_preview_index, name='email_preview_index'),
+    path('emails/preview/<slug:slug>/', email_preview, name='email_preview'),
 ]
 
 # Serve static and media files in development

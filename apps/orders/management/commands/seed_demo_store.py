@@ -196,8 +196,8 @@ CUSTOMERS = {
         'phone': '+880 1712 345678', 'address': 'House 12, Road 4, Malibagh', 'city': 'Dhaka',
         'postal_code': '1217',
         'addresses': [
-            ('Rakibul Hasan', '+880 1712 345678', 'House 12, Road 4', 'Malibagh', 'Dhaka', 'Dhaka', '1217', True),
-            ('Rakibul Hasan', '+880 1712 345678', 'Level 7, Rangs Babylonia', 'Tejgaon', 'Dhaka', 'Dhaka',
+            ('Home', 'Rakibul Hasan', '+880 1712 345678', 'House 12, Road 4', 'Malibagh', 'Dhaka', 'Dhaka', '1217', True),
+            ('Office', 'Rakibul Hasan', '+880 1712 345678', 'Level 7, Rangs Babylonia', 'Tejgaon', 'Dhaka', 'Dhaka',
              '1208', False),
         ],
     },
@@ -206,7 +206,7 @@ CUSTOMERS = {
         'phone': '+880 1812 345678', 'address': 'Holding 7, College Road, Chawkbazar', 'city': 'Chattogram',
         'postal_code': '4203',
         'addresses': [
-            ('Nusrat Jahan', '+880 1812 345678', 'Holding 7, College Road', 'Chawkbazar', 'Chattogram',
+            ('Home', 'Nusrat Jahan', '+880 1812 345678', 'Holding 7, College Road', 'Chawkbazar', 'Chattogram',
              'Chattogram', '4203', True),
         ],
     },
@@ -466,9 +466,9 @@ class Command(BaseCommand):
             user.city = spec['city']
             user.postal_code = spec['postal_code']
             user.save()
-            for name, phone, line1, line2, city, district, postal, default in spec['addresses']:
+            for label, name, phone, line1, line2, city, district, postal, default in spec['addresses']:
                 Address.objects.update_or_create(user=user, address_line1=line1, defaults={
-                    'full_name': name, 'phone': phone, 'address_line2': line2, 'city': city,
+                    'label': label, 'full_name': name, 'phone': phone, 'address_line2': line2, 'city': city,
                     'district': district, 'postal_code': postal, 'is_default': default,
                     'is_inside_dhaka': district == 'Dhaka', 'address_type': 'shipping',
                 })

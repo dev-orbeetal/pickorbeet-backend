@@ -18,6 +18,8 @@ from .serializers import (
     ProcessRefundSerializer
 )
 from apps.orders.models import Order
+from apps.orders.services import change_order_status, record_online_payment
+from apps.notifications.services import notify_refund_requested
 from apps.accounts.permissions import IsStaffUser, IsAccountant
 
 
@@ -158,33 +160,26 @@ class PaymentIPNView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Update payment details
-        payment.val_id = data.get('val_id')
-        payment.bank_transaction_id = data.get('bank_tran_id')
-        payment.card_type = data.get('card_type')
-        payment.card_brand = data.get('card_brand')
-        payment.gateway_response = dict(data)
-        
-        if payment_status == 'VALID' or payment_status == 'VALIDATED':
-            payment.status = 'completed'
-            payment.completed_at = timezone.now()
-            
-            # Update order
-            order = payment.order
-            order.payment_status = 'paid'
-            order.transaction_id = transaction_id
-            order.payment_method = 'sslcommerz'
-            if order.order_status == 'pending':
-                order.order_status = 'confirmed'
-                order.confirmed_at = timezone.now()
-            order.save()
+        gateway_fields = {
+            'val_id': data.get('val_id'),
+            'bank_transaction_id': data.get('bank_tran_id'),
+            'card_type': data.get('card_type'),
+            'card_brand': data.get('card_brand'),
+            'gateway_response': dict(data),
+        }
+        if payment_status in ('VALID', 'VALIDATED'):
+            outcome = 'paid'
         elif payment_status == 'FAILED':
-            payment.status = 'failed'
+            outcome = 'failed'
         elif payment_status == 'CANCELLED':
-            payment.status = 'cancelled'
-        
-        payment.save()
-        
+            outcome = 'cancelled'
+        else:
+            for field, value in gateway_fields.items():
+                setattr(payment, field, value)
+            payment.save()
+            return Response({'message': 'IPN processed'})
+
+        record_online_payment(payment, outcome, gateway_fields=gateway_fields)
         return Response({'message': 'IPN processed'})
 
 
@@ -199,18 +194,8 @@ class PaymentSuccessView(APIView):
         try:
             payment = Payment.objects.get(transaction_id=transaction_id)
             
-            # Validate payment if not already done
             if payment.status == 'processing':
-                payment.status = 'completed'
-                payment.completed_at = timezone.now()
-                payment.save()
-                
-                order = payment.order
-                order.payment_status = 'paid'
-                order.transaction_id = transaction_id
-                if order.order_status == 'pending':
-                    order.order_status = 'confirmed'
-                order.save()
+                record_online_payment(payment, 'paid')
             
             return redirect(f"{settings.FRONTEND_URL}/order-success/{payment.order.order_number}")
         except Payment.DoesNotExist:
@@ -227,8 +212,7 @@ class PaymentFailView(APIView):
         
         try:
             payment = Payment.objects.get(transaction_id=transaction_id)
-            payment.status = 'failed'
-            payment.save()
+            record_online_payment(payment, 'failed')
         except Payment.DoesNotExist:
             pass
         
@@ -245,8 +229,7 @@ class PaymentCancelView(APIView):
         
         try:
             payment = Payment.objects.get(transaction_id=transaction_id)
-            payment.status = 'cancelled'
-            payment.save()
+            record_online_payment(payment, 'cancelled')
         except Payment.DoesNotExist:
             pass
         
@@ -303,6 +286,7 @@ class RefundListCreateView(generics.ListCreateAPIView):
             reason=serializer.validated_data['reason'],
             requested_by=request.user
         )
+        notify_refund_requested(refund)
         
         return Response(
             RefundSerializer(refund).data,
@@ -337,13 +321,14 @@ class ProcessRefundView(APIView):
         refund.processed_at = timezone.now()
         
         if refund.status == 'approved':
-            # Update payment and order status
             refund.payment.status = 'refunded'
-            refund.payment.save()
-            
-            refund.payment.order.payment_status = 'refunded'
-            refund.payment.order.order_status = 'refunded'
-            refund.payment.order.save()
+            refund.payment.save(update_fields=['status'])
+            change_order_status(
+                refund.payment.order,
+                'refunded',
+                note='Refund approved.',
+                changed_by=request.user,
+            )
         
         refund.save()
         

@@ -199,6 +199,32 @@ class MyOrdersTests(ShopTestCase):
         everything = self.api.get('/api/v1/orders/my-orders/').json()
         self.assertEqual(everything['count'], 5)
 
+    def test_search_and_preview_item(self):
+        body = self.api.get('/api/v1/orders/my-orders/', {'search': self.shipped.order_number}).json()
+        self.assertEqual(body['count'], 1)
+        row = body['results'][0]
+        self.assertEqual(row['extra_item_count'], 0)
+        self.assertEqual(row['preview_item']['quantity'], 1)
+        self.assertTrue(row['preview_item']['product_name'])
+        self.assertIn('unit_price', row['preview_item'])
+        self.assertIn('shipped_at', row)
+        self.assertEqual(self.api.get('/api/v1/orders/my-orders/', {'search': 'no-such-order'}).json()['count'], 0)
+
+    def test_customer_cancels_a_processing_order(self):
+        order = make_order(user=self.customer, status='processing')
+        response = self.api.post(f'/api/v1/orders/my-orders/{order.pk}/cancel/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['order_status'], 'cancelled')
+        order.refresh_from_db()
+        self.assertEqual(order.order_status, 'cancelled')
+
+    def test_cannot_cancel_a_shipped_order(self):
+        self.assertEqual(self.api.post(f'/api/v1/orders/my-orders/{self.shipped.pk}/cancel/').status_code, 400)
+
+    def test_cannot_cancel_someone_elses_order(self):
+        other = make_order(user=make_user(), status='pending')
+        self.assertEqual(self.api.post(f'/api/v1/orders/my-orders/{other.pk}/cancel/').status_code, 404)
+
     def test_summary_requires_login(self):
         self.assertEqual(APIClient().get('/api/v1/orders/my-orders/summary/').status_code, 401)
 

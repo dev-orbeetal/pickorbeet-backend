@@ -1,0 +1,44 @@
+{% extends "emails/base.html" %}
+{% block content %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr>
+    <td class="stack pad-sm" valign="middle" style="font-family:{{ font }};padding-right:8px;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td width="44" valign="middle"><img src="{{ assets.check }}" width="36" height="36" alt="" style="display:block;width:36px;height:36px;border:0;"></td>
+          <td valign="middle" style="font-family:{{ font }};font-size:26px;line-height:32px;font-weight:800;color:#16835B;">Delivered!</td>
+        </tr>
+      </table>
+      <p style="margin:12px 0 0;font-size:14px;line-height:22px;color:#687386;">Your order has been successfully delivered. We hope you love it!</p>
+    </td>
+    <td class="stack" width="180" valign="middle" align="center">
+      <img class="mail-hero" src="{{ assets.open_box }}" width="160" alt="" style="display:block;width:160px;height:auto;margin:0 auto;border:0;">
+    </td>
+  </tr>
+</table>
+{% include "emails/partials/order_meta.html" %}
+{% for item in items %}
+  {% if not forloop.first %}<div style="border-top:1px solid #EEF1F8;font-size:0;line-height:0;">&nbsp;</div>{% endif %}
+  {% include "emails/partials/product_row.html" %}
+{% endfor %}
+<div align="center" style="padding-top:22px;font-family:{{ font }};">
+  <div style="font-size:15px;line-height:20px;font-weight:700;color:#172033;">How was your experience?</div>
+  <div style="font-size:12px;line-height:18px;color:#8B95A8;padding-top:2px;">Your feedback helps us serve you better.</div>
+  <div style="padding-top:8px;font-size:20px;line-height:24px;letter-spacing:3px;">
+    <span class="mail-star mail-d1" style="color:#FFB020;">★</span><span class="mail-star mail-d2" style="color:#E3E8F0;">★</span><span class="mail-star mail-d3" style="color:#E3E8F0;">★</span><span class="mail-star mail-d4" style="color:#E3E8F0;">★</span><span class="mail-star mail-d5" style="color:#E3E8F0;">★</span>
+  </div>
+  <div style="padding-top:14px;">
+    {% include "emails/partials/button.html" with href=review_url label="Write a Review →" bg="#FF791F" width="210" %}
+  </div>
+</div>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin-top:14px;">
+  <tr>
+    <td style="padding-right:8px;">
+      {% include "emails/partials/button_outline.html" with href=buy_url label="Buy Again" icon=assets.glyph_cart %}
+    </td>
+    <td>
+      {% include "emails/partials/button_outline.html" with href=explore_url label="Explore More Products" icon=assets.glyph_grid %}
+    </td>
+  </tr>
+</table>
+{% endblock %}

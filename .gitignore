@@ -140,3 +140,7 @@ public
 
 # Files written by manage.py seed_demo_store
 /media/demo/
+
+# Firebase service account. Never commit this.
+firebase-adminsdk*.json
+*-firebase-adminsdk-*.json

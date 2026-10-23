@@ -23,6 +23,8 @@ from apps.products.models import Product, ProductVariant
 from apps.reports.models import StockMovement
 from apps.accounts.permissions import IsStaffUser, IsSeller, IsSuperAdmin
 from apps.shipping.services import status_group
+from apps.notifications.services import notify_order_placed
+from apps.orders.emails import notify_order_placed_email
 from .services import DeliveryUpdateError, change_order_status, update_delivery_details
 
 
@@ -311,7 +313,10 @@ class CheckoutView(APIView):
             
             # Remove the ordered lines; unselected lines stay in the cart
             CartItem.objects.filter(id__in=[item.id for item in cart_items]).delete()
-        
+
+        notify_order_placed(order)
+        notify_order_placed_email(order)
+
         return Response({
             'message': 'Order created successfully',
             'order': OrderDetailSerializer(order).data
@@ -340,6 +345,14 @@ class CustomerOrderListView(generics.ListAPIView):
                 wanted.discard('open')
                 wanted.update(OPEN_ORDER_STATUSES)
             queryset = queryset.filter(order_status__in=wanted)
+        search = (self.request.query_params.get('search') or '').strip()[:80]
+        if search:
+            queryset = queryset.filter(
+                Q(order_number__icontains=search)
+                | Q(tracking_number__icontains=search)
+                | Q(items__product_name__icontains=search)
+                | Q(items__product_sku__icontains=search)
+            ).distinct()
         return queryset
 
 
@@ -365,6 +378,33 @@ class CustomerOrderSummaryView(APIView):
             'cancelled': counts['cancelled'],
             'returned': counts['refunded'],
         })
+
+
+CANCELLABLE_STATUSES = {'pending', 'confirmed', 'processing'}
+
+
+class CustomerCancelOrderView(APIView):
+    """Customer: cancel an order that has not been handed to the courier."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        order = (
+            Order.objects.filter(pk=pk, user=request.user)
+            .select_related('shipment')
+            .prefetch_related('items__product__images')
+            .first()
+        )
+        if order is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        shipment = getattr(order, 'shipment', None)
+        booked = shipment is not None and bool(shipment.consignment_id)
+        if order.order_status not in CANCELLABLE_STATUSES or booked:
+            return Response(
+                {'error': 'This order can no longer be cancelled.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        change_order_status(order, 'cancelled', note='Cancelled by customer', changed_by=request.user)
+        return Response(OrderListSerializer(order, context={'request': request}).data)
 
 
 class CustomerOrderDetailView(generics.RetrieveAPIView):
@@ -482,7 +522,7 @@ class UpdateOrderStatusView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        change_order_status(
+        order = change_order_status(
             order,
             serializer.validated_data['status'],
             note=serializer.validated_data.get('note', ''),

@@ -1,0 +1,11 @@
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" {% if align %}align="{{ align }}"{% endif %}>
+  <tr>
+    {% for item in social %}
+    <td style="padding-right:8px;" valign="middle">
+      <a href="{{ item.href }}" style="text-decoration:none;">
+        <img src="{{ item.icon }}" width="28" height="28" alt="{{ item.name }}" style="display:block;width:28px;height:28px;border:0;border-radius:14px;">
+      </a>
+    </td>
+    {% endfor %}
+  </tr>
+</table>

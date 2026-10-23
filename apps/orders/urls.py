@@ -4,8 +4,8 @@ URL patterns for orders app.
 from django.urls import path
 from .views import (
     CartView, AddToCartView, UpdateCartItemView, ClearCartView,
-    CheckoutView, CustomerOrderListView, CustomerOrderDetailView,
-    CustomerOrderSummaryView, CustomerOrderDeliveryView,
+    CheckoutView,     CustomerOrderListView, CustomerOrderDetailView,
+    CustomerOrderSummaryView, CustomerOrderDeliveryView, CustomerCancelOrderView,
     TrackOrderView, AdminOrderListView, AdminOrderDetailView,
     UpdateOrderStatusView, InShopOrderView,
     ValidateCouponView, ApplyCouponToCartView,
@@ -32,6 +32,7 @@ urlpatterns = [
     path('my-orders/', CustomerOrderListView.as_view(), name='customer_orders'),
     path('my-orders/summary/', CustomerOrderSummaryView.as_view(), name='customer_order_summary'),
     path('my-orders/<uuid:pk>/', CustomerOrderDetailView.as_view(), name='customer_order_detail'),
+    path('my-orders/<uuid:pk>/cancel/', CustomerCancelOrderView.as_view(), name='customer_order_cancel'),
     path('my-orders/<uuid:pk>/delivery/', CustomerOrderDeliveryView.as_view(), name='customer_order_delivery'),
     path('my-orders/<uuid:pk>/shipment/refresh/', CustomerRefreshShipmentView.as_view(),
          name='customer_shipment_refresh'),

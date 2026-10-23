@@ -1,0 +1,41 @@
+<tr>
+  <td style="padding:18px 28px 22px;border-top:1px solid #EEF1F8;font-family:{{ font }};">
+    {% if footer_mode == "split" %}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+      <tr>
+        <td valign="top" class="stack">
+          <div style="font-family:{{ font }};font-size:12px;line-height:16px;color:#687386;padding-bottom:8px;">Follow Us</div>
+          {% include "emails/partials/social.html" %}
+        </td>
+        <td valign="top" align="right" class="stack" style="font-family:{{ font }};">
+          <div style="font-size:12px;line-height:16px;color:#687386;">Need Help?</div>
+          <a href="mailto:{{ support_email }}" style="font-family:{{ font }};font-size:13px;line-height:18px;font-weight:700;color:#FF791F;text-decoration:none;">{{ support_email }}</a>
+        </td>
+      </tr>
+    </table>
+    {% elif footer_mode == "thanks" %}
+    <p style="margin:0 0 12px;text-align:center;font-family:{{ font }};font-size:13px;line-height:20px;color:#687386;">Thank you for shopping with <strong style="color:#172033;">PickOrbeet</strong></p>
+    <div align="center">{% include "emails/partials/social.html" with align="center" %}</div>
+    {% elif footer_mode == "social" %}
+    <div align="center">{% include "emails/partials/social.html" with align="center" %}</div>
+    {% elif footer_mode == "contact" %}
+    <p style="margin:0 0 8px;text-align:center;font-family:{{ font }};font-size:13px;line-height:20px;color:#687386;">Need help? We're here for you.</p>
+    <p style="margin:0 0 12px;text-align:center;font-family:{{ font }};font-size:13px;line-height:20px;color:#172033;">
+      {{ support_phone }}
+      &nbsp;&middot;&nbsp;
+      <a href="mailto:{{ support_email }}" style="color:#FF791F;font-weight:700;text-decoration:none;">{{ support_email }}</a>
+    </p>
+    <div align="center">{% include "emails/partials/social.html" with align="center" %}</div>
+    {% else %}
+    {% if support_line %}
+    <p style="margin:0 0 8px;text-align:center;font-family:{{ font }};font-size:13px;line-height:20px;color:#687386;">{{ support_line }}</p>
+    {% endif %}
+    <p style="margin:0 0 12px;text-align:center;font-family:{{ font }};font-size:13px;line-height:20px;color:#172033;">
+      {{ support_phone }}
+      &nbsp;&middot;&nbsp;
+      <a href="mailto:{{ support_email }}" style="color:#FF791F;font-weight:700;text-decoration:none;">{{ support_email }}</a>
+    </p>
+    <div align="center">{% include "emails/partials/social.html" with align="center" %}</div>
+    {% endif %}
+  </td>
+</tr>

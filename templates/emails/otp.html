@@ -1,0 +1,24 @@
+{% extends "emails/base.html" %}
+{% block content %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr>
+    <td class="stack pad-sm" valign="middle" style="font-family:{{ font }};padding-right:8px;">
+      <div style="font-size:28px;line-height:34px;font-weight:800;color:#172033;">Verify Your Email Address</div>
+      <p style="margin:12px 0 0;font-size:14px;line-height:22px;color:#687386;">Enter this code to activate your PickOrbeet account.</p>
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:18px;">
+        <tr>
+          {% for digit in otp_digits %}
+          <td class="mail-tile mail-d{{ forloop.counter }}" align="center" valign="middle" width="44" height="48" style="width:44px;height:48px;border:1px solid #E6ECF5;border-radius:12px;background-color:#F8FAFF;font-family:{{ font }};font-size:22px;line-height:48px;font-weight:800;color:#172033;">{{ digit }}</td>
+          {% if not forloop.last %}<td width="8" style="font-size:0;line-height:0;">&nbsp;</td>{% endif %}
+          {% endfor %}
+        </tr>
+      </table>
+      <p style="margin:16px 0 0;font-size:13px;line-height:20px;color:#687386;">This code will expire in <strong style="color:#172033;">10 minutes</strong>.</p>
+      <p style="margin:8px 0 0;font-size:13px;line-height:20px;color:#8B95A8;">If you didn't create this account, you can ignore this email.</p>
+    </td>
+    <td class="stack" width="190" valign="middle" align="center">
+      <img class="mail-hero" src="{{ assets.envelope }}" width="170" alt="" style="display:block;width:170px;height:auto;margin:0 auto;border:0;">
+    </td>
+  </tr>
+</table>
+{% endblock %}

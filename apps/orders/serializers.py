@@ -25,6 +25,23 @@ def absolute_media(request, path):
     return path
 
 
+def _sorted_items(order):
+    """Prefetched lines, oldest first, so the card shows what was bought first."""
+    return sorted(order.items.all(), key=lambda item: (item.created_at, str(item.id)))
+
+
+def _item_image_url(item, request):
+    product = item.product
+    if product is None:
+        return None
+    product_images = list(product.images.all())
+    image = next((img for img in product_images if img.is_primary), None)
+    image = image or (product_images[0] if product_images else None)
+    if image is None:
+        return None
+    return absolute_media(request, image.image.url)
+
+
 class DeliveryOptionSerializer(serializers.ModelSerializer):
     """Serializer for delivery options."""
 
@@ -226,14 +243,19 @@ class OrderListSerializer(serializers.ModelSerializer):
     shipment_status = serializers.SerializerMethodField()
     shipment_status_group = serializers.SerializerMethodField()
     tracking_code = serializers.SerializerMethodField()
+    tracking_url = serializers.SerializerMethodField()
     preview_images = serializers.SerializerMethodField()
+    preview_item = serializers.SerializerMethodField()
+    extra_item_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
         fields = ['id', 'order_number', 'tracking_number', 'customer_name',
                   'order_type', 'order_status', 'payment_status', 'total',
-                  'item_count', 'created_at', 'shipment_status', 'shipment_status_group',
-                  'tracking_code', 'preview_images']
+                  'item_count', 'extra_item_count', 'created_at', 'updated_at',
+                  'shipped_at', 'delivered_at', 'is_inside_dhaka',
+                  'shipment_status', 'shipment_status_group',
+                  'tracking_code', 'tracking_url', 'preview_images', 'preview_item']
 
     def _shipment(self, obj):
         return getattr(obj, 'shipment', None)
@@ -252,21 +274,46 @@ class OrderListSerializer(serializers.ModelSerializer):
             return None
         return shipment.tracking_code or None
 
+    def get_tracking_url(self, obj):
+        shipment = self._shipment(obj)
+        if shipment is None:
+            return None
+        return shipment.tracking_url or None
+
     def get_preview_images(self, obj):
         request = self.context.get('request')
         images = []
-        for item in obj.items.all():
+        for item in _sorted_items(obj):
             if len(images) == 3:
                 break
-            if not item.product:
-                continue
             # Works on prefetched images instead of one query per product.
-            product_images = list(item.product.images.all())
-            image = next((img for img in product_images if img.is_primary), None)
-            image = image or (product_images[0] if product_images else None)
-            if image:
-                images.append(absolute_media(request, image.image.url))
+            url = _item_image_url(item, request)
+            if url:
+                images.append(url)
         return images
+
+    def get_extra_item_count(self, obj):
+        return max(len(_sorted_items(obj)) - 1, 0)
+
+    def get_preview_item(self, obj):
+        """The first line, enough for the order card without loading the whole order."""
+        items = _sorted_items(obj)
+        if not items:
+            return None
+        item = items[0]
+        return {
+            'product_id': str(item.product_id) if item.product_id else None,
+            'variant_id': str(item.variant_id) if item.variant_id else None,
+            'product_name': item.product_name,
+            'product_sku': item.product_sku or '',
+            'product_slug': item.product.slug if item.product_id and item.product else None,
+            'product_image': _item_image_url(item, self.context.get('request')),
+            'size': item.size or '',
+            'color': item.color or '',
+            'quantity': item.quantity,
+            'unit_price': format(item.unit_price, 'f'),
+            'compare_price': format(item.compare_price, 'f') if item.compare_price is not None else None,
+        }
 
 
 class OrderDetailSerializer(serializers.ModelSerializer):

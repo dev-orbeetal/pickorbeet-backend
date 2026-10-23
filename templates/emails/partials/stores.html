@@ -1,0 +1,24 @@
+{% if app_store_url or play_store_url %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:26px;">
+  <tr>
+    <td class="stack pad-sm" valign="middle" style="font-family:{{ font }};">
+      <div style="font-size:14px;line-height:18px;font-weight:700;color:#172033;padding-bottom:10px;">Download Our App</div>
+      {% if app_store_url %}
+      <a href="{{ app_store_url }}" target="_blank" style="display:inline-block;background-color:#111827;color:#ffffff;text-decoration:none;border-radius:8px;padding:7px 12px;margin:0 8px 8px 0;font-family:{{ font }};">
+        <span style="display:block;font-size:9px;line-height:11px;font-weight:500;color:#ffffff;">Download on the</span>
+        <span style="display:block;font-size:14px;line-height:16px;font-weight:700;color:#ffffff;">App Store</span>
+      </a>
+      {% endif %}
+      {% if play_store_url %}
+      <a href="{{ play_store_url }}" target="_blank" style="display:inline-block;background-color:#111827;color:#ffffff;text-decoration:none;border-radius:8px;padding:7px 12px;margin:0 0 8px;font-family:{{ font }};">
+        <span style="display:block;font-size:9px;line-height:11px;font-weight:500;color:#ffffff;">GET IT ON</span>
+        <span style="display:block;font-size:14px;line-height:16px;font-weight:700;color:#ffffff;">Google Play</span>
+      </a>
+      {% endif %}
+    </td>
+    <td class="stack" width="120" valign="middle" align="right">
+      <img class="mail-hero" src="{{ assets.phone }}" width="92" alt="PickOrbeet app" style="display:block;width:92px;height:auto;margin-left:auto;border:0;">
+    </td>
+  </tr>
+</table>
+{% endif %}

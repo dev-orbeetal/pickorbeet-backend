@@ -1,0 +1,31 @@
+{% extends "emails/base.html" %}
+{% block content %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr>
+    <td class="stack pad-sm" valign="middle" style="font-family:{{ font }};padding-right:8px;">
+      <div style="font-size:32px;line-height:38px;font-weight:800;color:#172033;">Welcome to<br>Pick<span style="color:#FF791F;">Orbeet!</span></div>
+      <p style="margin:12px 0 0;font-size:14px;line-height:22px;color:#687386;">Glad to have you with us. Shop your favorite products at the best prices.</p>
+    </td>
+    <td class="stack" width="200" valign="middle" align="center">
+      <img class="mail-hero" src="{{ assets.bag }}" width="180" alt="" style="display:block;width:180px;height:auto;margin:0 auto;border:0;">
+    </td>
+  </tr>
+</table>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:22px;">
+  <tr>
+    <td class="mail-tile mail-d1 stack" width="33%" valign="top" style="padding-right:8px;">
+      {% include "emails/partials/feature.html" with icon=assets.icon_range label="Wide Range of Products" %}
+    </td>
+    <td class="mail-tile mail-d2 stack" width="33%" valign="top" style="padding-right:8px;">
+      {% include "emails/partials/feature.html" with icon=assets.icon_pay label="Secure Payments" %}
+    </td>
+    <td class="mail-tile mail-d3 stack" width="33%" valign="top">
+      {% include "emails/partials/feature.html" with icon=assets.icon_ship label="Fast Delivery" %}
+    </td>
+  </tr>
+</table>
+<div align="center" style="padding-top:22px;">
+  {% include "emails/partials/button.html" with href=shop_url label="Start Shopping →" bg="#FF791F" width="210" %}
+</div>
+{% include "emails/partials/stores.html" %}
+{% endblock %}

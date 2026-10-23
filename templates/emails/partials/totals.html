@@ -1,0 +1,21 @@
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="right" style="margin-top:8px;">
+  <tr>
+    <td style="font-family:{{ font }};font-size:13px;line-height:18px;color:#687386;padding:4px 18px 4px 0;">Subtotal</td>
+    <td align="right" style="font-family:{{ money_font }};font-size:13px;line-height:18px;font-weight:600;color:#172033;padding:4px 0;">{{ subtotal }}</td>
+  </tr>
+  <tr>
+    <td style="font-family:{{ font }};font-size:13px;line-height:18px;color:#687386;padding:4px 18px 4px 0;">Delivery Charge</td>
+    <td align="right" style="font-family:{{ money_font }};font-size:13px;line-height:18px;font-weight:600;color:#172033;padding:4px 0;">{{ delivery }}</td>
+  </tr>
+  {% if discount %}
+  <tr>
+    <td style="font-family:{{ font }};font-size:13px;line-height:18px;color:#687386;padding:4px 18px 4px 0;">Discount</td>
+    <td align="right" style="font-family:{{ money_font }};font-size:13px;line-height:18px;font-weight:600;color:#16835B;padding:4px 0;">−{{ discount }}</td>
+  </tr>
+  {% endif %}
+  <tr>
+    <td style="font-family:{{ font }};font-size:14px;line-height:20px;font-weight:800;color:#172033;padding:10px 18px 0 0;">Total Paid</td>
+    <td align="right" style="font-family:{{ money_font }};font-size:16px;line-height:20px;font-weight:800;color:#172033;padding:10px 0 0;">{{ total }}</td>
+  </tr>
+</table>
+<div style="clear:both;height:8px;line-height:8px;font-size:0;">&nbsp;</div>

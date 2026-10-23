@@ -1,0 +1,24 @@
+<tr>
+  <td style="padding:22px 28px 8px;font-family:{{ font }};">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+      <tr>
+        <td valign="middle" width="46">
+          <a href="{{ frontend_url }}/" style="text-decoration:none;">
+            <img src="{{ logo_url }}" width="36" height="42" alt="PickOrbeet" style="display:block;width:36px;height:42px;border:0;">
+          </a>
+        </td>
+        <td valign="middle" style="padding-left:8px;">
+          <a href="{{ frontend_url }}/" style="text-decoration:none;color:#172033;">
+            <div style="font-family:{{ font }};font-size:16px;line-height:18px;font-weight:800;color:#172033;">PickOrbeet</div>
+            <div style="font-family:{{ font }};font-size:11px;line-height:14px;color:#8B95A8;padding-top:2px;">Shop Smart, Live Better</div>
+          </a>
+        </td>
+        <td valign="middle" align="right" style="font-family:{{ font }};font-size:12px;line-height:16px;">
+          {% for item in nav %}
+          <a href="{{ item.href }}" style="font-family:{{ font }};font-size:12px;line-height:16px;font-weight:500;color:#687386;text-decoration:none;padding-left:12px;">{{ item.label }}</a>
+          {% endfor %}
+        </td>
+      </tr>
+    </table>
+  </td>
+</tr>

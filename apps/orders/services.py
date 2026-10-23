@@ -1,13 +1,16 @@
 """
 Order domain services shared by API views, the Django admin and the courier sync.
 """
+import json
+
 from django.conf import settings
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
 from django.utils import timezone
 
 from apps.reports.models import StockMovement
 
-from .models import OrderStatusHistory
+from .models import Order, OrderStatusHistory
 
 # Statuses where stock should be deducted
 STOCK_DEDUCTED_STATUSES = {'confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered'}
@@ -157,35 +160,108 @@ def change_order_status(order, new_status, note='', changed_by=None):
     """Move an order to ``new_status`` with timestamps, stock and history.
 
     Used by the staff status endpoint and by the courier sync, so both behave the same.
+    A no-op when the order is already in ``new_status`` — no second history row
+    and no second notification.
     """
+    from apps.notifications.services import notify_order_status, notify_payment_paid
+
     with transaction.atomic():
-        order.order_status = new_status
+        locked = Order.objects.select_for_update().get(pk=order.pk)
+        if locked.order_status == new_status:
+            return order
+        previous_payment = locked.payment_status
+        locked.order_status = new_status
 
         # Update timestamps
         if new_status == 'confirmed':
-            order.confirmed_at = timezone.now()
+            locked.confirmed_at = timezone.now()
         elif new_status == 'shipped':
-            order.shipped_at = timezone.now()
+            locked.shipped_at = timezone.now()
         elif new_status == 'delivered':
-            order.delivered_at = timezone.now()
-            order.payment_status = 'paid'
+            locked.delivered_at = timezone.now()
+            locked.payment_status = 'paid'
         elif new_status == 'refunded':
-            order.payment_status = 'refunded'
+            locked.payment_status = 'refunded'
 
         # Stock management: reduce when entering confirmed+ statuses, restore when going back
         if new_status in STOCK_DEDUCTED_STATUSES:
-            reduce_stock(order)
+            reduce_stock(locked)
         else:
             # pending, cancelled, refunded → restore stock if it was reduced
-            restore_stock(order)
+            restore_stock(locked)
 
-        order.save()
+        locked.save()
 
-        # Create status history
-        OrderStatusHistory.objects.create(
-            order=order,
+        history = OrderStatusHistory.objects.create(
+            order=locked,
             status=new_status,
             note=note,
             changed_by=changed_by,
         )
+    order.refresh_from_db()
+    notify_order_status(order, history)
+    if previous_payment != 'paid' and order.payment_status == 'paid':
+        notify_payment_paid(order)
+    from apps.orders.emails import notify_order_status_email
+    notify_order_status_email(order)
     return order
+
+
+def record_online_payment(payment, outcome, *, gateway_fields=None):
+    """Apply an SSLCommerz result once.
+
+    ``outcome`` is ``paid``, ``failed``, or ``cancelled``. A paid order that is
+    still pending is confirmed through ``change_order_status``, so stock, history,
+    and the customer notification happen on that one path. Calling this again
+    for the same result does not create a second inbox row.
+    """
+    from apps.notifications.services import notify_payment_failed, notify_payment_paid
+    from apps.payments.models import Payment
+
+    with transaction.atomic():
+        payment = Payment.objects.select_for_update().select_related('order').get(pk=payment.pk)
+        if gateway_fields:
+            fields = dict(gateway_fields)
+            raw_gateway = fields.get('gateway_response')
+            if raw_gateway is not None:
+                fields['gateway_response'] = json.loads(json.dumps(raw_gateway, cls=DjangoJSONEncoder))
+            for field, value in fields.items():
+                setattr(payment, field, value)
+
+        order = payment.order
+        if outcome == 'paid':
+            if payment.status != 'completed':
+                payment.status = 'completed'
+                payment.completed_at = timezone.now()
+            payment.save()
+            became_paid = order.payment_status != 'paid'
+            if became_paid:
+                order.payment_status = 'paid'
+                order.transaction_id = payment.transaction_id or ''
+                order.payment_method = 'sslcommerz'
+                order.save()
+            if order.order_status == 'pending':
+                change_order_status(order, 'confirmed', note='Payment received.')
+            if became_paid:
+                notify_payment_paid(order, payment)
+            return payment
+
+        if outcome == 'failed':
+            if payment.status == 'failed':
+                payment.save()
+                return payment
+            if payment.status in {'completed', 'refunded'}:
+                payment.save()
+                return payment
+            payment.status = 'failed'
+            payment.save()
+            notify_payment_failed(order, payment)
+            return payment
+
+        if outcome == 'cancelled':
+            if payment.status not in {'cancelled', 'completed', 'refunded'}:
+                payment.status = 'cancelled'
+            payment.save()
+            return payment
+
+    raise ValueError(f'Unknown payment outcome {outcome}')

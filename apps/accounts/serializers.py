@@ -106,10 +106,10 @@ class AddressSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Address
-        fields = ['id', 'user', 'address_type', 'full_name', 'phone', 
-                  'address_line1', 'address_line2', 'city', 'district', 
+        fields = ['id', 'user', 'address_type', 'label', 'full_name', 'phone',
+                  'address_line1', 'address_line2', 'city', 'district',
                   'postal_code', 'country', 'is_default', 'is_inside_dhaka']
-        read_only_fields = ['id', 'is_inside_dhaka']
+        read_only_fields = ['id', 'user', 'is_inside_dhaka']
 
 
 class ChangePasswordSerializer(serializers.Serializer):

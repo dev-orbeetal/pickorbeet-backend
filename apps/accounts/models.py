@@ -99,7 +99,9 @@ class Address(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='addresses', null=True, blank=True)
     address_type = models.CharField(max_length=20, choices=ADDRESS_TYPE_CHOICES, default='shipping')
-    
+    # What the customer calls this place: Home, Office, or a short custom name.
+    label = models.CharField(max_length=40, blank=True, default='')
+
     full_name = models.CharField(max_length=200)
     phone = models.CharField(max_length=20)
     address_line1 = models.CharField(max_length=255)
@@ -126,8 +128,10 @@ class Address(models.Model):
     def save(self, *args, **kwargs):
         # Auto-detect if inside Dhaka
         dhaka_areas = ['dhaka', 'mirpur', 'uttara', 'gulshan', 'banani', 'dhanmondi', 'mohammadpur']
-        self.is_inside_dhaka = self.city.lower() in dhaka_areas or self.district.lower() == 'dhaka'
+        self.is_inside_dhaka = (self.city or '').lower() in dhaka_areas or (self.district or '').lower() == 'dhaka'
         super().save(*args, **kwargs)
+        if self.is_default and self.user_id:
+            Address.objects.filter(user_id=self.user_id).exclude(pk=self.pk).update(is_default=False)
 
 
 class EmailVerificationToken(models.Model):

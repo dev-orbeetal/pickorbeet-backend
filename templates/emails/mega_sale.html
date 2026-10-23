@@ -1,0 +1,42 @@
+{% extends "emails/base.html" %}
+{% block content %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#1B2A6B" style="background-color:#1B2A6B;background-image:linear-gradient(145deg,#1A2770 0%,#24357A 74%,#FF791F 100%);border-radius:18px;">
+  <tr>
+    <td class="stack" valign="middle" style="padding:28px 12px 28px 22px;font-family:{{ font }};">
+      <div style="font-size:28px;line-height:32px;font-weight:800;color:#ffffff;letter-spacing:0.5px;">MEGA<br>SALE</div>
+      <div style="padding-top:10px;">
+        <span style="display:inline-block;background-color:#FF791F;color:#ffffff;font-family:{{ font }};font-size:13px;line-height:16px;font-weight:800;border-radius:8px;padding:6px 10px;">UP TO {{ discount }}% OFF</span>
+      </div>
+      <p style="margin:12px 0 0;font-size:14px;line-height:20px;font-weight:700;color:#ffffff;">Best Deals on Electronics</p>
+      <p style="margin:2px 0 0;font-size:13px;line-height:18px;color:#D6DEF5;">Don't miss out!</p>
+      <div style="padding-top:16px;">
+        {% include "emails/partials/button.html" with href=offers_url label="Shop Now →" bg="#FF791F" width="160" %}
+      </div>
+    </td>
+    <td class="stack" width="250" valign="middle" align="center" style="padding:12px 8px 12px 0;">
+      <img class="mail-hero" src="{{ assets.sale }}" width="240" alt="" style="display:block;width:240px;height:auto;margin:0 auto;border:0;">
+    </td>
+  </tr>
+</table>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:18px;">
+  <tr>
+    <td class="mail-tile mail-d1" width="25%" align="center" valign="top" style="font-family:{{ font }};padding:4px;">
+      <img src="{{ assets.icon_genuine }}" width="40" height="40" alt="" style="display:block;width:40px;height:40px;margin:0 auto 6px;border:0;">
+      <div style="font-size:11px;line-height:14px;font-weight:600;color:#172033;">100% Genuine Products</div>
+    </td>
+    <td class="mail-tile mail-d2" width="25%" align="center" valign="top" style="font-family:{{ font }};padding:4px;">
+      <img src="{{ assets.icon_cod }}" width="40" height="40" alt="" style="display:block;width:40px;height:40px;margin:0 auto 6px;border:0;">
+      <div style="font-size:11px;line-height:14px;font-weight:600;color:#172033;">Cash on Delivery</div>
+    </td>
+    <td class="mail-tile mail-d3" width="25%" align="center" valign="top" style="font-family:{{ font }};padding:4px;">
+      <img src="{{ assets.icon_returns }}" width="40" height="40" alt="" style="display:block;width:40px;height:40px;margin:0 auto 6px;border:0;">
+      <div style="font-size:11px;line-height:14px;font-weight:600;color:#172033;">Easy Returns</div>
+    </td>
+    <td class="mail-tile mail-d4" width="25%" align="center" valign="top" style="font-family:{{ font }};padding:4px;">
+      <img src="{{ assets.icon_secure }}" width="40" height="40" alt="" style="display:block;width:40px;height:40px;margin:0 auto 6px;border:0;">
+      <div style="font-size:11px;line-height:14px;font-weight:600;color:#172033;">Secure Payments</div>
+    </td>
+  </tr>
+</table>
+{% include "emails/partials/stores.html" %}
+{% endblock %}

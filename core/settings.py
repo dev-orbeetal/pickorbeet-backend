@@ -2,6 +2,7 @@
 Django settings for Pickorbeet E-commerce project.
 """
 import os
+import sys
 from pathlib import Path
 from datetime import timedelta
 from decouple import config
@@ -26,6 +27,8 @@ ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1').split(','
 
 # Application definition
 INSTALLED_APPS = [
+    # Daphne before staticfiles so `runserver` speaks WebSocket in development.
+    'daphne',
     # Jazzmin must be before django.contrib.admin
     'jazzmin',
     
@@ -43,6 +46,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'django_filters',
     'drf_yasg',
+    'channels',
     
     # Local apps
     'apps.accounts',
@@ -51,6 +55,7 @@ INSTALLED_APPS = [
     'apps.payments',
     'apps.reports',
     'apps.shipping',
+    'apps.notifications',
 ]
 
 MIDDLEWARE = [
@@ -83,6 +88,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'core.wsgi.application'
+ASGI_APPLICATION = 'core.asgi.application'
 
 # Database
 DATABASES = {
@@ -144,6 +150,7 @@ REST_FRAMEWORK = {
     # Only views that opt in with ScopedRateThrottle use these.
     'DEFAULT_THROTTLE_RATES': {
         'shipment_refresh': config('SHIPMENT_REFRESH_RATE', default='10/min'),
+        'device_register': config('DEVICE_REGISTER_RATE', default='30/hour'),
     },
 }
 
@@ -168,6 +175,17 @@ EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
 EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='Pickorbeet <noreply@pickorbeet.com>')
+SUPPORT_EMAIL = config('SUPPORT_EMAIL', default='support@pickorbeet.com')
+SUPPORT_PHONE = config('SUPPORT_PHONE', default='+880 9610-123456')
+APP_STORE_URL = config('APP_STORE_URL', default='')
+PLAY_STORE_URL = config('PLAY_STORE_URL', default='')
+DELIVERY_ETA_DAYS = config('DELIVERY_ETA_DAYS', default=5, cast=int)
+# Absolute origin for /media images inside mail. Falls back to the storefront.
+PUBLIC_BASE_URL = config('PUBLIC_BASE_URL', default='')
+EMAIL_FACEBOOK_URL = config('EMAIL_FACEBOOK_URL', default='https://facebook.com/pickorbeet')
+EMAIL_X_URL = config('EMAIL_X_URL', default='https://x.com/pickorbeet')
+EMAIL_YOUTUBE_URL = config('EMAIL_YOUTUBE_URL', default='https://youtube.com/@pickorbeet')
+EMAIL_LINKEDIN_URL = config('EMAIL_LINKEDIN_URL', default='https://www.linkedin.com/company/pickorbeet')
 
 # CORS Settings
 CORS_ALLOWED_ORIGINS = config(
@@ -230,6 +248,7 @@ JAZZMIN_SETTINGS = {
         "orders",
         "shipping",
         "payments",
+        "notifications",
         "reports",
     ],
 
@@ -248,6 +267,8 @@ JAZZMIN_SETTINGS = {
         "shipping.Shipment": "fas fa-truck",
         "shipping.ShipmentEvent": "fas fa-stream",
         "payments.Payment": "fas fa-credit-card",
+        "notifications.Notification": "fas fa-bell",
+        "notifications.Device": "fas fa-mobile-alt",
         "reports.StockReport": "fas fa-chart-bar",
         "reports.SalesReport": "fas fa-chart-line",
     },
@@ -319,6 +340,30 @@ STEADFAST_SYNC_ORDER_STATUS = config('STEADFAST_SYNC_ORDER_STATUS', default=True
 
 # Low Stock Alert Threshold
 LOW_STOCK_THRESHOLD = 10
+
+# Live inbox (Channels) and push delivery (Celery). Both use Redis in production.
+# Tests use an in-memory channel layer and run tasks in-process so Redis is optional.
+REDIS_URL = config('REDIS_URL', default='redis://127.0.0.1:6379/0')
+FIREBASE_CREDENTIALS = config('FIREBASE_CREDENTIALS', default='')
+RUNNING_TESTS = 'test' in sys.argv
+
+if RUNNING_TESTS:
+    CHANNEL_LAYERS = {
+        'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'},
+    }
+    CELERY_TASK_ALWAYS_EAGER = True
+    CELERY_TASK_EAGER_PROPAGATES = True
+else:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {'hosts': [REDIS_URL]},
+        },
+    }
+    CELERY_BROKER_URL = REDIS_URL
+    CELERY_RESULT_BACKEND = REDIS_URL
+    CELERY_TASK_ALWAYS_EAGER = config('CELERY_TASK_ALWAYS_EAGER', default=False, cast=bool)
+    CELERY_TASK_EAGER_PROPAGATES = True
 
 # Exported PickOrbeet admin panel, served at /admin/.
 ADMIN_PANEL_DIST = BASE_DIR / 'admin_panel' / 'out'
