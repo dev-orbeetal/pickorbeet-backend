@@ -3,6 +3,10 @@ Load a demo store that mirrors the app and web designs, for local development.
 
 Re-running is safe: catalog rows are matched by name or SKU, orders by order number.
 Generated media goes to MEDIA_ROOT/demo/, which is git-ignored.
+
+``--catalog-only`` adds categories, images, products, and banners that are not
+already present. It does not create accounts or orders, and it does not change
+rows the server already has.
 """
 import shutil
 from datetime import datetime, timedelta
@@ -281,8 +285,19 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('--fresh-orders', action='store_true',
                             help='Delete and recreate the demo customers\' orders.')
+        parser.add_argument('--catalog-only', action='store_true',
+                            help='Add missing categories, images, products, and banners. Leave existing rows, accounts, and orders alone.')
 
     def handle(self, *args, **options):
+        if options['catalog_only']:
+            with transaction.atomic():
+                categories, subcategories = self.seed_missing_categories()
+                products = self.seed_missing_products(categories, subcategories)
+                banners = self.seed_missing_banners()
+            self.stdout.write(self.style.SUCCESS(
+                f'Missing catalog added. Categories touched: {len(categories)}, '
+                f'new products: {products}, new banners: {banners}.'))
+            return
         if not settings.DEBUG:
             raise CommandError('seed_demo_store only runs with DEBUG=True. It creates demo accounts and orders.')
         with transaction.atomic():
@@ -442,6 +457,108 @@ class Command(BaseCommand):
             HomepageSectionProduct.objects.update_or_create(
                 section=trending, product=products[sku], defaults={'display_order': order})
         self.stdout.write(f'Homepage: {len(keep)} banners, {len(SECTIONS)} sections, {len(BENEFITS)} benefits')
+
+    def _blank(self, field):
+        return not getattr(field, 'name', None)
+
+    def seed_missing_categories(self):
+        """Create categories that are absent and fill images that were never uploaded."""
+        categories, subcategories = {}, {}
+        for order, (name, image, description, tagline) in enumerate(CATEGORIES, start=1):
+            category, created = Category.objects.get_or_create(name=name)
+            if created:
+                category.is_active = True
+                category.display_order = order
+            if not category.description and description:
+                category.description = description
+            if not category.tagline and tagline:
+                category.tagline = tagline
+            if self._blank(category.image):
+                image_name = self.image_name(image, 'categories')
+                if image_name:
+                    category.image.name = image_name
+            if name == 'Electronics' and self._blank(category.banner_image):
+                banner = self.image_name('category-electronics-banner.png', 'categories')
+                if banner:
+                    category.banner_image.name = banner
+            if name in SUBCATEGORIES and not category.is_featured:
+                category.is_featured = True
+                category.featured_order = list(SUBCATEGORIES).index(name) + 1
+            category.save()
+            categories[name] = category
+        for parent, rows in SUBCATEGORIES.items():
+            for order, row in enumerate(rows, start=1):
+                name, image, *extra = row
+                sub, created = SubCategory.objects.get_or_create(category=categories[parent], name=name)
+                if created:
+                    sub.description = extra[0] if extra else ''
+                    sub.display_order = order
+                    sub.is_active = True
+                if self._blank(sub.image):
+                    image_name = self.image_name(image, 'subcategories')
+                    if image_name:
+                        sub.image.name = image_name
+                sub.save()
+                subcategories[(parent, name)] = sub
+        self.stdout.write(f'Categories: {len(categories)}, subcategories: {len(subcategories)}')
+        return categories, subcategories
+
+    def seed_missing_products(self, categories, subcategories):
+        """Create products whose SKU is not on the server. Existing SKUs keep their price and stock."""
+        created = 0
+        for spec in PRODUCTS:
+            if Product.objects.filter(sku=spec['sku']).exists():
+                continue
+            product = Product(
+                sku=spec['sku'],
+                barcode=spec['sku'],
+                name=spec['name'],
+                category=categories[spec['category']],
+                subcategory=subcategories.get((spec['category'], spec['sub'])) if spec['sub'] else None,
+                price=Decimal(spec['price']),
+                compare_price=Decimal(spec['compare']) if spec['compare'] else None,
+                color=spec['color'],
+                short_description=spec['short'],
+                description=spec['description'],
+                stock_quantity=spec['stock'],
+                is_featured=spec.get('featured', False),
+                is_active=True,
+            )
+            product.barcode_image.name = self.barcode_name(spec['sku'])
+            product.save()
+            image_name = self.image_name(spec['image'], 'products')
+            if image_name:
+                ProductImage.objects.create(
+                    product=product, image=image_name, alt_text=product.name, is_primary=True, display_order=0)
+            created += 1
+            self.stdout.write(f'  Added {spec["sku"]}')
+        self.stdout.write(f'New products: {created}')
+        return created
+
+    def seed_missing_banners(self):
+        """Append design banners that are not already stored. Existing banners stay active and in front."""
+        added = 0
+        for placement, image, title, link, _order in BANNERS:
+            image_name = self.image_name(image, 'banners')
+            if not image_name:
+                continue
+            if HomepageBanner.objects.filter(image=image_name).exists():
+                continue
+            if title and HomepageBanner.objects.filter(placement=placement, title=title).exists():
+                continue
+            last = HomepageBanner.objects.filter(placement=placement).order_by('-display_order').first()
+            HomepageBanner.objects.create(
+                placement=placement,
+                image=image_name,
+                title=title,
+                link=link,
+                display_order=(last.display_order + 1) if last else 1,
+                is_active=True,
+            )
+            added += 1
+            self.stdout.write(f'  Added {placement} banner: {title}')
+        self.stdout.write(f'New banners: {added}')
+        return added
 
     # People
 
