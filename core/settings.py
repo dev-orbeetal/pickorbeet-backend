@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     'apps.reports',
     'apps.shipping',
     'apps.notifications',
+    'apps.support',
 ]
 
 MIDDLEWARE = [

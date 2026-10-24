@@ -1,10 +1,21 @@
 """
 Custom User Model and Account related models for Pickorbeet E-commerce.
 """
+import os
+import uuid
+
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
 from django.utils import timezone
-import uuid
+
+
+def avatar_upload_path(instance, filename):
+    """Store each photo under its owner with a new name so replacements are not cached."""
+    extension = os.path.splitext(filename or '')[1].lower()
+    if extension not in {'.jpg', '.jpeg', '.png', '.webp'}:
+        extension = '.jpg'
+    owner = instance.pk or 'new'
+    return f'avatars/{owner}/{uuid.uuid4().hex}{extension}'
 
 
 class UserManager(BaseUserManager):
@@ -53,6 +64,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     address = models.TextField(blank=True, null=True)
     city = models.CharField(max_length=100, blank=True, null=True)
     postal_code = models.CharField(max_length=20, blank=True, null=True)
+    avatar = models.ImageField(upload_to=avatar_upload_path, blank=True, null=True)
     
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)

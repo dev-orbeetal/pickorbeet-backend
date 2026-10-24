@@ -150,6 +150,18 @@ def notify_payment_failed(order, payment):
     )
 
 
+def notify_support_reply(recipient, *, message_id, title, body, conversation_id):
+    """A staff reply. The phone still gets it when the chat screen is closed."""
+    _create(
+        recipient,
+        kind='support.reply',
+        title=title,
+        body=body,
+        data={'target': 'support', 'conversation_id': str(conversation_id)},
+        dedupe_key=f'support-message:{message_id}',
+    )
+
+
 def notify_refund_requested(refund):
     order = refund.payment.order
     exclude = [refund.requested_by_id] if refund.requested_by_id else []

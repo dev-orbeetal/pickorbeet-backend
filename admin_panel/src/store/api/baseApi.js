@@ -118,6 +118,8 @@ export const baseApi = createApi({
     'Inventory',
     'Coupons',
     'Contact',
+    'Support',
+    'SupportThread',
     'StoreSettings',
     'Banners',
   ],

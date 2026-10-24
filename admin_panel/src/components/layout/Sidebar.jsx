@@ -4,7 +4,7 @@ import { useSelector } from 'react-redux';
 import {
   LayoutDashboard, Package, ShoppingCart, Users, BarChart3,
   Settings, Tag, ShoppingBag, AlertTriangle, Receipt, UserCog, LogOut,
-  Warehouse, Ticket, MessageSquare, Barcode
+  Warehouse, Ticket, MessageSquare, Barcode, Headphones
 } from 'lucide-react';
 
 const menuItems = [
@@ -22,6 +22,7 @@ const menuItems = [
   { href: '/staff', label: 'Staff Management', icon: UserCog, roles: ['super_admin'] },
   { href: '/customers', label: 'Customers', icon: Users, roles: ['seller', 'super_admin'] },
   { href: '/contact', label: 'Contact Messages', icon: MessageSquare, roles: ['seller', 'super_admin'] },
+  { href: '/support', label: 'Support', icon: Headphones, roles: ['seller', 'super_admin'] },
   { href: '/settings', label: 'Settings', icon: Settings, roles: ['super_admin'] },
 ];
 

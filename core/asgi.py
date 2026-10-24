@@ -14,9 +14,10 @@ django_asgi = get_asgi_application()
 from channels.routing import ProtocolTypeRouter, URLRouter  # noqa: E402
 
 from apps.notifications.middleware import JwtAuthMiddleware  # noqa: E402
-from apps.notifications.routing import websocket_urlpatterns  # noqa: E402
+from apps.notifications.routing import websocket_urlpatterns as notification_ws  # noqa: E402
+from apps.support.routing import websocket_urlpatterns as support_ws  # noqa: E402
 
 application = ProtocolTypeRouter({
     'http': django_asgi,
-    'websocket': JwtAuthMiddleware(URLRouter(websocket_urlpatterns)),
+    'websocket': JwtAuthMiddleware(URLRouter(notification_ws + support_ws)),
 })
