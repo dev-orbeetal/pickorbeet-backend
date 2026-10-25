@@ -641,7 +641,7 @@ export default function SettingsPage() {
                   value={formData.contact_phone_1}
                   onChange={(e) => handleChange('contact_phone_1', e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                  placeholder="+880 1234-567890"
+                  placeholder="+8801819217424"
                 />
               </div>
               <div>
@@ -654,7 +654,7 @@ export default function SettingsPage() {
                   value={formData.contact_phone_2}
                   onChange={(e) => handleChange('contact_phone_2', e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                  placeholder="+880 1234-567891"
+                  placeholder="+8801819217424"
                 />
               </div>
               <div>
@@ -667,7 +667,7 @@ export default function SettingsPage() {
                   value={formData.contact_email_1}
                   onChange={(e) => handleChange('contact_email_1', e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                  placeholder="contact@PickOrbeet.com"
+                  placeholder="support@pickorbeet.com"
                 />
               </div>
               <div>
@@ -680,7 +680,7 @@ export default function SettingsPage() {
                   value={formData.contact_email_2}
                   onChange={(e) => handleChange('contact_email_2', e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                  placeholder="support@PickOrbeet.com"
+                  placeholder="support@pickorbeet.com"
                 />
               </div>
               <div className="md:col-span-2">

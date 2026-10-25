@@ -20,6 +20,7 @@ from .serializers import (
 )
 from apps.accounts.permissions import IsStaffUser, IsSeller
 from apps.reports.models import StockMovement
+from .search import filter_product_search, search_names_catalog
 
 
 def public_categories():
@@ -63,13 +64,19 @@ class SubCategoryListView(generics.ListAPIView):
         )
 
 
+class ProductSearchBackend(filters.SearchFilter):
+    """Text search, plus every product in a category or subcategory the query names."""
+
+    def filter_queryset(self, request, queryset, view):
+        return filter_product_search(queryset, request.query_params.get(self.search_param, ''))
+
+
 class ProductListView(generics.ListAPIView):
     """List products with filtering and search."""
     serializer_class = ProductListSerializer
     permission_classes = [AllowAny]
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filter_backends = [DjangoFilterBackend, ProductSearchBackend, filters.OrderingFilter]
     filterset_fields = ['subcategory', 'is_featured', 'color']
-    search_fields = ['name', 'description', 'sku']
     ordering_fields = ['price', 'created_at', 'name']
 
     def get_queryset(self):
@@ -128,8 +135,10 @@ class ProductListView(generics.ListAPIView):
 
     def paginate_queryset(self, queryset):
         # Wishlist lookups ask for a specific id set and should not be clipped
-        # by the default page size.
-        if self.request.query_params.get('ids') is not None:
+        # by the default page size. A category or subcategory name should return
+        # every product under it, not the first page only.
+        params = self.request.query_params
+        if params.get('ids') is not None or search_names_catalog(params.get('search', '')):
             return None
         return super().paginate_queryset(queryset)
 

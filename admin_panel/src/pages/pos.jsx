@@ -461,7 +461,7 @@ export default function POSPage() {
             <h1>PickOrbeet</h1>
             <p>Premium Clothing Store</p>
             <p>Dhaka, Bangladesh</p>
-            <p>Tel: +880 1234-567890</p>
+            <p>Tel: +8801819217424</p>
           </div>
 
           <div className="receipt-divider" />

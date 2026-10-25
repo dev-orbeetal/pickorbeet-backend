@@ -304,10 +304,10 @@ class StoreSettings(models.Model):
         default='123 Fashion Street, Gulshan, Dhaka 1212, Bangladesh',
         help_text='Full store address'
     )
-    contact_phone_1 = models.CharField(max_length=20, blank=True, default='+880 1234-567890')
-    contact_phone_2 = models.CharField(max_length=20, blank=True, default='+880 1234-567891')
-    contact_email_1 = models.EmailField(blank=True, default='contact@pickorbeet.com')
-    contact_email_2 = models.EmailField(blank=True, default='support@pickorbeet.com')
+    contact_phone_1 = models.CharField(max_length=20, blank=True, default='+8801819217424')
+    contact_phone_2 = models.CharField(max_length=20, blank=True, default='')
+    contact_email_1 = models.EmailField(blank=True, default='support@pickorbeet.com')
+    contact_email_2 = models.EmailField(blank=True, default='')
     business_hours = models.TextField(
         blank=True,
         default='Sat - Thu: 10:00 AM - 8:00 PM\nFriday: Closed',
