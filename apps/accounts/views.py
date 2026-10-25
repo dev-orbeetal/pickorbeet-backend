@@ -1,6 +1,9 @@
 """
 Views for accounts app.
 """
+import logging
+import time
+
 from rest_framework import generics, status, permissions
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
@@ -23,6 +26,43 @@ from .emails import (
 from django.conf import settings
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
+
+
+def _google_id_info(credential):
+    """Verify a Google ID token.
+
+    The auth library waits up to 120 seconds for Google's signing keys. A stalled
+    connection makes every app and website sign-in sit until the client gives up,
+    and a reset is returned to the user as a Python traceback. Each attempt uses
+    a fresh connection and a short timeout, with one retry.
+    """
+    from google.auth.exceptions import TransportError
+    from google.auth.transport import requests as google_requests
+    from google.oauth2 import id_token
+
+    class FastRequest(google_requests.Request):
+        def __call__(self, url, method='GET', body=None, headers=None, timeout=None, **kwargs):
+            return super().__call__(
+                url, method=method, body=body, headers=headers, timeout=4, **kwargs,
+            )
+
+    last_error = None
+    for attempt in range(2):
+        try:
+            return id_token.verify_oauth2_token(
+                credential,
+                FastRequest(),
+                settings.GOOGLE_CLIENT_ID,
+            )
+        except TransportError as exc:
+            last_error = exc
+            logger.warning('Google sign-in key fetch failed (attempt %s): %s', attempt + 1, exc)
+            if attempt == 0:
+                time.sleep(0.2)
+                continue
+            raise
+    raise last_error
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):
@@ -187,10 +227,6 @@ class GoogleAuthView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
-        from google.oauth2 import id_token
-        from google.auth.transport import requests as google_requests
-        from django.conf import settings
-
         credential = request.data.get('credential')
 
         if not credential:
@@ -206,12 +242,7 @@ class GoogleAuthView(APIView):
             )
 
         try:
-            # Verify the Google ID token
-            idinfo = id_token.verify_oauth2_token(
-                credential,
-                google_requests.Request(),
-                settings.GOOGLE_CLIENT_ID
-            )
+            idinfo = _google_id_info(credential)
 
             # Extract user info from token
             email = idinfo.get('email')
@@ -279,10 +310,11 @@ class GoogleAuthView(APIView):
                 {'error': 'Invalid Google credential'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        except Exception as e:
+        except Exception:
+            logger.exception('Google sign-in failed')
             return Response(
-                {'error': f'Authentication failed: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {'error': 'Google sign-in could not be completed. Please try again.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
             )
 
 
