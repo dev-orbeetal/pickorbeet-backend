@@ -14,6 +14,7 @@ import {
   useGetStoreSettingsQuery
 } from '@/store/api/productsApi';
 import JsBarcode from 'jsbarcode';
+import SpecificationFields, { cleanSpecifications } from '@/components/products/SpecificationFields';
 
 export default function NewProductPage() {
   const router = useRouter();
@@ -51,6 +52,7 @@ export default function NewProductPage() {
   const [variants, setVariants] = useState([]);
   const [images, setImages] = useState([]);
   const [subcategories, setSubcategories] = useState([]);
+  const [specifications, setSpecifications] = useState([]);
 
   useEffect(() => {
     // Generate initial barcode when settings are loaded
@@ -268,6 +270,12 @@ export default function NewProductPage() {
       return;
     }
 
+    const specResult = cleanSpecifications(specifications);
+    if (specResult.error) {
+      toast.error(specResult.error);
+      return;
+    }
+
     setLoading(true);
     try {
       // Create product
@@ -280,6 +288,7 @@ export default function NewProductPage() {
         low_stock_threshold: parseInt(formData.low_stock_threshold),
         weight: formData.weight ? parseFloat(formData.weight) : null,
         subcategory: formData.subcategory || null,
+        specifications: specResult.specifications,
       };
 
       const response = await createProduct(productData).unwrap();
@@ -461,6 +470,8 @@ export default function NewProductPage() {
                 </div>
               </div>
             </div>
+
+            <SpecificationFields rows={specifications} onChange={setSpecifications} />
 
             {/* Barcode Section */}
             <div className="card">

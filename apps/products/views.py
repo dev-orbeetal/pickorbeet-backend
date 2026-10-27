@@ -9,14 +9,18 @@ from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import models
-from django.db.models import F, Prefetch, Q
-from .models import Category, SubCategory, Product, ProductImage, ProductVariant, ContactMessage, HomepageBanner
+from django.db.models import Avg, Count, F, Prefetch, Q
+from django.shortcuts import get_object_or_404
+from .models import (
+    Category, SubCategory, Product, ProductImage, ProductVariant, ProductReview,
+    ContactMessage, HomepageBanner, with_catalog_stats,
+)
 from .serializers import (
     CategorySerializer, CategoryListSerializer, SubCategorySerializer,
     ProductListSerializer, ProductDetailSerializer, ProductCreateUpdateSerializer,
     ProductImageSerializer, ProductVariantSerializer, BarcodeProductSerializer,
     ProductStockUpdateSerializer, ContactMessageSubmitSerializer, ContactMessageSerializer,
-    HomepageBannerSerializer,
+    HomepageBannerSerializer, ProductReviewSerializer, ProductReviewWriteSerializer,
 )
 from apps.accounts.permissions import IsStaffUser, IsSeller
 from apps.reports.models import StockMovement
@@ -80,7 +84,9 @@ class ProductListView(generics.ListAPIView):
     ordering_fields = ['price', 'created_at', 'name']
 
     def get_queryset(self):
-        queryset = Product.objects.filter(is_active=True).select_related('category', 'subcategory')
+        queryset = with_catalog_stats(
+            Product.objects.filter(is_active=True).select_related('category', 'subcategory')
+        )
         
         # Multi-value category filter (comma-separated IDs)
         category_param = self.request.query_params.get('category')
@@ -150,7 +156,56 @@ class ProductDetailView(generics.RetrieveAPIView):
     lookup_field = 'slug'
     
     def get_queryset(self):
-        return Product.objects.filter(is_active=True).prefetch_related('images', 'variants')
+        return with_catalog_stats(
+            Product.objects.filter(is_active=True).prefetch_related('images', 'variants')
+        )
+
+
+class ProductReviewView(APIView):
+    """Public review list. Signed-in shoppers can leave one review and delete it."""
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
+    def get_product(self, slug):
+        return get_object_or_404(Product, slug=slug, is_active=True)
+
+    def get(self, request, slug):
+        product = self.get_product(slug)
+        reviews = product.reviews.select_related('user')
+        stats = reviews.aggregate(average=Avg('rating'), count=Count('id'))
+        mine = None
+        if request.user.is_authenticated:
+            mine = reviews.filter(user=request.user).first()
+        return Response({
+            'average': None if stats['average'] is None else round(float(stats['average']), 1),
+            'count': stats['count'] or 0,
+            'mine': ProductReviewSerializer(mine).data if mine else None,
+            'results': ProductReviewSerializer(reviews[:100], many=True).data,
+        })
+
+    def post(self, request, slug):
+        product = self.get_product(slug)
+        serializer = ProductReviewWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        review, created = ProductReview.objects.update_or_create(
+            product=product,
+            user=request.user,
+            defaults=serializer.validated_data,
+        )
+        review = ProductReview.objects.select_related('user').get(pk=review.pk)
+        return Response(
+            ProductReviewSerializer(review).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+    def delete(self, request, slug):
+        product = self.get_product(slug)
+        review = get_object_or_404(ProductReview, product=product, user=request.user)
+        review.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class FeaturedProductsView(generics.ListAPIView):
@@ -159,7 +214,7 @@ class FeaturedProductsView(generics.ListAPIView):
     permission_classes = [AllowAny]
     
     def get_queryset(self):
-        return Product.objects.filter(is_active=True, is_featured=True)[:12]
+        return with_catalog_stats(Product.objects.filter(is_active=True, is_featured=True))[:12]
 
 
 class HomepageConfigView(APIView):
@@ -217,9 +272,9 @@ class CategoryProductsView(generics.ListAPIView):
         categories = Category.objects.filter(is_active=True)[:6]
         result = []
         for category in categories:
-            products = Product.objects.filter(
+            products = with_catalog_stats(Product.objects.filter(
                 category=category, is_active=True
-            )[:4]
+            ))[:4]
             result.append({
                 'category': CategoryListSerializer(category).data,
                 'products': ProductListSerializer(products, many=True).data
@@ -269,9 +324,9 @@ class AdminProductListCreateView(generics.ListCreateAPIView):
         return ProductListSerializer
 
     def get_queryset(self):
-        return Product.objects.all().select_related(
+        return with_catalog_stats(Product.objects.all().select_related(
             'category', 'subcategory'
-        ).prefetch_related('variants')
+        ).prefetch_related('variants'))
 
     def create(self, request, *args, **kwargs):
         try:
@@ -646,11 +701,11 @@ class LowStockProductsView(generics.ListAPIView):
             variants__is_active=True,
             variants__stock_quantity__lte=models.F('variants__low_stock_threshold'),
         )
-        return Product.objects.filter(
+        return with_catalog_stats(Product.objects.filter(
             is_active=True
         ).filter(
             no_variant_low | variant_low
-        ).distinct().prefetch_related('variants').order_by('name')
+        ).distinct().prefetch_related('variants').order_by('name'))
 
 
 class ProductVariantListCreateView(generics.ListCreateAPIView):

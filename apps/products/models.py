@@ -2,6 +2,8 @@
 Product models for Pickorbeet E-commerce.
 """
 from django.db import models
+from django.db.models import Avg, Count, FloatField, IntegerField, OuterRef, Subquery, Value
+from django.db.models.functions import Coalesce
 from django.conf import settings
 from django.utils.text import slugify
 import uuid
@@ -273,6 +275,62 @@ class ProductVariant(models.Model):
     @property
     def effective_price(self):
         return self.price if self.price else self.product.price
+
+
+class ProductSpecification(models.Model):
+    """Ordered name/value rows shown on the product page."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='specifications')
+    name = models.CharField(max_length=80)
+    value = models.CharField(max_length=255)
+    sort_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        verbose_name = 'Product specification'
+        verbose_name_plural = 'Product specifications'
+        ordering = ['sort_order', 'name']
+
+    def __str__(self):
+        return f'{self.name}: {self.value}'
+
+
+class ProductReview(models.Model):
+    """One shopper review per product. A later submit updates the same row."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='reviews')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='product_reviews')
+    rating = models.PositiveSmallIntegerField()
+    comment = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Product review'
+        verbose_name_plural = 'Product reviews'
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(fields=['product', 'user'], name='unique_product_review'),
+            models.CheckConstraint(
+                check=models.Q(rating__gte=1, rating__lte=5),
+                name='product_review_rating_range',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.product.name} ({self.rating})'
+
+
+def with_catalog_stats(queryset):
+    """Attach average rating, review count, and specification rows without join inflation."""
+    reviews = ProductReview.objects.filter(product_id=OuterRef('pk')).order_by()
+    average = reviews.values('product_id').annotate(avg=Avg('rating')).values('avg')[:1]
+    total = reviews.values('product_id').annotate(total=Count('pk')).values('total')[:1]
+    return queryset.annotate(
+        rating_average=Subquery(average, output_field=FloatField()),
+        review_count=Coalesce(Subquery(total, output_field=IntegerField()), Value(0)),
+    ).prefetch_related('specifications')
 
 
 class StoreSettings(models.Model):

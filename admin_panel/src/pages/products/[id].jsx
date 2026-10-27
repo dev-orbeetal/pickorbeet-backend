@@ -18,6 +18,7 @@ import {
 } from '@/store/api/productsApi';
 import JsBarcode from 'jsbarcode';
 import { getMediaUrl, routeId } from '@/lib/utils';
+import SpecificationFields, { cleanSpecifications } from '@/components/products/SpecificationFields';
 
 export default function EditProductPage() {
   const router = useRouter();
@@ -60,6 +61,7 @@ export default function EditProductPage() {
   const [newImages, setNewImages] = useState([]);
   const [existingImages, setExistingImages] = useState([]);
   const [subcategories, setSubcategories] = useState([]);
+  const [specifications, setSpecifications] = useState([]);
 
   // Load product data when available
   useEffect(() => {
@@ -96,6 +98,13 @@ export default function EditProductPage() {
           isExisting: true,
         })));
       }
+
+      setSpecifications(
+        (product.specifications || []).map((row) => ({
+          name: row.name || '',
+          value: row.value || '',
+        })),
+      );
 
       // Set subcategories if category is selected
       if (product.category) {
@@ -296,6 +305,12 @@ export default function EditProductPage() {
       return;
     }
 
+    const specResult = cleanSpecifications(specifications);
+    if (specResult.error) {
+      toast.error(specResult.error);
+      return;
+    }
+
     setLoading(true);
     try {
       // Update product
@@ -315,6 +330,7 @@ export default function EditProductPage() {
         weight: formData.weight ? parseFloat(formData.weight) : null,
         is_active: formData.is_active,
         is_featured: formData.is_featured,
+        specifications: specResult.specifications,
       };
 
       await updateProduct(productData).unwrap();
@@ -520,6 +536,8 @@ export default function EditProductPage() {
                 </div>
               </div>
             </div>
+
+            <SpecificationFields rows={specifications} onChange={setSpecifications} />
 
             {/* Barcode Section */}
             <div className="card">

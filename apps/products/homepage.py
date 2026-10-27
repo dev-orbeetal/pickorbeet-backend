@@ -1,7 +1,7 @@
 """Build the public homepage payload from admin configuration."""
 from django.db.models import F
 
-from .models import HomepageBanner, HomepageBenefit, HomepageSection, Product
+from .models import HomepageBanner, HomepageBenefit, HomepageSection, Product, with_catalog_stats
 from .serializers import HomepageBannerSerializer, ProductListSerializer
 
 
@@ -12,9 +12,15 @@ def _products_for(section):
         if item.product.is_active
     ]
     if assigned:
-        return assigned[:section.item_limit]
+        chosen = assigned[:section.item_limit]
+        ids = [product.id for product in chosen]
+        indexed = {
+            product.id: product
+            for product in with_catalog_stats(Product.objects.filter(id__in=ids))
+        }
+        return [indexed[product_id] for product_id in ids if product_id in indexed]
 
-    queryset = Product.objects.filter(is_active=True)
+    queryset = with_catalog_stats(Product.objects.filter(is_active=True))
     source = section.product_source
     if source == 'on_sale':
         queryset = queryset.filter(compare_price__isnull=False, compare_price__gt=F('price'))

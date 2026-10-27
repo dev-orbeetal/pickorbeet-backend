@@ -4,8 +4,9 @@ Admin configuration for products app.
 from django.contrib import admin
 from django.utils.html import format_html
 from .models import (
-    Category, SubCategory, Product, ProductImage, ProductVariant, StoreSettings,
-    HomepageBanner, HomepageSection, HomepageSectionProduct, HomepageBenefit,
+    Category, SubCategory, Product, ProductImage, ProductVariant, ProductSpecification,
+    ProductReview, StoreSettings, HomepageBanner, HomepageSection, HomepageSectionProduct,
+    HomepageBenefit,
 )
 
 
@@ -71,6 +72,12 @@ class ProductVariantInline(admin.TabularInline):
     extra = 1
 
 
+class ProductSpecificationInline(admin.TabularInline):
+    model = ProductSpecification
+    extra = 1
+    fields = ['name', 'value', 'sort_order']
+
+
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
     list_display = ['name', 'sku', 'category', 'subcategory', 'price', 'stock_quantity', 
@@ -80,7 +87,7 @@ class ProductAdmin(admin.ModelAdmin):
     prepopulated_fields = {'slug': ('name',)}
     readonly_fields = ['barcode_image']
     ordering = ['-created_at']
-    inlines = [ProductImageInline, ProductVariantInline]
+    inlines = [ProductImageInline, ProductVariantInline, ProductSpecificationInline]
     
     fieldsets = (
         ('Basic Info', {
@@ -139,6 +146,14 @@ class ProductVariantAdmin(admin.ModelAdmin):
     list_display = ['product', 'sku', 'size', 'color', 'price', 'stock_quantity', 'is_active']
     list_filter = ['is_active', 'size', 'color']
     search_fields = ['product__name', 'sku', 'barcode']
+
+
+@admin.register(ProductReview)
+class ProductReviewAdmin(admin.ModelAdmin):
+    list_display = ['product', 'user', 'rating', 'created_at']
+    list_filter = ['rating']
+    search_fields = ['product__name', 'user__email', 'comment']
+    raw_id_fields = ['product', 'user']
 
 
 @admin.register(HomepageBanner)
