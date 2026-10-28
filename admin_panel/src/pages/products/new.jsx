@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/router';
 import {
-  Save, ArrowLeft, Plus, Trash2, Upload, RefreshCw,
+  Save, ArrowLeft, Upload, RefreshCw,
   Barcode, Printer, Image as ImageIcon, X, Copy, Check
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -10,23 +10,26 @@ import { useGetCategoriesQuery } from '@/store/api/categoriesApi';
 import {
   useCreateProductMutation,
   useUploadProductImageMutation,
-  useCreateVariantMutation,
+  useSyncVariantSetupMutation,
   useGetStoreSettingsQuery
 } from '@/store/api/productsApi';
 import JsBarcode from 'jsbarcode';
 import SpecificationFields, { cleanSpecifications } from '@/components/products/SpecificationFields';
+import VariantOptions from '@/components/products/VariantOptions';
 
 export default function NewProductPage() {
   const router = useRouter();
   const barcodeRef = useRef(null);
+  const variantRef = useRef(null);
   const [loading, setLoading] = useState(false);
+  const [hasVariants, setHasVariants] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const { data: categoriesData } = useGetCategoriesQuery();
   const { data: storeSettings } = useGetStoreSettingsQuery();
   const [createProduct] = useCreateProductMutation();
   const [uploadProductImage] = useUploadProductImageMutation();
-  const [createVariant] = useCreateVariantMutation();
+  const [syncVariantSetup] = useSyncVariantSetupMutation();
 
   const categories = Array.isArray(categoriesData?.results || categoriesData)
     ? (categoriesData?.results || categoriesData)
@@ -47,9 +50,10 @@ export default function NewProductPage() {
     weight: '',
     is_active: true,
     is_featured: false,
+    is_official: false,
+    warranty_period: '',
   });
 
-  const [variants, setVariants] = useState([]);
   const [images, setImages] = useState([]);
   const [subcategories, setSubcategories] = useState([]);
   const [specifications, setSpecifications] = useState([]);
@@ -114,45 +118,6 @@ export default function NewProductPage() {
       ...prev,
       [name]: type === 'checkbox' ? checked : value
     }));
-  };
-
-  // Variant management
-  const addVariant = () => {
-    const prefix = storeSettings?.barcode_prefix || 'ZZ';
-    const newVariant = {
-      id: Date.now(),
-      sku: '',
-      barcode: '',
-      size: '',
-      color: '',
-      price: formData.price || '',
-      stock_quantity: 0,
-      low_stock_threshold: 10,
-      is_active: true,
-    };
-    // Generate barcode for variant with prefix
-    const timestamp = Date.now().toString().slice(-10);
-    const random = Math.floor(Math.random() * 100).toString().padStart(2, '0');
-    newVariant.barcode = `${prefix}V-${timestamp}${random}`;
-    setVariants([...variants, newVariant]);
-  };
-
-  const updateVariant = (id, field, value) => {
-    setVariants(variants.map(v =>
-      v.id === id ? { ...v, [field]: value } : v
-    ));
-  };
-
-  const removeVariant = (id) => {
-    setVariants(variants.filter(v => v.id !== id));
-  };
-
-  const generateVariantBarcode = (id) => {
-    const prefix = storeSettings?.barcode_prefix || 'ZZ';
-    const timestamp = Date.now().toString().slice(-10);
-    const random = Math.floor(Math.random() * 100).toString().padStart(2, '0');
-    const barcode = `${prefix}V-${timestamp}${random}`;
-    updateVariant(id, 'barcode', barcode);
   };
 
   // Image handling
@@ -276,6 +241,12 @@ export default function NewProductPage() {
       return;
     }
 
+    const setup = variantRef.current?.getSetup();
+    if (setup?.error) {
+      toast.error(setup.error);
+      return;
+    }
+
     setLoading(true);
     try {
       // Create product
@@ -310,26 +281,14 @@ export default function NewProductPage() {
         }
       }
 
-      // Create variants if any
       let variantErrors = 0;
-      if (variants.length > 0) {
-        for (const variant of variants) {
-          try {
-            await createVariant({
-              productId,
-              sku: variant.sku,
-              barcode: variant.barcode,
-              size: variant.size,
-              color: variant.color,
-              price: variant.price ? parseFloat(variant.price) : null,
-              stock_quantity: parseInt(variant.stock_quantity),
-              low_stock_threshold: parseInt(variant.low_stock_threshold ?? 10),
-              is_active: variant.is_active,
-            }).unwrap();
-          } catch (varError) {
-            variantErrors++;
-            console.error('Variant creation error:', varError);
-          }
+      if (setup?.payload) {
+        try {
+          await syncVariantSetup({ productId, ...setup.payload }).unwrap();
+        } catch (varError) {
+          variantErrors++;
+          console.error('Variant setup error:', varError);
+          toast.error(varError?.data?.detail || 'Could not save the variants');
         }
       }
 
@@ -347,11 +306,6 @@ export default function NewProductPage() {
     }
   };
 
-  const sizes = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL', '28', '30', '32', '34', '36', '38', '40', '42'];
-  const colors = [
-    'Black', 'White', 'Red', 'Blue', 'Green', 'Yellow', 'Orange', 'Purple',
-    'Pink', 'Brown', 'Gray', 'Navy', 'Beige', 'Maroon', 'Olive'
-  ];
 
   return (
     <AdminLayout title="Add New Product">
@@ -583,7 +537,7 @@ export default function NewProductPage() {
             </div>
 
             {/* Inventory — only show for products without variants */}
-            {variants.length === 0 && (
+            {!hasVariants && (
               <div className="card">
                 <h2 className="text-lg font-semibold mb-4">Inventory</h2>
                 <div className="grid grid-cols-2 gap-4">
@@ -619,142 +573,14 @@ export default function NewProductPage() {
               </div>
             )}
 
-            {/* Variants */}
-            <div className="card">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold">Product Variants</h2>
-                <button
-                  type="button"
-                  onClick={addVariant}
-                  className="btn btn-secondary text-sm"
-                >
-                  <Plus className="w-4 h-4 mr-1" />
-                  Add Variant
-                </button>
-              </div>
-
-              {variants.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  <p>No variants added. Add variants for different sizes, colors, etc.</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {variants.map((variant, index) => (
-                    <div key={variant.id} className="border rounded-lg p-4 bg-gray-50">
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="font-medium text-sm">Variant #{index + 1}</span>
-                        <button
-                          type="button"
-                          onClick={() => removeVariant(variant.id)}
-                          className="text-red-500 hover:text-red-700"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-
-                      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Size</label>
-                          <select
-                            value={variant.size}
-                            onChange={(e) => updateVariant(variant.id, 'size', e.target.value)}
-                            className="input text-sm"
-                          >
-                            <option value="">Select size</option>
-                            {sizes.map(size => (
-                              <option key={size} value={size}>{size}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Color</label>
-                          <select
-                            value={variant.color}
-                            onChange={(e) => updateVariant(variant.id, 'color', e.target.value)}
-                            className="input text-sm"
-                          >
-                            <option value="">Select color</option>
-                            {colors.map(color => (
-                              <option key={color} value={color}>{color}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Price (৳)</label>
-                          <input
-                            type="number"
-                            value={variant.price}
-                            onChange={(e) => updateVariant(variant.id, 'price', e.target.value)}
-                            className="input text-sm"
-                            placeholder="Same as product"
-                            step="0.01"
-                            min="0"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Stock</label>
-                          <input
-                            type="number"
-                            value={variant.stock_quantity}
-                            onChange={(e) => updateVariant(variant.id, 'stock_quantity', e.target.value)}
-                            className="input text-sm"
-                            min="0"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Low Stock Alert</label>
-                          <input
-                            type="number"
-                            value={variant.low_stock_threshold ?? 10}
-                            onChange={(e) => updateVariant(variant.id, 'low_stock_threshold', e.target.value)}
-                            className="input text-sm"
-                            min="0"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3 mt-3">
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Variant SKU</label>
-                          <input
-                            type="text"
-                            value={variant.sku}
-                            onChange={(e) => updateVariant(variant.id, 'sku', e.target.value)}
-                            className="input text-sm"
-                            placeholder="e.g., TSH-BLK-M"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Variant Barcode</label>
-                          <div className="flex gap-2">
-                            <input
-                              type="text"
-                              value={variant.barcode}
-                              onChange={(e) => updateVariant(variant.id, 'barcode', e.target.value)}
-                              className="input text-sm flex-1 font-mono"
-                              readOnly
-                            />
-                            <button
-                              type="button"
-                              onClick={() => generateVariantBarcode(variant.id)}
-                              className="btn btn-secondary px-2"
-                              title="Regenerate barcode"
-                            >
-                              <RefreshCw className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <VariantOptions
+              ref={variantRef}
+              productSku={formData.sku}
+              barcodePrefix={storeSettings?.barcode_prefix || 'ZZ'}
+              productName={formData.name}
+              productPrice={formData.price}
+              onCount={(count) => setHasVariants(count > 0)}
+            />
 
             {/* Images */}
             <div className="card">
@@ -845,6 +671,42 @@ export default function NewProductPage() {
                     className="toggle"
                   />
                 </label>
+              </div>
+            </div>
+
+            <div className="card">
+              <h2 className="text-lg font-semibold mb-1">Official & warranty</h2>
+              <p className="text-sm text-gray-500 mb-4">Shown on the product page for the website and the app.</p>
+              <div className="space-y-4">
+                <label className="flex items-center justify-between gap-3 cursor-pointer">
+                  <span>
+                    <span className="block text-gray-700">Official product</span>
+                    <span className="block text-xs text-gray-500">Adds the Official badge on the product photo.</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    name="is_official"
+                    checked={formData.is_official}
+                    onChange={handleInputChange}
+                    className="toggle"
+                  />
+                </label>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="warranty_period">
+                    Warranty period
+                  </label>
+                  <input
+                    id="warranty_period"
+                    type="text"
+                    name="warranty_period"
+                    value={formData.warranty_period}
+                    onChange={handleInputChange}
+                    maxLength={80}
+                    placeholder="1 year"
+                    className="input"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">Leave empty when this product has no warranty.</p>
+                </div>
               </div>
             </div>
 

@@ -3,7 +3,7 @@ Product models for Pickorbeet E-commerce.
 """
 from django.db import models
 from django.db.models import Avg, Count, FloatField, IntegerField, OuterRef, Subquery, Value
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Coalesce, Lower
 from django.conf import settings
 from django.utils.text import slugify
 import uuid
@@ -129,6 +129,16 @@ class Product(models.Model):
     
     is_active = models.BooleanField(default=True)
     is_featured = models.BooleanField(default=False)
+    is_official = models.BooleanField(
+        default=False,
+        help_text='Shows an Official badge on the product photo.',
+    )
+    warranty_period = models.CharField(
+        max_length=80,
+        blank=True,
+        default='',
+        help_text='Example: 1 year. Leave empty when the product has no warranty.',
+    )
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -244,16 +254,74 @@ class ProductImage(models.Model):
         super().save(*args, **kwargs)
 
 
+class ProductOption(models.Model):
+    """A shopper choice on one product, such as Size, Color, or Storage."""
+
+    TEXT = 'text'
+    SWATCH = 'swatch'
+    KIND_CHOICES = [
+        (TEXT, 'Text'),
+        (SWATCH, 'Color swatch'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='options')
+    name = models.CharField(max_length=40)
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES, default=TEXT)
+    sort_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        verbose_name = 'Product option'
+        verbose_name_plural = 'Product options'
+        ordering = ['sort_order', 'name']
+        constraints = [
+            models.UniqueConstraint(
+                Lower('name'),
+                'product',
+                name='unique_product_option_name',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.product.name} — {self.name}'
+
+
+class ProductOptionValue(models.Model):
+    """One value of a product option, with a swatch color when the option is shown as a color."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    option = models.ForeignKey(ProductOption, on_delete=models.CASCADE, related_name='values')
+    label = models.CharField(max_length=40)
+    color_hex = models.CharField(max_length=7, blank=True, default='')
+    sort_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        verbose_name = 'Product option value'
+        verbose_name_plural = 'Product option values'
+        ordering = ['sort_order', 'label']
+        constraints = [
+            models.UniqueConstraint(
+                Lower('label'),
+                'option',
+                name='unique_product_option_value',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.option.name}: {self.label}'
+
+
 class ProductVariant(models.Model):
-    """Product variants for different sizes/colors."""
-    
+    """One sellable combination of a product's option values."""
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='variants')
     sku = models.CharField(max_length=50, unique=True)
     barcode = models.CharField(max_length=50, unique=True, blank=True, null=True)
-    
-    size = models.CharField(max_length=10, choices=Product.SIZE_CHOICES, blank=True, null=True)
+
+    size = models.CharField(max_length=50, blank=True, null=True)
     color = models.CharField(max_length=50, blank=True, null=True)
+    values = models.ManyToManyField(ProductOptionValue, related_name='variants', blank=True)
     
     price = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     stock_quantity = models.PositiveIntegerField(default=0)
@@ -267,7 +335,6 @@ class ProductVariant(models.Model):
     class Meta:
         verbose_name = 'Product Variant'
         verbose_name_plural = 'Product Variants'
-        unique_together = ['product', 'size', 'color']
 
     def __str__(self):
         return f"{self.product.name} - {self.size} - {self.color}"
@@ -330,7 +397,7 @@ def with_catalog_stats(queryset):
     return queryset.annotate(
         rating_average=Subquery(average, output_field=FloatField()),
         review_count=Coalesce(Subquery(total, output_field=IntegerField()), Value(0)),
-    ).prefetch_related('specifications')
+    ).prefetch_related('specifications', 'options__values', 'variants__values__option')
 
 
 class StoreSettings(models.Model):

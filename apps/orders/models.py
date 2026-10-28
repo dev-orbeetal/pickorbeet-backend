@@ -377,8 +377,9 @@ class OrderItem(models.Model):
     
     product_name = models.CharField(max_length=255)  # Snapshot of product name
     product_sku = models.CharField(max_length=50, blank=True, null=True)
-    size = models.CharField(max_length=10, blank=True, null=True)
+    size = models.CharField(max_length=50, blank=True, null=True)
     color = models.CharField(max_length=50, blank=True, null=True)
+    options = models.JSONField(default=list, blank=True)
     
     quantity = models.PositiveIntegerField(default=1)
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)

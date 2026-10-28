@@ -65,11 +65,17 @@ def review_stats(product):
 class ProductVariantSerializer(serializers.ModelSerializer):
     """Serializer for product variants."""
     effective_price = serializers.ReadOnlyField()
+    options = serializers.SerializerMethodField()
 
     class Meta:
         model = ProductVariant
-        fields = ['id', 'sku', 'barcode', 'size', 'color', 'price', 
-                  'stock_quantity', 'low_stock_threshold', 'is_active', 'effective_price']
+        fields = ['id', 'sku', 'barcode', 'size', 'color', 'price',
+                  'stock_quantity', 'low_stock_threshold', 'is_active', 'effective_price',
+                  'options']
+
+    def get_options(self, obj):
+        from apps.products.variants import variant_options
+        return variant_options(obj)
 
 
 class SubCategorySerializer(serializers.ModelSerializer):
@@ -138,6 +144,7 @@ class ProductListSerializer(serializers.ModelSerializer):
                   'primary_image', 'discount_percentage', 'stock_quantity',
                   'low_stock_threshold',
                   'is_low_stock', 'is_out_of_stock', 'is_featured', 'is_active',
+                  'is_official', 'warranty_period',
                   'variants', 'specifications', 'rating_average', 'review_count']
 
     def get_rating_average(self, obj):
@@ -158,6 +165,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
     is_low_stock = serializers.ReadOnlyField()
     is_out_of_stock = serializers.ReadOnlyField()
     specifications = ProductSpecificationSerializer(many=True, read_only=True)
+    option_groups = serializers.SerializerMethodField()
     rating_average = serializers.SerializerMethodField()
     review_count = serializers.SerializerMethodField()
 
@@ -168,8 +176,14 @@ class ProductDetailSerializer(serializers.ModelSerializer):
                   'price', 'compare_price', 'size', 'color', 'material',
                   'stock_quantity', 'is_low_stock', 'is_out_of_stock',
                   'discount_percentage', 'is_active', 'is_featured',
+                  'is_official', 'warranty_period',
                   'primary_image', 'images', 'variants', 'specifications',
+                  'option_groups',
                   'rating_average', 'review_count', 'created_at', 'updated_at']
+
+    def get_option_groups(self, obj):
+        from apps.products.variants import option_groups
+        return option_groups(obj)
 
     def get_rating_average(self, obj):
         return review_stats(obj)['rating_average']
@@ -184,10 +198,11 @@ class ProductCreateUpdateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Product
-        fields = ['name', 'sku', 'barcode', 'category', 'subcategory',
+        fields = ['id', 'name', 'sku', 'barcode', 'category', 'subcategory',
                   'description', 'short_description', 'price', 'compare_price',
                   'cost_price', 'size', 'color', 'material', 'stock_quantity',
-                  'low_stock_threshold', 'is_active', 'is_featured', 'specifications']
+                  'low_stock_threshold', 'is_active', 'is_featured',
+                  'is_official', 'warranty_period', 'specifications']
 
     def validate_sku(self, value):
         """Convert empty string to None to avoid unique constraint violation."""
@@ -196,6 +211,9 @@ class ProductCreateUpdateSerializer(serializers.ModelSerializer):
     def validate_barcode(self, value):
         """Convert empty string to None to avoid unique constraint violation."""
         return value.strip() if value and value.strip() else None
+
+    def validate_warranty_period(self, value):
+        return (value or '').strip()
 
     def validate_specifications(self, value):
         cleaned = []

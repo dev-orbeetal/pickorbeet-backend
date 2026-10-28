@@ -51,6 +51,33 @@ class ProductSpecificationAndReviewTests(ShopTestCase):
         self.assertEqual(ProductSpecification.objects.filter(product=self.product).count(), 1)
         self.assertEqual(self.detail()['specifications'][0]['name'], 'Warranty')
 
+    def test_official_badge_and_warranty_round_trip(self):
+        self.assertFalse(self.detail()['is_official'])
+        self.assertEqual(self.detail()['warranty_period'], '')
+
+        self.api.force_authenticate(self.staff)
+        updated = self.api.patch(
+            f'/api/v1/products/admin/products/{self.product.id}/',
+            {'is_official': True, 'warranty_period': '  1 year  '},
+            format='json',
+        )
+        self.assertEqual(updated.status_code, 200, updated.content)
+        self.assertTrue(updated.json()['is_official'])
+        self.assertEqual(updated.json()['warranty_period'], '1 year')
+
+        public = self.detail()
+        self.assertTrue(public['is_official'])
+        self.assertEqual(public['warranty_period'], '1 year')
+
+        cleared = self.api.patch(
+            f'/api/v1/products/admin/products/{self.product.id}/',
+            {'is_official': False, 'warranty_period': '   '},
+            format='json',
+        )
+        self.assertEqual(cleared.status_code, 200, cleared.content)
+        self.assertFalse(self.detail()['is_official'])
+        self.assertEqual(self.detail()['warranty_period'], '')
+
     def test_partial_specification_is_rejected(self):
         self.api.force_authenticate(self.staff)
         response = self.api.patch(

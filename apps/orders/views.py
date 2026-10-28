@@ -21,6 +21,11 @@ from .serializers import (
 )
 from apps.products.models import Product, ProductVariant
 from apps.reports.models import StockMovement
+from apps.products.variants import variant_options
+
+
+def snapshot_options(variant):
+    return variant_options(variant) if variant else []
 from apps.accounts.permissions import IsStaffUser, IsSeller, IsSuperAdmin
 from apps.shipping.services import status_group
 from apps.notifications.services import notify_order_placed
@@ -300,6 +305,7 @@ class CheckoutView(APIView):
                     product_sku=cart_item.product.sku,
                     size=cart_item.variant.size if cart_item.variant else cart_item.product.size,
                     color=cart_item.variant.color if cart_item.variant else cart_item.product.color,
+                    options=snapshot_options(cart_item.variant),
                     quantity=cart_item.quantity,
                     unit_price=cart_item.unit_price,
                     compare_price=cart_item.product.compare_price,
@@ -626,6 +632,7 @@ class InShopOrderView(APIView):
                     product_sku=item['product'].sku,
                     size=item['variant'].size if item['variant'] else item['product'].size,
                     color=item['variant'].color if item['variant'] else item['product'].color,
+                    options=snapshot_options(item['variant']),
                     quantity=item['quantity'],
                     unit_price=item['unit_price'],
                     compare_price=item['product'].compare_price,

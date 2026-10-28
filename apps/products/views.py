@@ -2,6 +2,7 @@
 Views for products app.
 """
 import uuid
+from decimal import Decimal
 
 from rest_framework import generics, status, filters
 from rest_framework.response import Response
@@ -9,7 +10,8 @@ from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import models
-from django.db.models import Avg, Count, F, Prefetch, Q
+from django.db.models import Avg, Count, F, FloatField, IntegerField, OuterRef, Prefetch, Q, Subquery, Value
+from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from .models import (
     Category, SubCategory, Product, ProductImage, ProductVariant, ProductReview,
@@ -33,6 +35,43 @@ def public_categories():
     return Category.objects.filter(is_active=True).prefetch_related(
         Prefetch('subcategories', queryset=active_subcategories)
     )
+
+
+def catalog_price(amount):
+    """Decimal string with two places, which is what price feeds expect."""
+    if amount is None:
+        return None
+    return f'{Decimal(amount):.2f}'
+
+
+def catalog_in_stock(product):
+    """True when the product, or any active variant, can still be sold."""
+    variants = [variant for variant in product.variants.all() if variant.is_active]
+    if variants:
+        return any(variant.stock_quantity > 0 for variant in variants)
+    return product.stock_quantity > 0
+
+
+def catalog_image(product):
+    """Primary image path, then the first image. Relative /media URL, or None."""
+    images = list(product.images.all())
+    chosen = next((image for image in images if image.is_primary), None)
+    if chosen is None and images:
+        chosen = images[0]
+    if chosen is None or not chosen.image:
+        return None
+    try:
+        return chosen.image.url
+    except ValueError:
+        return None
+
+
+def catalog_brand(product):
+    """Manufacturer from a specification named Brand, when the shop entered one."""
+    for spec in product.specifications.all():
+        if (spec.name or '').strip().lower() == 'brand' and (spec.value or '').strip():
+            return spec.value.strip()
+    return None
 
 
 # Public Views
@@ -224,6 +263,59 @@ class HomepageConfigView(APIView):
     def get(self, request):
         from .homepage import build_homepage
         return Response(build_homepage(request))
+
+
+class CatalogIndexView(APIView):
+    """Every active product and category, with no page size, for sitemap and feed."""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        reviews = ProductReview.objects.filter(product_id=OuterRef('pk')).order_by()
+        average = reviews.values('product_id').annotate(avg=Avg('rating')).values('avg')[:1]
+        total = reviews.values('product_id').annotate(total=Count('pk')).values('total')[:1]
+        products = (
+            Product.objects.filter(is_active=True)
+            .select_related('category')
+            .annotate(
+                rating_average=Subquery(average, output_field=FloatField()),
+                review_count=Coalesce(Subquery(total, output_field=IntegerField()), Value(0)),
+            )
+            .prefetch_related('specifications', 'images', 'variants')
+            .order_by('slug')
+        )
+        product_rows = []
+        for product in products:
+            average_rating = product.rating_average
+            product_rows.append({
+                'slug': product.slug,
+                'name': product.name,
+                'updated_at': product.updated_at.isoformat(),
+                'price': catalog_price(product.price),
+                'short_description': product.short_description or '',
+                'image': catalog_image(product),
+                'in_stock': catalog_in_stock(product),
+                'category_slug': product.category.slug if product.category_id else None,
+                'brand': catalog_brand(product),
+                'rating_average': None if average_rating is None else round(float(average_rating), 1),
+                'review_count': int(product.review_count or 0),
+            })
+
+        categories = []
+        for category in public_categories():
+            categories.append({
+                'slug': category.slug,
+                'name': category.name,
+                'updated_at': category.updated_at.isoformat(),
+                'subcategories': [
+                    {
+                        'slug': sub.slug,
+                        'name': sub.name,
+                        'updated_at': sub.updated_at.isoformat(),
+                    }
+                    for sub in category.subcategories.all()
+                ],
+            })
+        return Response({'products': product_rows, 'categories': categories})
 
 
 def _logo_url(settings_obj, request):
@@ -706,6 +798,31 @@ class LowStockProductsView(generics.ListAPIView):
         ).filter(
             no_variant_low | variant_low
         ).distinct().prefetch_related('variants').order_by('name'))
+
+
+class VariantSetupView(APIView):
+    """Replace a product's options and the combinations shoppers can buy."""
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def put(self, request, product_id):
+        from apps.products.variants import SetupError, option_groups, sync_variant_setup
+
+        product = get_object_or_404(Product, pk=product_id)
+        try:
+            sync_variant_setup(
+                product,
+                request.data.get('option_groups', []),
+                request.data.get('variants', []),
+            )
+        except SetupError as exc:
+            return Response({'detail': exc.message}, status=status.HTTP_400_BAD_REQUEST)
+        product = Product.objects.prefetch_related(
+            'options__values', 'variants__values__option',
+        ).get(pk=product.pk)
+        return Response({
+            'option_groups': option_groups(product),
+            'variants': ProductVariantSerializer(product.variants.all(), many=True).data,
+        })
 
 
 class ProductVariantListCreateView(generics.ListCreateAPIView):

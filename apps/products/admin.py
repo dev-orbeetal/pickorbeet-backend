@@ -109,7 +109,7 @@ class ProductAdmin(admin.ModelAdmin):
             'fields': ('stock_quantity', 'low_stock_threshold')
         }),
         ('Status', {
-            'fields': ('is_active', 'is_featured')
+            'fields': ('is_active', 'is_featured', 'is_official', 'warranty_period')
         }),
     )
 
