@@ -2,7 +2,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { useSelector } from 'react-redux';
 import {
-  LayoutDashboard, Package, ShoppingCart, Users, BarChart3,
+  LayoutDashboard, Package, ShoppingCart, Users, BarChart3, Activity,
   Settings, Tag, ShoppingBag, AlertTriangle, Receipt, UserCog, LogOut,
   Warehouse, Ticket, MessageSquare, Barcode, Headphones
 } from 'lucide-react';
@@ -18,6 +18,7 @@ const menuItems = [
   { href: '/barcode-labels', label: 'Barcode Labels', icon: Barcode, roles: ['seller', 'super_admin'] },
   { href: '/low-stock', label: 'Low Stock', icon: AlertTriangle, roles: ['seller', 'accountant', 'super_admin'] },
   { href: '/reports', label: 'Reports', icon: BarChart3, roles: ['accountant', 'super_admin'] },
+  { href: '/traffic', label: 'Traffic', icon: Activity, roles: ['seller', 'accountant', 'super_admin'] },
   { href: '/payments', label: 'Payments', icon: Receipt, roles: ['accountant', 'super_admin'] },
   { href: '/staff', label: 'Staff Management', icon: UserCog, roles: ['super_admin'] },
   { href: '/customers', label: 'Customers', icon: Users, roles: ['seller', 'super_admin'] },

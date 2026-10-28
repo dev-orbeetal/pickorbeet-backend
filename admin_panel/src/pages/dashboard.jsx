@@ -1,14 +1,38 @@
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import {
   ShoppingCart, Package, DollarSign, AlertTriangle,
-  TrendingUp, Users, ArrowUpRight, ArrowDownRight
+  ArrowUpRight, ArrowDownRight, Activity
 } from 'lucide-react';
 import AdminLayout from '@/components/layout/AdminLayout';
 import { useGetDashboardStatsQuery } from '@/store/api/dashboardApi';
 import { useGetOrdersQuery } from '@/store/api/ordersApi';
+import { useGetTrafficOverviewQuery } from '@/store/api/trafficApi';
+import { dhakaToday, formatChange, number } from '@/lib/traffic';
+
+function VisitorChange({ value }) {
+  const text = formatChange(value);
+  if (!text) return <span className="text-gray-400">—</span>;
+  const negative = text.startsWith('-');
+  const positive = text.startsWith('+');
+  return (
+    <span className={`inline-flex items-center ${positive ? 'text-green-600' : negative ? 'text-red-600' : 'text-gray-500'}`}>
+      {positive ? <ArrowUpRight className="w-4 h-4 mr-1" /> : null}
+      {negative ? <ArrowDownRight className="w-4 h-4 mr-1" /> : null}
+      {text}
+    </span>
+  );
+}
 
 export default function DashboardPage() {
   const { data: stats, isLoading: statsLoading } = useGetDashboardStatsQuery();
   const { data: ordersData, isLoading: ordersLoading } = useGetOrdersQuery({ page_size: 5 });
+  const [today, setToday] = useState('');
+  useEffect(() => setToday(dhakaToday()), []);
+  const { data: traffic } = useGetTrafficOverviewQuery(
+    { from: today, to: today },
+    { skip: !today, pollingInterval: 60000 },
+  );
 
   const recentOrders = ordersData?.results || ordersData || [];
   const loading = statsLoading || ordersLoading;
@@ -64,8 +88,8 @@ export default function DashboardPage() {
     return (
       <AdminLayout title="Dashboard">
         <div className="animate-pulse space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {[1, 2, 3, 4].map((i) => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-6">
+            {[1, 2, 3, 4, 5].map((i) => (
               <div key={i} className="h-32 bg-gray-200 rounded-xl" />
             ))}
           </div>
@@ -77,7 +101,25 @@ export default function DashboardPage() {
   return (
     <AdminLayout title="Dashboard">
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-6 mb-8">
+        <div className="stat-card">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-sm text-gray-500 mb-1">Today&apos;s Visitors</p>
+              <p className="text-2xl font-bold text-gray-900">
+                {traffic ? number(traffic.kpis?.visitors) : '—'}
+              </p>
+            </div>
+            <div className="p-3 bg-primary-600 rounded-xl">
+              <Activity className="w-6 h-6 text-white" />
+            </div>
+          </div>
+          <div className="mt-4 flex items-center text-sm">
+            <VisitorChange value={traffic?.change?.visitors} />
+            <span className="text-gray-500 ml-1">vs yesterday</span>
+            <Link href="/traffic" className="ml-auto text-primary-600 hover:underline">View</Link>
+          </div>
+        </div>
         {statCards.map((stat, index) => (
           <div key={index} className="stat-card">
             <div className="flex items-start justify-between">
