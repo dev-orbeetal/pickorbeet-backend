@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Settings, Save, Search, MapPin, Phone, Mail, Clock, Map, Tag, Loader2, Truck, Plus, Edit, Trash2, X, Check, GripVertical, Upload, Image as ImageIcon } from 'lucide-react';
+import { Settings, Save, Search, MapPin, Phone, Mail, Clock, Map, Tag, Loader2, Truck, Plus, Edit, Trash2, X, Check, GripVertical, Upload, Image as ImageIcon, BadgeCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '@/components/layout/AdminLayout';
 import { getMediaUrl } from '@/lib/utils';
@@ -100,6 +100,9 @@ export default function SettingsPage() {
     contact_email_2: '',
     business_hours: '',
     map_embed_url: '',
+    official_badge_size: 'medium',
+    official_badge_color: '#2864E8',
+    official_badge_position: 'top-left',
   });
 
   useEffect(() => {
@@ -114,6 +117,9 @@ export default function SettingsPage() {
         contact_email_2: settings.contact_email_2 || '',
         business_hours: settings.business_hours || '',
         map_embed_url: settings.map_embed_url || '',
+        official_badge_size: settings.official_badge_size || 'medium',
+        official_badge_color: settings.official_badge_color || '#2864E8',
+        official_badge_position: settings.official_badge_position || 'top-left',
       });
     }
   }, [settings]);
@@ -319,6 +325,8 @@ export default function SettingsPage() {
               </div>
             </div>
           </div>
+
+          <OfficialBadgeSettings formData={formData} onChange={handleChange} />
 
           <div className="bg-white rounded-xl shadow-sm border p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-1">Hero slides</h2>
@@ -747,5 +755,106 @@ export default function SettingsPage() {
         </div>
       </div>
     </AdminLayout>
+  );
+}
+
+const BADGE_SIZES = [
+  { id: 'small', label: 'Small' },
+  { id: 'medium', label: 'Medium' },
+  { id: 'large', label: 'Large' },
+];
+
+const BADGE_CORNERS = [
+  { id: 'top-left', label: 'Top left', className: 'left-3 top-3', origin: 'origin-top-left' },
+  { id: 'top-right', label: 'Top right', className: 'right-3 top-3', origin: 'origin-top-right' },
+  { id: 'bottom-left', label: 'Bottom left', className: 'left-3 bottom-3', origin: 'origin-bottom-left' },
+  { id: 'bottom-right', label: 'Bottom right', className: 'right-3 bottom-3', origin: 'origin-bottom-right' },
+];
+
+const BADGE_SCALE = { small: 'scale-90', medium: 'scale-100', large: 'scale-125' };
+
+function OfficialBadgeSettings({ formData, onChange }) {
+  const color = /^#[0-9A-Fa-f]{6}$/.test(formData.official_badge_color)
+    ? formData.official_badge_color
+    : '#2864E8';
+  const corner = BADGE_CORNERS.find((item) => item.id === formData.official_badge_position) || BADGE_CORNERS[0];
+  const scale = BADGE_SCALE[formData.official_badge_size] || BADGE_SCALE.medium;
+
+  const setColor = (value) => {
+    const next = value.startsWith('#') || value === '' ? value : `#${value}`;
+    onChange('official_badge_color', next.toUpperCase());
+  };
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border p-6">
+      <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-1">
+        <BadgeCheck className="w-5 h-5 text-primary-600" />
+        Official badge
+      </h2>
+      <p className="text-sm text-gray-500 mb-5">Shown on official products on the shop and in the app. Save all settings to publish it.</p>
+      <div className="grid gap-6 md:grid-cols-[220px_minmax(0,1fr)]">
+        <div className="relative h-44 overflow-hidden rounded-xl border border-gray-200 bg-[#F7F9FC]">
+          <span className={`absolute ${corner.className} ${scale} ${corner.origin}`}>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/95 py-1 pl-1 pr-2.5 text-[11px] font-bold leading-none shadow-md" style={{ color }}>
+              <span className="flex h-4 w-4 items-center justify-center rounded-full text-white" style={{ backgroundColor: color }}>
+                <BadgeCheck className="h-3 w-3" aria-hidden="true" />
+              </span>
+              Official
+            </span>
+          </span>
+        </div>
+        <div className="space-y-4">
+          <div>
+            <p className="mb-2 text-sm font-medium text-gray-700">Size</p>
+            <div className="flex flex-wrap gap-2">
+              {BADGE_SIZES.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => onChange('official_badge_size', item.id)}
+                  className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${formData.official_badge_size === item.id ? 'border-primary-600 bg-primary-50 text-primary-700' : 'border-gray-200 text-gray-600'}`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="mb-2 text-sm font-medium text-gray-700">Color</p>
+            <div className="flex items-center gap-3">
+              <input
+                type="color"
+                aria-label="Official badge color"
+                value={color}
+                onChange={(event) => setColor(event.target.value)}
+                className="h-10 w-14 cursor-pointer rounded border border-gray-200 bg-white p-1"
+              />
+              <input
+                value={formData.official_badge_color}
+                onChange={(event) => setColor(event.target.value)}
+                aria-label="Official badge hex color"
+                maxLength={7}
+                className="input w-32 font-mono uppercase"
+              />
+            </div>
+          </div>
+          <div>
+            <p className="mb-2 text-sm font-medium text-gray-700">Position</p>
+            <div className="grid grid-cols-2 gap-2 max-w-xs">
+              {BADGE_CORNERS.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => onChange('official_badge_position', item.id)}
+                  className={`rounded-lg border px-3 py-2 text-sm font-medium ${formData.official_badge_position === item.id ? 'border-primary-600 bg-primary-50 text-primary-700' : 'border-gray-200 text-gray-600'}`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

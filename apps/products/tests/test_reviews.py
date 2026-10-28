@@ -78,6 +78,47 @@ class ProductSpecificationAndReviewTests(ShopTestCase):
         self.assertFalse(self.detail()['is_official'])
         self.assertEqual(self.detail()['warranty_period'], '')
 
+    def test_official_badge_style_is_saved_for_the_store(self):
+        public = APIClient().get('/api/v1/products/settings/public/')
+        self.assertEqual(public.status_code, 200, public.content)
+        self.assertEqual(public.json()['official_badge_size'], 'medium')
+        self.assertEqual(public.json()['official_badge_color'], '#2864E8')
+        self.assertEqual(public.json()['official_badge_position'], 'top-left')
+
+        self.api.force_authenticate(self.staff)
+        rejected = self.api.patch(
+            '/api/v1/products/admin/settings/',
+            {'official_badge_color': 'blue'},
+            format='json',
+        )
+        self.assertEqual(rejected.status_code, 400, rejected.content)
+
+        saved = self.api.patch(
+            '/api/v1/products/admin/settings/',
+            {
+                'official_badge_size': 'large',
+                'official_badge_color': '#e11d48',
+                'official_badge_position': 'bottom-right',
+            },
+            format='json',
+        )
+        self.assertEqual(saved.status_code, 200, saved.content)
+        self.assertEqual(saved.json()['official_badge_size'], 'large')
+        self.assertEqual(saved.json()['official_badge_color'], '#E11D48')
+        self.assertEqual(saved.json()['official_badge_position'], 'bottom-right')
+
+        again = APIClient().get('/api/v1/products/settings/public/')
+        self.assertEqual(again.json()['official_badge_position'], 'bottom-right')
+        self.api.patch(
+            '/api/v1/products/admin/settings/',
+            {
+                'official_badge_size': 'medium',
+                'official_badge_color': '#2864E8',
+                'official_badge_position': 'top-left',
+            },
+            format='json',
+        )
+
     def test_partial_specification_is_rejected(self):
         self.api.force_authenticate(self.staff)
         response = self.api.patch(

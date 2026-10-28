@@ -409,6 +409,36 @@ class StoreSettings(models.Model):
         null=True,
         help_text='Store logo shown in the shop header and footer.',
     )
+
+    OFFICIAL_BADGE_SIZES = [
+        ('small', 'Small'),
+        ('medium', 'Medium'),
+        ('large', 'Large'),
+    ]
+    OFFICIAL_BADGE_POSITIONS = [
+        ('top-left', 'Top left'),
+        ('top-right', 'Top right'),
+        ('bottom-left', 'Bottom left'),
+        ('bottom-right', 'Bottom right'),
+    ]
+
+    official_badge_size = models.CharField(
+        max_length=10,
+        choices=OFFICIAL_BADGE_SIZES,
+        default='medium',
+        help_text='Size of the Official badge on product photos.',
+    )
+    official_badge_color = models.CharField(
+        max_length=7,
+        default='#2864E8',
+        help_text='Accent color of the Official badge, as #RRGGBB.',
+    )
+    official_badge_position = models.CharField(
+        max_length=12,
+        choices=OFFICIAL_BADGE_POSITIONS,
+        default='top-left',
+        help_text='Corner of the product photo where the Official badge sits.',
+    )
     
     barcode_prefix = models.CharField(
         max_length=10, 

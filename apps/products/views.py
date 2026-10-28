@@ -1,6 +1,7 @@
 """
 Views for products app.
 """
+import re
 import uuid
 from decimal import Decimal
 
@@ -850,6 +851,34 @@ class ProductVariantDetailView(generics.RetrieveUpdateDestroyAPIView):
         return ProductVariant.objects.filter(product_id=product_id)
 
 
+_BADGE_SIZES = {'small', 'medium', 'large'}
+_BADGE_POSITIONS = {'top-left', 'top-right', 'bottom-left', 'bottom-right'}
+_BADGE_COLOR = re.compile(r'^#[0-9A-Fa-f]{6}$')
+
+
+def _clean_official_badge(field, value):
+    text = '' if value is None else str(value).strip()
+    if field == 'official_badge_size':
+        text = text.lower()
+        return text if text in _BADGE_SIZES else None
+    if field == 'official_badge_position':
+        text = text.lower()
+        return text if text in _BADGE_POSITIONS else None
+    if not text.startswith('#'):
+        text = f'#{text}'
+    if not _BADGE_COLOR.match(text):
+        return None
+    return text.upper()
+
+
+def _official_badge_error(field):
+    if field == 'official_badge_size':
+        return 'Choose a small, medium, or large official badge.'
+    if field == 'official_badge_position':
+        return 'Choose a corner for the official badge.'
+    return 'Choose a color for the official badge.'
+
+
 class PublicStoreSettingsView(APIView):
     """Public endpoint for client to fetch store settings (no auth required)."""
     permission_classes = [AllowAny]
@@ -867,6 +896,9 @@ class PublicStoreSettingsView(APIView):
             'contact_email_2': settings.contact_email_2,
             'business_hours': settings.business_hours,
             'map_embed_url': settings.map_embed_url,
+            'official_badge_size': settings.official_badge_size,
+            'official_badge_color': settings.official_badge_color,
+            'official_badge_position': settings.official_badge_position,
         })
 
 
@@ -880,10 +912,17 @@ class StoreSettingsView(APIView):
         'contact_email_1', 'contact_email_2', 'business_hours',
         'map_embed_url',
     ]
+    BADGE_FIELDS = (
+        'official_badge_size',
+        'official_badge_color',
+        'official_badge_position',
+    )
 
     def _payload(self, settings, request):
         data = {field: getattr(settings, field) for field in self.SETTINGS_FIELDS}
         data['logo'] = _logo_url(settings, request)
+        for field in self.BADGE_FIELDS:
+            data[field] = getattr(settings, field)
         return data
 
     def get(self, request):
@@ -901,6 +940,17 @@ class StoreSettingsView(APIView):
             if value is not None:
                 setattr(settings, field, value)
                 updated = True
+        for field in self.BADGE_FIELDS:
+            if field not in request.data:
+                continue
+            cleaned = _clean_official_badge(field, request.data.get(field))
+            if cleaned is None:
+                return Response(
+                    {'detail': _official_badge_error(field)},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            setattr(settings, field, cleaned)
+            updated = True
         if 'logo' in request.FILES:
             settings.logo = request.FILES['logo']
             updated = True
