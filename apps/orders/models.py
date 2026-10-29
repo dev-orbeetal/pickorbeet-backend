@@ -386,6 +386,18 @@ class OrderItem(models.Model):
         max_digits=10, decimal_places=2, blank=True, null=True,
         help_text='Snapshot of the product compare-at price when the order was placed',
     )
+    unit_cost = models.DecimalField(
+        max_digits=12, decimal_places=2, blank=True, null=True,
+        help_text='Weighted-average unit cost when these units left stock.',
+    )
+    cost_total = models.DecimalField(
+        max_digits=14, decimal_places=2, blank=True, null=True,
+        help_text='Exact cost removed from the product pool for this line.',
+    )
+    cost_applied = models.BooleanField(
+        default=False,
+        help_text='True when this line has removed its cost from the product pool.',
+    )
     total_price = models.DecimalField(max_digits=10, decimal_places=2)
     
     created_at = models.DateTimeField(auto_now_add=True)

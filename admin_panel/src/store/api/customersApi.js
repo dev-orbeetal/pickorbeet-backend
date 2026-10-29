@@ -3,7 +3,10 @@ import { baseApi } from './baseApi';
 export const customersApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
     getCustomers: builder.query({
-      query: () => '/auth/customers/',
+      query: (params) => ({
+        url: '/auth/customers/',
+        params,
+      }),
       providesTags: ['Customers'],
     }),
 

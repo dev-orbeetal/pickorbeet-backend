@@ -6,11 +6,20 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '@/components/layout/AdminLayout';
+import LoadError from '@/components/ui/LoadError';
+import Pager from '@/components/ui/Pager';
+import { statusLabel } from '@/lib/labels';
 import { useGetPaymentsQuery, useGetRefundsQuery, useProcessRefundMutation } from '@/store/api/paymentsApi';
 
 export default function PaymentsPage() {
-  const { data: paymentsData, isLoading: paymentsLoading } = useGetPaymentsQuery();
-  const { data: refundsData, isLoading: refundsLoading } = useGetRefundsQuery();
+  const [page, setPage] = useState(1);
+  const [dateRange, setDateRange] = useState({ start_date: '', end_date: '' });
+  const { data: paymentsData, isLoading: paymentsLoading, isError: paymentsError, refetch } = useGetPaymentsQuery({
+    page,
+    ...(dateRange.start_date ? { start_date: dateRange.start_date } : {}),
+    ...(dateRange.end_date ? { end_date: dateRange.end_date } : {}),
+  });
+  const { data: refundsData, isLoading: refundsLoading, isError: refundsError, refetch: refetchRefunds } = useGetRefundsQuery();
   const [processRefundMutation, { isLoading: processing }] = useProcessRefundMutation();
 
   const payments = Array.isArray(paymentsData?.results || paymentsData)
@@ -31,9 +40,10 @@ export default function PaymentsPage() {
   const [showModal, setShowModal] = useState(false);
 
   const processRefund = async (refundId, action) => {
+    const status = action === 'approve' ? 'approved' : 'rejected';
     try {
-      await processRefundMutation({ id: refundId, action }).unwrap();
-      toast.success(`Refund ${action === 'approve' ? 'approved' : 'rejected'} successfully`);
+      await processRefundMutation({ id: refundId, status }).unwrap();
+      toast.success(`Refund ${status} successfully`);
     } catch (error) {
       toast.error(error?.data?.error || 'Failed to process refund');
     }
@@ -52,7 +62,7 @@ export default function PaymentsPage() {
     return (
       <span className={`badge ${style.class} flex items-center gap-1`}>
         <Icon className="w-3 h-3" />
-        {status?.charAt(0).toUpperCase() + status?.slice(1)}
+        {statusLabel(status)}
       </span>
     );
   };
@@ -86,7 +96,10 @@ export default function PaymentsPage() {
       const search = filters.search.toLowerCase();
       return (
         payment.transaction_id?.toLowerCase().includes(search) ||
-        payment.order?.order_number?.toLowerCase().includes(search)
+        payment.order_number?.toLowerCase().includes(search) ||
+        payment.order?.order_number?.toLowerCase().includes(search) ||
+        payment.customer_name?.toLowerCase().includes(search) ||
+        payment.customer_phone?.toLowerCase().includes(search)
       );
     }
     return true;
@@ -101,6 +114,10 @@ export default function PaymentsPage() {
 
   return (
     <AdminLayout title="Payments">
+      <p className="mb-4 text-sm text-gray-500">
+        Each row is an order&apos;s payment record, including cash and in-shop sales. Totals below count this page.
+      </p>
+      {paymentsError && <div className="mb-6"><LoadError title="Could not load payments" onRetry={refetch} /></div>}
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <div className="stat-card">
@@ -186,7 +203,7 @@ export default function PaymentsPage() {
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                   <input
                     type="text"
-                    placeholder="Search by transaction ID or order number..."
+                    placeholder="Search by transaction, order, or customer..."
                     value={filters.search}
                     onChange={(e) => setFilters({ ...filters, search: e.target.value })}
                     className="input pl-10"
@@ -217,15 +234,34 @@ export default function PaymentsPage() {
                 <option value="cod">Cash on Delivery</option>
                 <option value="cash">Cash</option>
                 <option value="card">Card</option>
+                <option value="mobile_banking">Mobile Banking</option>
                 <option value="bkash">bKash</option>
                 <option value="nagad">Nagad</option>
               </select>
 
-              <button
-                onClick={() => {
-                  setLoading(true);
-                  fetchPayments();
+              <input
+                type="date"
+                value={dateRange.start_date}
+                onChange={(e) => {
+                  setDateRange({ ...dateRange, start_date: e.target.value });
+                  setPage(1);
                 }}
+                className="input w-auto"
+                aria-label="From date"
+              />
+              <input
+                type="date"
+                value={dateRange.end_date}
+                onChange={(e) => {
+                  setDateRange({ ...dateRange, end_date: e.target.value });
+                  setPage(1);
+                }}
+                className="input w-auto"
+                aria-label="To date"
+              />
+
+              <button
+                onClick={() => refetch()}
                 className="btn btn-secondary"
               >
                 <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
@@ -242,6 +278,7 @@ export default function PaymentsPage() {
                   <tr>
                     <th className="px-4 py-3 text-left table-header">Transaction ID</th>
                     <th className="px-4 py-3 text-left table-header">Order</th>
+                    <th className="px-4 py-3 text-left table-header">Customer</th>
                     <th className="px-4 py-3 text-left table-header">Method</th>
                     <th className="px-4 py-3 text-left table-header">Amount</th>
                     <th className="px-4 py-3 text-left table-header">Status</th>
@@ -253,7 +290,7 @@ export default function PaymentsPage() {
                   {loading ? (
                     [...Array(5)].map((_, i) => (
                       <tr key={i}>
-                        <td colSpan="7" className="px-4 py-4">
+                        <td colSpan="8" className="px-4 py-4">
                           <div className="animate-pulse flex space-x-4">
                             <div className="flex-1 space-y-2 py-1">
                               <div className="h-4 bg-gray-200 rounded w-3/4"></div>
@@ -264,7 +301,7 @@ export default function PaymentsPage() {
                     ))
                   ) : filteredPayments.length === 0 ? (
                     <tr>
-                      <td colSpan="7" className="px-4 py-12 text-center text-gray-500">
+                      <td colSpan="8" className="px-4 py-12 text-center text-gray-500">
                         <CreditCard className="w-12 h-12 mx-auto mb-4 text-gray-300" />
                         <p>No payments found</p>
                       </td>
@@ -279,8 +316,14 @@ export default function PaymentsPage() {
                         </td>
                         <td className="px-4 py-4">
                           <span className="text-primary-600 font-medium">
-                            #{payment.order?.order_number || payment.order_id}
+                            #{payment.order_number || payment.order?.order_number || payment.order_id}
                           </span>
+                        </td>
+                        <td className="px-4 py-4">
+                          <p className="text-sm text-gray-900">{payment.customer_name || '—'}</p>
+                          {payment.customer_phone && (
+                            <p className="text-xs text-gray-500">{payment.customer_phone}</p>
+                          )}
                         </td>
                         <td className="px-4 py-4">
                           <span className="flex items-center gap-2">
@@ -315,11 +358,13 @@ export default function PaymentsPage() {
                 </tbody>
               </table>
             </div>
+            <Pager page={page} count={paymentsData?.count} onPage={setPage} />
           </div>
         </>
       )}
 
       {activeTab === 'refunds' && (
+        refundsError ? <LoadError title="Could not load refunds" onRetry={refetchRefunds} /> : (
         <div className="card overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -350,7 +395,7 @@ export default function PaymentsPage() {
                       </td>
                       <td className="px-4 py-4">
                         <span className="text-primary-600 font-medium">
-                          #{refund.order?.order_number || refund.payment?.order_id}
+                          #{refund.payment_order_number || refund.order?.order_number || '—'}
                         </span>
                       </td>
                       <td className="px-4 py-4 font-semibold">
@@ -396,6 +441,7 @@ export default function PaymentsPage() {
             </table>
           </div>
         </div>
+        )
       )}
 
       {/* Payment Details Modal */}
@@ -423,8 +469,15 @@ export default function PaymentsPage() {
                 <div>
                   <p className="text-sm text-gray-500">Order Number</p>
                   <p className="font-medium text-primary-600">
-                    #{selectedPayment.order?.order_number || selectedPayment.order_id}
+                    #{selectedPayment.order_number || selectedPayment.order?.order_number || selectedPayment.order_id}
                   </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Customer</p>
+                  <p className="font-medium">{selectedPayment.customer_name || '—'}</p>
+                  {selectedPayment.customer_phone && (
+                    <p className="text-xs text-gray-500">{selectedPayment.customer_phone}</p>
+                  )}
                 </div>
                 <div>
                   <p className="text-sm text-gray-500">Amount</p>

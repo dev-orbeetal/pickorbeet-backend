@@ -1,35 +1,44 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import {
   Search, Plus, Edit, Trash2, AlertTriangle,
-  ChevronDown, ChevronRight, Copy, Check, Barcode,
+  ChevronDown, ChevronRight,
   Package, Layers
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '@/components/layout/AdminLayout';
+import SupplyBadge from '@/components/products/SupplyBadge';
+import LoadError from '@/components/ui/LoadError';
+import Pager from '@/components/ui/Pager';
 import { useGetProductsQuery, useDeleteProductMutation } from '@/store/api/productsApi';
 import { useGetCategoriesQuery } from '@/store/api/categoriesApi';
 import { getMediaUrl } from '@/lib/utils';
 
 export default function ProductsPage() {
+  const [page, setPage] = useState(1);
   const [filters, setFilters] = useState({
     search: '',
     category: '',
     is_active: '',
+    supply_type: '',
   });
   const [expandedProducts, setExpandedProducts] = useState({});
-  const [copiedBarcode, setCopiedBarcode] = useState(null);
+
+  useEffect(() => {
+    setPage(1);
+  }, [filters.search, filters.category, filters.is_active, filters.supply_type]);
 
   const queryParams = useMemo(() => {
-    const params = {};
+    const params = { page };
     if (filters.search) params.search = filters.search;
     if (filters.category) params.category = filters.category;
     if (filters.is_active) params.is_active = filters.is_active;
+    if (filters.supply_type) params.supply_type = filters.supply_type;
     return params;
-  }, [filters]);
+  }, [filters, page]);
 
   const { data: categoriesData } = useGetCategoriesQuery();
-  const { data: productsData, isLoading: loading } = useGetProductsQuery(queryParams);
+  const { data: productsData, isLoading: loading, isError, refetch } = useGetProductsQuery(queryParams);
   const [deleteProduct] = useDeleteProductMutation();
 
   const categories = Array.isArray(categoriesData?.results || categoriesData)
@@ -49,14 +58,6 @@ export default function ProductsPage() {
 
   const toggleExpand = (productId) => {
     setExpandedProducts(prev => ({ ...prev, [productId]: !prev[productId] }));
-  };
-
-  const copyBarcode = (barcode) => {
-    if (!barcode) return;
-    navigator.clipboard.writeText(barcode);
-    setCopiedBarcode(barcode);
-    toast.success('Barcode copied!');
-    setTimeout(() => setCopiedBarcode(null), 2000);
   };
 
   const getImageUrl = (img) => getMediaUrl(img);
@@ -93,6 +94,16 @@ export default function ProductsPage() {
 
         <div className="flex items-center gap-3">
           <select
+            value={filters.supply_type}
+            onChange={(e) => setFilters({ ...filters, supply_type: e.target.value })}
+            className="input w-auto"
+          >
+            <option value="">All sources</option>
+            <option value="available_stock">Available Stock</option>
+            <option value="seller_provided">Seller-Provided</option>
+          </select>
+
+          <select
             value={filters.category}
             onChange={(e) => setFilters({ ...filters, category: e.target.value })}
             className="input w-auto"
@@ -118,7 +129,7 @@ export default function ProductsPage() {
               <tr>
                 <th className="w-8 py-3 px-3"></th>
                 <th className="text-left py-3 px-4 text-xs font-semibold text-gray-600 uppercase">Product</th>
-                <th className="text-left py-3 px-4 text-xs font-semibold text-gray-600 uppercase">SKU / Barcode</th>
+                <th className="text-left py-3 px-4 text-xs font-semibold text-gray-600 uppercase">SKU</th>
                 <th className="text-left py-3 px-4 text-xs font-semibold text-gray-600 uppercase">Category</th>
                 <th className="text-right py-3 px-4 text-xs font-semibold text-gray-600 uppercase">Price</th>
                 <th className="text-center py-3 px-4 text-xs font-semibold text-gray-600 uppercase">Stock</th>
@@ -142,6 +153,12 @@ export default function ProductsPage() {
                     </td>
                   </tr>
                 ))
+              ) : isError ? (
+                <tr>
+                  <td colSpan={8} className="py-4">
+                    <LoadError title="Could not load products" onRetry={refetch} />
+                  </td>
+                </tr>
               ) : products.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="text-center py-16">
@@ -200,35 +217,15 @@ export default function ProductsPage() {
                                     {variants.length} variant{variants.length > 1 ? 's' : ''}
                                   </span>
                                 )}
+                                <SupplyBadge type={product.supply_type} seller={product.supplied_by_name} />
                               </div>
                             </div>
                           </div>
                         </td>
 
-                        {/* SKU / Barcode */}
+                        {/* SKU */}
                         <td className="py-3 px-4">
-                          <div className="space-y-1">
-                            {product.sku && (
-                              <p className="font-mono text-sm text-gray-700">{product.sku}</p>
-                            )}
-                            {product.barcode && (
-                              <button
-                                onClick={() => copyBarcode(product.barcode)}
-                                className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-gray-100 hover:bg-gray-200 rounded text-xs font-mono text-gray-600 transition-colors group"
-                                title="Click to copy barcode"
-                              >
-                                {copiedBarcode === product.barcode ? (
-                                  <Check className="w-3 h-3 text-green-600" />
-                                ) : (
-                                  <Copy className="w-3 h-3 text-gray-400 group-hover:text-gray-600" />
-                                )}
-                                {product.barcode}
-                              </button>
-                            )}
-                            {!product.sku && !product.barcode && (
-                              <span className="text-gray-300 text-sm">—</span>
-                            )}
-                          </div>
+                          <p className="font-mono text-sm text-gray-700">{product.sku || '—'}</p>
                         </td>
 
                         {/* Category */}
@@ -299,25 +296,7 @@ export default function ProductsPage() {
                               </div>
                             </td>
                             <td className="py-2.5 px-4">
-                              <div className="space-y-1">
-                                {variant.sku && (
-                                  <p className="font-mono text-xs text-gray-500">{variant.sku}</p>
-                                )}
-                                {variant.barcode && (
-                                  <button
-                                    onClick={() => copyBarcode(variant.barcode)}
-                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 rounded text-[11px] font-mono text-gray-500 transition-colors group"
-                                    title="Click to copy barcode"
-                                  >
-                                    {copiedBarcode === variant.barcode ? (
-                                      <Check className="w-2.5 h-2.5 text-green-600" />
-                                    ) : (
-                                      <Copy className="w-2.5 h-2.5 text-gray-400 group-hover:text-gray-600" />
-                                    )}
-                                    {variant.barcode}
-                                  </button>
-                                )}
-                              </div>
+                              <p className="font-mono text-xs text-gray-500">{variant.sku || '—'}</p>
                             </td>
                             <td className="py-2.5 px-4"></td>
                             <td className="py-2.5 px-4 text-right text-sm text-gray-700">
@@ -346,12 +325,13 @@ export default function ProductsPage() {
         </div>
 
         {/* Footer */}
-        {!loading && products.length > 0 && (
+        {!loading && !isError && products.length > 0 && (
           <div className="px-4 py-3 border-t bg-gray-50 text-sm text-gray-500 flex items-center justify-between">
-            <span>{products.length} product{products.length !== 1 ? 's' : ''}</span>
-            <span>{products.reduce((sum, p) => sum + (p.variants?.length || 0), 0)} total variants</span>
+            <span>{productsData?.count || products.length} product{(productsData?.count || products.length) !== 1 ? 's' : ''}</span>
+            <span>{products.reduce((sum, p) => sum + (p.variants?.length || 0), 0)} variants on this page</span>
           </div>
         )}
+        <Pager page={page} count={productsData?.count} onPage={setPage} />
       </div>
     </AdminLayout>
   );

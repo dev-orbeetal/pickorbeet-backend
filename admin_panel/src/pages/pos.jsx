@@ -1,12 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
 import {
-  Barcode, Search, Plus, Minus, Trash2, ShoppingBag,
+  Search, Plus, Minus, Trash2, ShoppingBag,
   Printer, CheckCircle, User, Phone, X
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useReactToPrint } from 'react-to-print';
 import AdminLayout from '@/components/layout/AdminLayout';
-import { useLazySearchBarcodeQuery, useLazyGetProductsQuery } from '@/store/api/productsApi';
+import { useLazyGetProductsQuery } from '@/store/api/productsApi';
 import { useCreateInShopOrderMutation } from '@/store/api/ordersApi';
 import { getMediaUrl } from '@/lib/utils';
 
@@ -20,37 +20,14 @@ export default function POSPage() {
   const [completedOrder, setCompletedOrder] = useState(null);
   const [variantPicker, setVariantPicker] = useState(null);
   const printRef = useRef();
-  const barcodeInputRef = useRef();
+  const searchInputRef = useRef();
 
-  const [searchBarcode] = useLazySearchBarcodeQuery();
   const [searchProducts] = useLazyGetProductsQuery();
   const [createInShopOrder, { isLoading: processing }] = useCreateInShopOrderMutation();
 
   useEffect(() => {
-    barcodeInputRef.current?.focus();
+    searchInputRef.current?.focus();
   }, []);
-
-  const handleBarcodeSearch = async (barcode) => {
-    if (!barcode.trim()) return;
-
-    try {
-      const response = await searchBarcode(barcode).unwrap();
-
-      if (response.pick_variant && response.variants) {
-        // Product has variants — show variant picker
-        setVariantPicker(response);
-        setSearchQuery('');
-        return;
-      }
-
-      // Show in suggestions instead of directly adding to cart
-      setSearchResults([response]);
-      setSearchQuery('');
-    } catch (error) {
-      // Fallback to product name search
-      handleProductSearch();
-    }
-  };
 
   const handleVariantSelect = (variant) => {
     if (!variantPicker) return;
@@ -60,7 +37,6 @@ export default function POSPage() {
       name: variantPicker.name,
       variant_label: variant.label,
       sku: variant.sku,
-      barcode: variant.barcode,
       price: variant.price,
       stock_quantity: variant.stock_quantity,
       primary_image: variantPicker.primary_image,
@@ -168,7 +144,7 @@ export default function POSPage() {
     setCustomer({ name: '', phone: '', email: '' });
     setDiscount(0);
     setCompletedOrder(null);
-    barcodeInputRef.current?.focus();
+    searchInputRef.current?.focus();
   };
 
   return (
@@ -176,20 +152,20 @@ export default function POSPage() {
       <div className="grid lg:grid-cols-3 gap-6 h-[calc(100vh-140px)]">
         {/* Product Search */}
         <div className="lg:col-span-2 flex flex-col">
-          {/* Barcode Scanner Input */}
           <div className="card p-4 mb-4">
             <div className="flex gap-4">
               <div className="flex-1 relative">
-                <Barcode className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
-                  ref={barcodeInputRef}
+                  ref={searchInputRef}
                   type="text"
-                  placeholder="Scan barcode or enter product code..."
+                  placeholder="Search by product name or SKU..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyPress={(e) => {
+                  onKeyDown={(e) => {
                     if (e.key === 'Enter') {
-                      handleBarcodeSearch(searchQuery);
+                      e.preventDefault();
+                      handleProductSearch();
                     }
                   }}
                   className="input pl-10 text-lg"
@@ -207,7 +183,27 @@ export default function POSPage() {
                 {searchResults.map((product) => (
                   <button
                     key={product.id}
-                    onClick={() => addToCart(product)}
+                    onClick={() => {
+                      const variants = product.variants || [];
+                      if (variants.length > 0) {
+                        setVariantPicker({
+                          id: product.id,
+                          name: product.name,
+                          primary_image: product.primary_image,
+                          variants: variants.map((variant) => ({
+                            id: variant.id,
+                            label: [variant.size, variant.color].filter(Boolean).join(' / ') || variant.sku,
+                            sku: variant.sku,
+                            price: variant.effective_price || variant.price || product.price,
+                            stock_quantity: variant.stock_quantity,
+                          })),
+                        });
+                        setSearchResults([]);
+                        setSearchQuery('');
+                        return;
+                      }
+                      addToCart(product);
+                    }}
                     className="w-full flex items-center gap-4 p-3 hover:bg-gray-50 border-b last:border-0 text-left"
                   >
                     {product.primary_image ? (
@@ -564,7 +560,6 @@ export default function POSPage() {
                     </p>
                     <p className="text-xs text-gray-500 mt-0.5">
                       SKU: {v.sku}
-                      {v.barcode && ` • Barcode: ${v.barcode}`}
                     </p>
                   </div>
                   <div className="text-right">

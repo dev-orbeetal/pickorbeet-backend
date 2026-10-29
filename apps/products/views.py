@@ -4,6 +4,7 @@ Views for products app.
 import uuid
 
 from rest_framework import generics, status, filters
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -14,12 +15,13 @@ from .models import Category, SubCategory, Product, ProductImage, ProductVariant
 from .serializers import (
     CategorySerializer, CategoryListSerializer, SubCategorySerializer,
     ProductListSerializer, ProductDetailSerializer, ProductCreateUpdateSerializer,
+    AdminProductListSerializer, AdminProductDetailSerializer,
     ProductImageSerializer, ProductVariantSerializer, BarcodeProductSerializer,
     ProductStockUpdateSerializer, ContactMessageSubmitSerializer, ContactMessageSerializer,
     HomepageBannerSerializer,
 )
 from apps.accounts.permissions import IsStaffUser, IsSeller
-from apps.reports.models import StockMovement
+from .costing import StockError, apply_stock_operation, remove_units
 from .search import filter_product_search, search_names_catalog
 
 
@@ -260,22 +262,24 @@ class AdminProductListCreateView(generics.ListCreateAPIView):
     """Admin: List and create products."""
     permission_classes = [IsAuthenticated, IsStaffUser]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ['category', 'subcategory', 'is_active', 'is_featured']
+    filterset_fields = ['category', 'subcategory', 'is_active', 'is_featured', 'supply_type']
     search_fields = ['name', 'sku', 'barcode']
 
     def get_serializer_class(self):
         if self.request.method == 'POST':
             return ProductCreateUpdateSerializer
-        return ProductListSerializer
+        return AdminProductListSerializer
 
     def get_queryset(self):
         return Product.objects.all().select_related(
-            'category', 'subcategory'
+            'category', 'subcategory', 'supplied_by'
         ).prefetch_related('variants')
 
     def create(self, request, *args, **kwargs):
         try:
             return super().create(request, *args, **kwargs)
+        except ValidationError:
+            raise
         except Exception as e:
             return Response(
                 {'detail': f'Failed to create product: {str(e)}'},
@@ -291,7 +295,10 @@ class AdminProductDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_serializer_class(self):
         if self.request.method in ['PUT', 'PATCH']:
             return ProductCreateUpdateSerializer
-        return ProductDetailSerializer
+        return AdminProductDetailSerializer
+
+    def get_queryset(self):
+        return Product.objects.all().select_related('supplied_by')
 
     def destroy(self, request, *args, **kwargs):
         product = self.get_object()
@@ -413,6 +420,15 @@ class BarcodeSearchView(APIView):
             )
 
 
+def _stock_response(result, message):
+    expense = result.get('expense')
+    return Response({
+        'message': message,
+        'new_stock': result['new_stock'],
+        'voucher_number': expense.voucher_number if expense else None,
+    })
+
+
 class ProductStockUpdateView(APIView):
     """Update product stock with movement tracking."""
     permission_classes = [IsAuthenticated, IsStaffUser]
@@ -420,7 +436,7 @@ class ProductStockUpdateView(APIView):
     def post(self, request, pk):
         serializer = ProductStockUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
+
         try:
             product = Product.objects.get(pk=pk)
         except Product.DoesNotExist:
@@ -428,50 +444,23 @@ class ProductStockUpdateView(APIView):
                 {'error': 'Product not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
-        
-        quantity = serializer.validated_data['quantity']
-        operation = serializer.validated_data['operation']
-        reason = request.data.get('reason', 'adjustment')
-        note = request.data.get('note', '')
-        previous_stock = product.stock_quantity
-        
-        if operation == 'add':
-            product.stock_quantity += quantity
-            movement_type = 'in'
-            movement_qty = quantity
-        elif operation == 'subtract':
-            if product.stock_quantity < quantity:
-                return Response(
-                    {'error': 'Insufficient stock'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            product.stock_quantity -= quantity
-            movement_type = 'out'
-            movement_qty = -quantity
-        else:  # set
-            diff = quantity - product.stock_quantity
-            product.stock_quantity = quantity
-            movement_type = 'adjustment'
-            movement_qty = diff
-        
-        product.save()
-        
-        StockMovement.objects.create(
-            product=product,
-            variant=None,
-            movement_type=movement_type,
-            reason=reason,
-            quantity=movement_qty,
-            previous_stock=previous_stock,
-            new_stock=product.stock_quantity,
-            note=note,
-            created_by=request.user,
-        )
-        
-        return Response({
-            'message': 'Stock updated successfully',
-            'new_stock': product.stock_quantity
-        })
+
+        try:
+            result = apply_stock_operation(
+                product=product,
+                quantity=serializer.validated_data['quantity'],
+                operation=serializer.validated_data['operation'],
+                reason=serializer.validated_data.get('reason') or 'adjustment',
+                note=serializer.validated_data.get('note') or '',
+                user=request.user,
+                unit_cost=serializer.validated_data.get('unit_cost'),
+                payment_method=serializer.validated_data.get('payment_method') or '',
+                payee=serializer.validated_data.get('payee') or '',
+            )
+        except StockError as exc:
+            return Response({'error': exc.message}, status=status.HTTP_400_BAD_REQUEST)
+
+        return _stock_response(result, 'Stock updated successfully')
 
 
 class VariantStockUpdateView(APIView):
@@ -490,49 +479,42 @@ class VariantStockUpdateView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        quantity = serializer.validated_data['quantity']
-        operation = serializer.validated_data['operation']
-        reason = request.data.get('reason', 'adjustment')
-        note = request.data.get('note', '')
-        previous_stock = variant.stock_quantity
+        try:
+            result = apply_stock_operation(
+                product=variant.product,
+                variant=variant,
+                quantity=serializer.validated_data['quantity'],
+                operation=serializer.validated_data['operation'],
+                reason=serializer.validated_data.get('reason') or 'adjustment',
+                note=serializer.validated_data.get('note') or '',
+                user=request.user,
+                unit_cost=serializer.validated_data.get('unit_cost'),
+                payment_method=serializer.validated_data.get('payment_method') or '',
+                payee=serializer.validated_data.get('payee') or '',
+            )
+        except StockError as exc:
+            return Response({'error': exc.message}, status=status.HTTP_400_BAD_REQUEST)
 
-        if operation == 'add':
-            variant.stock_quantity += quantity
-            movement_type = 'in'
-            movement_qty = quantity
-        elif operation == 'subtract':
-            if variant.stock_quantity < quantity:
-                return Response(
-                    {'error': 'Insufficient stock'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            variant.stock_quantity -= quantity
-            movement_type = 'out'
-            movement_qty = -quantity
-        else:  # set
-            diff = quantity - variant.stock_quantity
-            variant.stock_quantity = quantity
-            movement_type = 'adjustment'
-            movement_qty = diff
+        return _stock_response(result, 'Variant stock updated successfully')
 
-        variant.save()
 
-        StockMovement.objects.create(
-            product=variant.product,
-            variant=variant,
-            movement_type=movement_type,
-            reason=reason,
-            quantity=movement_qty,
-            previous_stock=previous_stock,
-            new_stock=variant.stock_quantity,
-            note=note,
-            created_by=request.user,
+class AdminSellerListView(APIView):
+    """Active seller accounts for the internal supply classification."""
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def get(self, request):
+        from apps.accounts.models import User
+        sellers = User.objects.filter(role='seller', is_active=True).order_by(
+            'first_name', 'last_name'
         )
-
-        return Response({
-            'message': 'Variant stock updated successfully',
-            'new_stock': variant.stock_quantity
-        })
+        return Response([
+            {
+                'id': str(seller.id),
+                'full_name': seller.full_name,
+                'email': seller.email,
+            }
+            for seller in sellers
+        ])
 
 
 class InventoryItemsView(APIView):
@@ -546,10 +528,11 @@ class InventoryItemsView(APIView):
         search = request.query_params.get('search', '').strip()
         stock_filter = request.query_params.get('stock_status', '')  # all, in_stock, low_stock, out_of_stock
         category_id = request.query_params.get('category', '')
+        supply_type = request.query_params.get('supply_type', '').strip()
 
         products = Product.objects.filter(
             is_active=True
-        ).select_related('category').prefetch_related(
+        ).select_related('category', 'supplied_by').prefetch_related(
             models.Prefetch(
                 'variants',
                 queryset=ProductVariant.objects.filter(is_active=True).order_by('size', 'color')
@@ -567,6 +550,9 @@ class InventoryItemsView(APIView):
 
         if category_id:
             products = products.filter(category_id=category_id)
+
+        if supply_type in (Product.SUPPLY_AVAILABLE, Product.SUPPLY_SELLER):
+            products = products.filter(supply_type=supply_type)
 
         items = []
         for product in products:
@@ -600,7 +586,6 @@ class InventoryItemsView(APIView):
                 variant_data.append({
                     'id': str(v.id),
                     'sku': v.sku,
-                    'barcode': v.barcode,
                     'size': v.size,
                     'color': v.color,
                     'price': float(v.effective_price),
@@ -609,11 +594,11 @@ class InventoryItemsView(APIView):
                     'is_active': v.is_active,
                 })
 
+            seller = product.supplied_by
             items.append({
                 'id': str(product.id),
                 'name': product.name,
                 'sku': product.sku,
-                'barcode': product.barcode,
                 'category': product.category.name if product.category else None,
                 'price': float(product.price),
                 'stock_quantity': product.stock_quantity,
@@ -622,6 +607,9 @@ class InventoryItemsView(APIView):
                 'has_variants': has_variants,
                 'variants': variant_data,
                 'primary_image': product.primary_image,
+                'supply_type': product.supply_type,
+                'supplied_by': str(seller.id) if seller else None,
+                'supplied_by_name': seller.full_name if seller else None,
             })
 
         return Response({
@@ -676,6 +664,19 @@ class ProductVariantDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
         product_id = self.kwargs.get('product_id')
         return ProductVariant.objects.filter(product_id=product_id)
+
+    def perform_destroy(self, instance):
+        if instance.stock_quantity:
+            remove_units(
+                product=instance.product,
+                variant=instance,
+                quantity=instance.stock_quantity,
+                reason='adjustment',
+                note='Variant removed',
+                user=self.request.user,
+                movement_type='adjustment',
+            )
+        instance.delete()
 
 
 class PublicStoreSettingsView(APIView):

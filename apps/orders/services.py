@@ -8,7 +8,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
 from django.utils import timezone
 
-from apps.reports.models import StockMovement
+from apps.products.costing import issue_units, restore_units
 
 from .models import Order, OrderStatusHistory
 
@@ -94,65 +94,56 @@ def find_variant(item):
     return None
 
 
-def reduce_stock(order):
-    """Reduce stock for all items in the order."""
+def reduce_stock(order, user=None):
+    """Reduce stock for all items in the order and snapshot their cost once."""
     if order.stock_reduced:
         return
+    prefix = 'In-shop order' if order.order_type == 'in_shop' else 'Order'
     for item in order.items.select_related('product', 'variant').all():
+        if item.product_id is None:
+            continue
         variant = find_variant(item)
-        if variant:
-            prev = variant.stock_quantity
-            variant.stock_quantity = max(0, variant.stock_quantity - item.quantity)
-            variant.save(update_fields=['stock_quantity'])
-            StockMovement.objects.create(
-                product=item.product, variant=variant,
-                movement_type='out', quantity=-item.quantity,
-                previous_stock=prev, new_stock=variant.stock_quantity,
-                reason='sale', reference_order=order,
-                note=f'Order #{order.order_number}',
-            )
-        else:
-            prev = item.product.stock_quantity
-            item.product.stock_quantity = max(0, item.product.stock_quantity - item.quantity)
-            item.product.save(update_fields=['stock_quantity'])
-            StockMovement.objects.create(
-                product=item.product, variant=None,
-                movement_type='out', quantity=-item.quantity,
-                previous_stock=prev, new_stock=item.product.stock_quantity,
-                reason='sale', reference_order=order,
-                note=f'Order #{order.order_number}',
-            )
+        unit_cost, cost_total = issue_units(
+            product=item.product,
+            variant=variant,
+            quantity=item.quantity,
+            order=order,
+            note=f'{prefix} #{order.order_number}',
+            user=user,
+        )
+        item.unit_cost = unit_cost
+        item.cost_total = cost_total
+        item.cost_applied = True
+        item.save(update_fields=['unit_cost', 'cost_total', 'cost_applied'])
     order.stock_reduced = True
 
 
-def restore_stock(order):
-    """Restore stock for all items in the order."""
+def restore_stock(order, user=None):
+    """Restore stock. Cost returns only when this order had removed it."""
     if not order.stock_reduced:
         return
     for item in order.items.select_related('product', 'variant').all():
+        if item.product_id is None:
+            continue
         variant = find_variant(item)
-        if variant:
-            prev = variant.stock_quantity
-            variant.stock_quantity += item.quantity
-            variant.save(update_fields=['stock_quantity'])
-            StockMovement.objects.create(
-                product=item.product, variant=variant,
-                movement_type='return', quantity=item.quantity,
-                previous_stock=prev, new_stock=variant.stock_quantity,
-                reason='return', reference_order=order,
-                note=f'Order #{order.order_number} cancelled/refunded',
-            )
+        if item.cost_applied and item.cost_total is not None:
+            cost_total = item.cost_total
+        elif item.cost_applied and item.unit_cost is not None:
+            cost_total = item.unit_cost * item.quantity
         else:
-            prev = item.product.stock_quantity
-            item.product.stock_quantity += item.quantity
-            item.product.save(update_fields=['stock_quantity'])
-            StockMovement.objects.create(
-                product=item.product, variant=None,
-                movement_type='return', quantity=item.quantity,
-                previous_stock=prev, new_stock=item.product.stock_quantity,
-                reason='return', reference_order=order,
-                note=f'Order #{order.order_number} cancelled/refunded',
-            )
+            cost_total = 0
+        restore_units(
+            product=item.product,
+            variant=variant,
+            quantity=item.quantity,
+            cost_total=cost_total,
+            order=order,
+            note=f'Order #{order.order_number} cancelled/refunded',
+            user=user,
+        )
+        if item.cost_applied:
+            item.cost_applied = False
+            item.save(update_fields=['cost_applied'])
     order.stock_reduced = False
 
 
@@ -185,10 +176,10 @@ def change_order_status(order, new_status, note='', changed_by=None):
 
         # Stock management: reduce when entering confirmed+ statuses, restore when going back
         if new_status in STOCK_DEDUCTED_STATUSES:
-            reduce_stock(locked)
+            reduce_stock(locked, user=changed_by)
         else:
             # pending, cancelled, refunded → restore stock if it was reduced
-            restore_stock(locked)
+            restore_stock(locked, user=changed_by)
 
         locked.save()
 

@@ -31,6 +31,7 @@ export const ordersApi = baseApi.injectEndpoints({
         { type: 'Orders', id },
         { type: 'Orders', id: 'LIST' },
         'Dashboard',
+        'Finance',
       ],
     }),
 
@@ -43,6 +44,7 @@ export const ordersApi = baseApi.injectEndpoints({
       invalidatesTags: [
         { type: 'Orders', id: 'LIST' },
         'Dashboard',
+        'Finance',
         'Inventory',
         { type: 'Products', id: 'LIST' },
       ],

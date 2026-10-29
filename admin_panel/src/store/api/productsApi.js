@@ -68,13 +68,6 @@ export const productsApi = baseApi.injectEndpoints({
       providesTags: ['Products', 'Inventory'],
     }),
 
-    searchBarcode: builder.query({
-      query: (barcode) => ({
-        url: '/products/admin/barcode-search/',
-        params: { barcode },
-      }),
-    }),
-
     uploadProductImage: builder.mutation({
       query: ({ productId, imageData }) => ({
         url: `/products/admin/products/${productId}/images/`,
@@ -140,7 +133,7 @@ export const productsApi = baseApi.injectEndpoints({
         method: 'POST',
         body: data,
       }),
-      invalidatesTags: ['Inventory', 'Products'],
+      invalidatesTags: ['Inventory', 'Products', 'Finance'],
     }),
 
     updateVariantStock: builder.mutation({
@@ -149,7 +142,12 @@ export const productsApi = baseApi.injectEndpoints({
         method: 'POST',
         body: data,
       }),
-      invalidatesTags: ['Inventory', 'Products'],
+      invalidatesTags: ['Inventory', 'Products', 'Finance'],
+    }),
+
+    getSellers: builder.query({
+      query: () => '/products/admin/sellers/',
+      providesTags: ['Staff'],
     }),
 
     getStoreSettings: builder.query({
@@ -216,7 +214,6 @@ export const {
   useDeleteProductMutation,
   useUpdateStockMutation,
   useGetLowStockQuery,
-  useLazySearchBarcodeQuery,
   useUploadProductImageMutation,
   useDeleteProductImageMutation,
   useCreateVariantMutation,
@@ -225,6 +222,7 @@ export const {
   useGetInventoryItemsQuery,
   useUpdateProductStockMutation,
   useUpdateVariantStockMutation,
+  useGetSellersQuery,
   useGetStoreSettingsQuery,
   useUpdateStoreSettingsMutation,
   useGetBannersQuery,

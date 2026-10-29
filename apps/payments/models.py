@@ -102,3 +102,71 @@ class Refund(models.Model):
 
     def __str__(self):
         return f"Refund {self.id} - {self.payment.order.order_number}"
+
+
+class Expense(models.Model):
+    """A business expense voucher.
+
+    Purchase vouchers are created from stock purchases and linked to that
+    movement. Other vouchers are entered by staff and are not copied from sales.
+    """
+
+    CATEGORY_CHOICES = [
+        ('inventory_purchase', 'Inventory Purchase'),
+        ('shipping', 'Shipping & Delivery'),
+        ('marketing', 'Marketing & Ads'),
+        ('utilities', 'Utilities'),
+        ('rent', 'Rent'),
+        ('salaries', 'Salaries'),
+        ('packaging', 'Packaging'),
+        ('software', 'Software & Tools'),
+        ('miscellaneous', 'Miscellaneous'),
+    ]
+    PAYMENT_METHOD_CHOICES = [
+        ('cash', 'Cash'),
+        ('card', 'Card'),
+        ('mobile_banking', 'Mobile Banking'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    voucher_number = models.CharField(max_length=24, unique=True)
+    expense_date = models.DateField()
+    category = models.CharField(max_length=32, choices=CATEGORY_CHOICES)
+    description = models.TextField()
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    quantity = models.PositiveIntegerField(null=True, blank=True)
+    unit_cost = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    stock_movement = models.OneToOneField(
+        'reports.StockMovement',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='expense',
+    )
+    payment_method = models.CharField(
+        max_length=20, choices=PAYMENT_METHOD_CHOICES, blank=True, default=''
+    )
+    payee = models.CharField(max_length=200, blank=True, default='')
+    product = models.ForeignKey(
+        'products.Product',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='expenses',
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='expenses_recorded',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Expense'
+        verbose_name_plural = 'Expenses'
+        ordering = ['-expense_date', '-created_at']
+
+    def __str__(self):
+        return self.voucher_number

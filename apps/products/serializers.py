@@ -1,6 +1,7 @@
 """
 Serializers for products app.
 """
+from django.db import transaction
 from rest_framework import serializers
 from .models import Category, SubCategory, Product, ProductImage, ProductVariant, ContactMessage, HomepageBanner
 
@@ -34,6 +35,41 @@ class ProductVariantSerializer(serializers.ModelSerializer):
         model = ProductVariant
         fields = ['id', 'sku', 'barcode', 'size', 'color', 'price', 
                   'stock_quantity', 'low_stock_threshold', 'is_active', 'effective_price']
+
+    def create(self, validated_data):
+        from apps.products.costing import StockError, record_purchase
+
+        stock = int(validated_data.pop('stock_quantity', 0) or 0)
+        product = validated_data['product']
+        if stock > 0 and not (product.cost_price and product.cost_price > 0):
+            raise serializers.ValidationError({
+                'stock_quantity': (
+                    'Set a cost price on the product before adding opening stock. '
+                    'Later purchases are recorded from Inventory.'
+                ),
+            })
+        validated_data['stock_quantity'] = 0
+        with transaction.atomic():
+            variant = super().create(validated_data)
+            if stock > 0:
+                try:
+                    record_purchase(
+                        product=product,
+                        variant=variant,
+                        quantity=stock,
+                        unit_cost=product.cost_price,
+                        user=self.context['request'].user,
+                        note='Opening variant stock',
+                    )
+                except StockError as exc:
+                    raise serializers.ValidationError({'stock_quantity': exc.message})
+                variant.refresh_from_db()
+            return variant
+
+    def update(self, instance, validated_data):
+        # Stock changes go through Inventory so every purchase has one voucher.
+        validated_data.pop('stock_quantity', None)
+        return super().update(instance, validated_data)
 
 
 class SubCategorySerializer(serializers.ModelSerializer):
@@ -123,15 +159,46 @@ class ProductDetailSerializer(serializers.ModelSerializer):
                   'primary_image', 'images', 'variants', 'created_at', 'updated_at']
 
 
+class AdminProductListSerializer(ProductListSerializer):
+    """Admin list payload. Adds internal supply fields the public list omits."""
+    supplied_by_name = serializers.SerializerMethodField()
+
+    class Meta(ProductListSerializer.Meta):
+        fields = ProductListSerializer.Meta.fields + [
+            'supply_type', 'supplied_by', 'supplied_by_name',
+        ]
+
+    def get_supplied_by_name(self, obj):
+        seller = getattr(obj, 'supplied_by', None)
+        return seller.full_name if seller else None
+
+
+class AdminProductDetailSerializer(ProductDetailSerializer):
+    """Admin detail payload. Adds internal supply fields the public detail omits."""
+    supplied_by_name = serializers.SerializerMethodField()
+
+    class Meta(ProductDetailSerializer.Meta):
+        fields = ProductDetailSerializer.Meta.fields + [
+            'supply_type', 'supplied_by', 'supplied_by_name', 'cost_price',
+            'low_stock_threshold',
+        ]
+
+    def get_supplied_by_name(self, obj):
+        seller = getattr(obj, 'supplied_by', None)
+        return seller.full_name if seller else None
+
+
 class ProductCreateUpdateSerializer(serializers.ModelSerializer):
     """Serializer for creating/updating products."""
 
     class Meta:
         model = Product
-        fields = ['name', 'sku', 'barcode', 'category', 'subcategory',
+        fields = ['id', 'slug', 'name', 'sku', 'barcode', 'category', 'subcategory',
                   'description', 'short_description', 'price', 'compare_price',
                   'cost_price', 'size', 'color', 'material', 'stock_quantity',
-                  'low_stock_threshold', 'is_active', 'is_featured']
+                  'low_stock_threshold', 'is_active', 'is_featured',
+                  'supply_type', 'supplied_by']
+        read_only_fields = ['id', 'slug']
 
     def validate_sku(self, value):
         """Convert empty string to None to avoid unique constraint violation."""
@@ -140,6 +207,67 @@ class ProductCreateUpdateSerializer(serializers.ModelSerializer):
     def validate_barcode(self, value):
         """Convert empty string to None to avoid unique constraint violation."""
         return value.strip() if value and value.strip() else None
+
+    def validate(self, attrs):
+        supply_type = attrs.get(
+            'supply_type',
+            getattr(self.instance, 'supply_type', Product.SUPPLY_AVAILABLE),
+        )
+        if 'supplied_by' in attrs:
+            seller = attrs.get('supplied_by')
+        elif self.instance is not None:
+            seller = self.instance.supplied_by
+        else:
+            seller = None
+
+        if supply_type == Product.SUPPLY_AVAILABLE:
+            attrs['supplied_by'] = None
+        else:
+            if seller is None:
+                raise serializers.ValidationError({
+                    'supplied_by': 'Select the seller who provides this product.',
+                })
+            if seller.role != 'seller':
+                raise serializers.ValidationError({
+                    'supplied_by': 'Seller-provided products must be linked to a seller account.',
+                })
+            attrs['supplied_by'] = seller
+        if self.instance is None:
+            stock = attrs.get('stock_quantity') or 0
+            cost = attrs.get('cost_price')
+            if stock > 0 and (cost is None or cost <= 0):
+                raise serializers.ValidationError({
+                    'cost_price': 'Enter a cost price to record opening stock as a purchase.',
+                })
+        return attrs
+
+    def create(self, validated_data):
+        from apps.products.costing import StockError, record_purchase
+
+        stock = int(validated_data.pop('stock_quantity', 0) or 0)
+        cost = validated_data.get('cost_price')
+        validated_data['stock_quantity'] = 0
+        with transaction.atomic():
+            product = super().create(validated_data)
+            if stock > 0:
+                try:
+                    record_purchase(
+                        product=product,
+                        quantity=stock,
+                        unit_cost=cost,
+                        user=self.context['request'].user,
+                        note='Opening stock',
+                    )
+                except StockError as exc:
+                    raise serializers.ValidationError({'cost_price': exc.message})
+                product.refresh_from_db()
+            return product
+
+    def update(self, instance, validated_data):
+        # Stock and average cost are maintained by purchases, sales, and inventory adjustments.
+        validated_data.pop('stock_quantity', None)
+        validated_data.pop('cost_price', None)
+        return super().update(instance, validated_data)
 
 
 class BarcodeProductSerializer(serializers.ModelSerializer):
@@ -155,6 +283,22 @@ class ProductStockUpdateSerializer(serializers.Serializer):
     """Serializer for stock updates."""
     quantity = serializers.IntegerField()
     operation = serializers.ChoiceField(choices=['add', 'subtract', 'set'])
+    reason = serializers.ChoiceField(
+        choices=['purchase', 'return', 'damaged', 'lost', 'adjustment'],
+        required=False,
+        default='adjustment',
+    )
+    note = serializers.CharField(required=False, allow_blank=True, default='')
+    unit_cost = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False, allow_null=True,
+    )
+    payment_method = serializers.ChoiceField(
+        choices=['', 'cash', 'card', 'mobile_banking'],
+        required=False,
+        allow_blank=True,
+        default='',
+    )
+    payee = serializers.CharField(required=False, allow_blank=True, default='')
 
     def validate_quantity(self, value):
         if value < 0:

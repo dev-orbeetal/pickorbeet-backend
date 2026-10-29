@@ -6,16 +6,17 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.conf import settings
+from django.db.models import Count, Sum
 from django.utils import timezone
 from django.shortcuts import redirect
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 import uuid
-from .models import Payment, Refund
+from .models import Expense, Payment, Refund
 from .serializers import (
     PaymentSerializer, OrderPaymentSerializer, InitiatePaymentSerializer,
     PaymentCallbackSerializer, RefundSerializer, CreateRefundSerializer,
-    ProcessRefundSerializer
+    ProcessRefundSerializer, ExpenseSerializer
 )
 from apps.orders.models import Order
 from apps.orders.services import change_order_status, record_online_payment
@@ -242,9 +243,16 @@ class PaymentListView(generics.ListAPIView):
     permission_classes = [IsAuthenticated, IsStaffUser]
 
     def get_queryset(self):
-        return Order.objects.exclude(
+        queryset = Order.objects.exclude(
             order_status='cancelled'
-        ).prefetch_related('payments').order_by('-created_at')
+        ).select_related('user').prefetch_related('payments').order_by('-created_at')
+        start_date = self.request.query_params.get('start_date')
+        end_date = self.request.query_params.get('end_date')
+        if start_date:
+            queryset = queryset.filter(created_at__date__gte=start_date)
+        if end_date:
+            queryset = queryset.filter(created_at__date__lte=end_date)
+        return queryset
 
 
 class PaymentDetailView(generics.RetrieveAPIView):
@@ -333,3 +341,165 @@ class ProcessRefundView(APIView):
         refund.save()
         
         return Response(RefundSerializer(refund).data)
+
+
+def _iso_date(value):
+    if timezone.is_aware(value):
+        value = timezone.localtime(value)
+    return value.date().isoformat()
+
+
+def _bounded(queryset, field, start_date, end_date):
+    if start_date:
+        queryset = queryset.filter(**{f'{field}__gte': start_date})
+    if end_date:
+        queryset = queryset.filter(**{f'{field}__lte': end_date})
+    return queryset
+
+
+class ExpenseListCreateView(generics.ListCreateAPIView):
+    """Accountant: list and record expenses. Not copied from sales."""
+    serializer_class = ExpenseSerializer
+    permission_classes = [IsAuthenticated, IsAccountant]
+    pagination_class = None
+
+    def get_queryset(self):
+        queryset = Expense.objects.select_related('product', 'created_by')
+        params = self.request.query_params
+        queryset = _bounded(queryset, 'expense_date', params.get('start_date'), params.get('end_date'))
+        product_id = params.get('product')
+        if product_id:
+            queryset = queryset.filter(product_id=product_id)
+        return queryset
+
+
+class ExpenseDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """Accountant: review, correct, or remove one expense voucher."""
+    serializer_class = ExpenseSerializer
+    permission_classes = [IsAuthenticated, IsAccountant]
+    queryset = Expense.objects.select_related('product', 'created_by')
+
+    def destroy(self, request, *args, **kwargs):
+        expense = self.get_object()
+        if expense.stock_movement_id:
+            return Response(
+                {'detail': 'Purchase vouchers are created from stock purchases and cannot be deleted.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().destroy(request, *args, **kwargs)
+
+
+class FinanceSummaryView(APIView):
+    """Current financial position. Actual totals stay separate from estimates."""
+    permission_classes = [IsAuthenticated, IsAccountant]
+
+    def get(self, request):
+        from .finance import finance_summary
+        return Response(finance_summary())
+
+
+class ProductFinanceView(APIView):
+    """Product profit from purchases, completed sales, and stock still on hand."""
+    permission_classes = [IsAuthenticated, IsAccountant]
+
+    def get(self, request):
+        from .finance import product_finance
+        return Response(product_finance())
+
+
+class ExpenseByProductView(APIView):
+    """Sum of recorded expenses grouped by product."""
+    permission_classes = [IsAuthenticated, IsAccountant]
+
+    def get(self, request):
+        queryset = _bounded(
+            Expense.objects.all(),
+            'expense_date',
+            request.query_params.get('start_date'),
+            request.query_params.get('end_date'),
+        )
+        rows = queryset.values('product_id', 'product__name').annotate(
+            total_amount=Sum('amount'),
+            expense_count=Count('id'),
+        ).order_by('-total_amount')
+        return Response([
+            {
+                'product_id': str(row['product_id']) if row['product_id'] else None,
+                'product_name': row['product__name'] or 'Unassigned',
+                'total_amount': float(row['total_amount'] or 0),
+                'expense_count': row['expense_count'],
+            }
+            for row in rows
+        ])
+
+
+class AdminIncomeView(APIView):
+    """Paid orders as income lines. A completed payment is used once and is not added again as the order total."""
+    permission_classes = [IsAuthenticated, IsAccountant]
+
+    def get(self, request):
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        orders = Order.objects.filter(payment_status='paid').select_related('user').prefetch_related('payments')
+        if start_date:
+            orders = orders.filter(created_at__date__gte=start_date)
+        if end_date:
+            orders = orders.filter(created_at__date__lte=end_date)
+
+        lines = []
+        income_total = 0
+        for order in orders.order_by('-created_at'):
+            completed = [payment for payment in order.payments.all() if payment.status == 'completed']
+            if completed:
+                amount = sum((payment.amount for payment in completed))
+                methods = {payment.payment_method for payment in completed}
+                source = completed[0].payment_method if len(methods) == 1 else 'mixed'
+                reference = order.order_number
+                dated = completed[0].completed_at or completed[0].created_at or order.created_at
+            else:
+                amount = order.total
+                source = order.payment_method or ('cash' if order.order_type == 'in_shop' else 'cod')
+                reference = order.order_number
+                dated = order.created_at
+            income_total += amount
+            lines.append({
+                'id': str(order.id),
+                'date': _iso_date(dated),
+                'source': source,
+                'reference': reference,
+                'customer_name': order.customer_name,
+                'amount': float(amount),
+            })
+
+        refunds = Refund.objects.filter(
+            status__in=['approved', 'processed']
+        ).select_related('payment__order', 'payment__order__user')
+        if start_date:
+            refunds = refunds.filter(created_at__date__gte=start_date)
+        if end_date:
+            refunds = refunds.filter(created_at__date__lte=end_date)
+
+        refund_lines = []
+        subtracted = 0
+        for refund in refunds.order_by('-created_at'):
+            order = refund.payment.order
+            still_in_income = order.payment_status == 'paid'
+            amount = float(refund.amount)
+            if still_in_income:
+                subtracted += refund.amount
+            refund_lines.append({
+                'id': str(refund.id),
+                'date': _iso_date(refund.processed_at or refund.created_at),
+                'amount': amount,
+                'order_number': order.order_number,
+                'status': refund.status,
+                'subtracted': still_in_income,
+            })
+
+        return Response({
+            'income': lines,
+            'income_total': float(income_total),
+            'refunds': refund_lines,
+            'refunds_subtracted': float(subtracted),
+            'net_income': float(income_total - subtracted),
+        })

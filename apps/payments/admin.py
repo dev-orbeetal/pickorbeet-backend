@@ -3,7 +3,7 @@ Admin configuration for payments app.
 """
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import Payment, Refund
+from .models import Expense, Payment, Refund
 
 
 @admin.register(Payment)
@@ -84,3 +84,11 @@ class RefundAdmin(admin.ModelAdmin):
             color, obj.get_status_display()
         )
     status_display.short_description = 'Status'
+
+
+@admin.register(Expense)
+class ExpenseAdmin(admin.ModelAdmin):
+    list_display = ['voucher_number', 'expense_date', 'category', 'amount', 'payee', 'product']
+    list_filter = ['category', 'expense_date']
+    search_fields = ['voucher_number', 'description', 'payee', 'product__name']
+    readonly_fields = ['voucher_number', 'created_by', 'created_at', 'updated_at']

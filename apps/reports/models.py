@@ -113,6 +113,8 @@ class StockMovement(models.Model):
     movement_type = models.CharField(max_length=20, choices=MOVEMENT_TYPE_CHOICES)
     reason = models.CharField(max_length=20, choices=REASON_CHOICES)
     quantity = models.IntegerField()  # Positive for in, negative for out
+    unit_cost = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    total_cost = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
     
     previous_stock = models.PositiveIntegerField()
     new_stock = models.PositiveIntegerField()

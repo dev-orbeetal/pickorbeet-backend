@@ -1,12 +1,18 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
-import { Search, Filter, Eye, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useRouter } from 'next/router';
+import { Search, Eye, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '@/components/layout/AdminLayout';
+import LoadError from '@/components/ui/LoadError';
+import Pager from '@/components/ui/Pager';
 import { useGetOrdersQuery, useDeleteOrderMutation } from '@/store/api/ordersApi';
 import { courierBadgeClass } from '@/components/orders/SteadfastCard';
+import { statusLabel } from '@/lib/labels';
 
 export default function OrdersPage() {
+  const router = useRouter();
+  const [page, setPage] = useState(1);
   const [filters, setFilters] = useState({
     order_status: '',
     payment_status: '',
@@ -14,18 +20,31 @@ export default function OrdersPage() {
     search: '',
   });
 
+  useEffect(() => {
+    if (!router.isReady) return;
+    const status = typeof router.query.status === 'string' ? router.query.status : '';
+    if (status) setFilters((current) => ({ ...current, order_status: status }));
+  }, [router.isReady, router.query.status]);
+
   const queryParams = useMemo(() => {
-    const params = {};
+    const params = { page };
     if (filters.order_status) params.order_status = filters.order_status;
     if (filters.payment_status) params.payment_status = filters.payment_status;
     if (filters.order_type) params.order_type = filters.order_type;
     if (filters.search) params.search = filters.search;
     return params;
-  }, [filters]);
+  }, [filters, page]);
 
-  const { data: ordersData, isLoading: loading } = useGetOrdersQuery(queryParams);
+  const { data: ordersData, isLoading: loading, isError, refetch } = useGetOrdersQuery(queryParams);
   const [deleteOrder] = useDeleteOrderMutation();
-  const orders = ordersData?.results || ordersData || [];
+  const orders = Array.isArray(ordersData?.results || ordersData)
+    ? (ordersData?.results || ordersData)
+    : [];
+
+  const updateFilters = (patch) => {
+    setFilters((current) => ({ ...current, ...patch }));
+    setPage(1);
+  };
 
   const handleDelete = async (order) => {
     if (!['pending', 'cancelled'].includes(order.order_status)) {
@@ -78,7 +97,7 @@ export default function OrdersPage() {
                 type="text"
                 placeholder="Search orders..."
                 value={filters.search}
-                onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                onChange={(e) => updateFilters({ search: e.target.value })}
                 className="input pl-10"
               />
             </div>
@@ -86,7 +105,7 @@ export default function OrdersPage() {
 
           <select
             value={filters.order_status}
-            onChange={(e) => setFilters({ ...filters, order_status: e.target.value })}
+            onChange={(e) => updateFilters({ order_status: e.target.value })}
             className="input w-auto"
           >
             <option value="">All Status</option>
@@ -94,24 +113,27 @@ export default function OrdersPage() {
             <option value="confirmed">Confirmed</option>
             <option value="processing">Processing</option>
             <option value="shipped">Shipped</option>
+            <option value="out_for_delivery">Out for delivery</option>
             <option value="delivered">Delivered</option>
             <option value="cancelled">Cancelled</option>
+            <option value="refunded">Refunded</option>
           </select>
 
           <select
             value={filters.payment_status}
-            onChange={(e) => setFilters({ ...filters, payment_status: e.target.value })}
+            onChange={(e) => updateFilters({ payment_status: e.target.value })}
             className="input w-auto"
           >
             <option value="">All Payments</option>
             <option value="pending">Pending</option>
             <option value="paid">Paid</option>
             <option value="failed">Failed</option>
+            <option value="refunded">Refunded</option>
           </select>
 
           <select
             value={filters.order_type}
-            onChange={(e) => setFilters({ ...filters, order_type: e.target.value })}
+            onChange={(e) => updateFilters({ order_type: e.target.value })}
             className="input w-auto"
           >
             <option value="">All Types</option>
@@ -146,6 +168,12 @@ export default function OrdersPage() {
                     Loading...
                   </td>
                 </tr>
+              ) : isError ? (
+                <tr>
+                  <td colSpan="10" className="py-4">
+                    <LoadError title="Could not load orders" onRetry={refetch} />
+                  </td>
+                </tr>
               ) : orders.length === 0 ? (
                 <tr>
                   <td colSpan="10" className="text-center py-8 text-gray-500">
@@ -154,21 +182,25 @@ export default function OrdersPage() {
                 </tr>
               ) : (
                 orders.map((order) => (
-                  <tr key={order.id} className="border-b last:border-0 hover:bg-gray-50">
+                  <tr
+                    key={order.id}
+                    className="border-b last:border-0 hover:bg-gray-50 cursor-pointer"
+                    onClick={() => router.push(`/orders/${order.id}`)}
+                  >
                     <td className="py-4 px-4">
                       <span className="font-medium text-gray-900">{order.order_number}</span>
                     </td>
                     <td className="py-4 px-4 text-gray-600">{order.customer_name}</td>
                     <td className="py-4 px-4">
                       <span className={`badge ${order.order_type === 'online' ? 'badge-info' : 'badge-success'}`}>
-                        {order.order_type}
+                        {statusLabel(order.order_type)}
                       </span>
                     </td>
                     <td className="py-4 px-4 text-gray-600">{order.item_count}</td>
                     <td className="py-4 px-4 font-semibold">৳{parseFloat(order.total).toLocaleString()}</td>
                     <td className="py-4 px-4">
                       <span className={`badge ${getStatusBadge(order.order_status)}`}>
-                        {order.order_status.replace('_', ' ')}
+                        {statusLabel(order.order_status)}
                       </span>
                     </td>
                     <td className="py-4 px-4">
@@ -185,7 +217,7 @@ export default function OrdersPage() {
                     </td>
                     <td className="py-4 px-4">
                       <span className={`badge ${getPaymentBadge(order.payment_status)}`}>
-                        {order.payment_status}
+                        {statusLabel(order.payment_status)}
                       </span>
                     </td>
                     <td className="py-4 px-4 text-gray-500 text-sm">
@@ -196,12 +228,16 @@ export default function OrdersPage() {
                         <Link
                           href={`/orders/${order.id}`}
                           className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg inline-flex"
+                          onClick={(event) => event.stopPropagation()}
                         >
                           <Eye className="w-4 h-4" />
                         </Link>
                         {['pending', 'cancelled'].includes(order.order_status) && (
                           <button
-                            onClick={() => handleDelete(order)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleDelete(order);
+                            }}
                             className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
                             title="Delete order"
                           >
@@ -216,6 +252,7 @@ export default function OrdersPage() {
             </tbody>
           </table>
         </div>
+        <Pager page={page} count={ordersData?.count} onPage={setPage} />
       </div>
     </AdminLayout>
   );

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/router';
 import {
   Package, TrendingUp, TrendingDown, AlertTriangle,
   DollarSign, BarChart3, ArrowUpRight, ArrowDownRight,
@@ -12,6 +13,8 @@ import {
   AreaChart, Area, ComposedChart
 } from 'recharts';
 import AdminLayout from '@/components/layout/AdminLayout';
+import SupplyBadge from '@/components/products/SupplyBadge';
+import LoadError from '@/components/ui/LoadError';
 import { useGetInventoryAnalyticsQuery } from '@/store/api/reportsApi';
 import {
   useGetInventoryItemsQuery,
@@ -31,23 +34,33 @@ const REASON_OPTIONS = [
 ];
 
 export default function InventoryManagementPage() {
-  const { data, isLoading: loading, isFetching: refreshing, refetch } = useGetInventoryAnalyticsQuery();
+  const router = useRouter();
+  const { data, isLoading: loading, isFetching: refreshing, refetch, isError } = useGetInventoryAnalyticsQuery();
   const [activeTab, setActiveTab] = useState('overview');
   const [searchTerm, setSearchTerm] = useState('');
 
   // Stock management state
   const [stockSearch, setStockSearch] = useState('');
   const [stockFilter, setStockFilter] = useState('');
+
+  useEffect(() => {
+    if (!router.isReady || typeof router.query.stock !== 'string') return;
+    setStockFilter(router.query.stock);
+    setActiveTab('manage');
+  }, [router.isReady, router.query.stock]);
+  const [supplyFilter, setSupplyFilter] = useState('');
   const [expandedProducts, setExpandedProducts] = useState({});
   const [stockModal, setStockModal] = useState(null); // { type: 'product'|'variant', id, name, currentStock }
-  const [stockForm, setStockForm] = useState({ operation: 'add', quantity: '', reason: 'purchase', note: '' });
+  const [stockForm, setStockForm] = useState({
+    operation: 'add', quantity: '', reason: 'purchase', note: '', unit_cost: '', payment_method: '', payee: '',
+  });
 
   // Category detail modal state
   const [categoryDetail, setCategoryDetail] = useState(null); // { id, name, ...stats }
   const [catExpandedProducts, setCatExpandedProducts] = useState({});
 
   const { data: inventoryData, isLoading: inventoryLoading, isFetching: inventoryRefreshing } = useGetInventoryItemsQuery(
-    { search: stockSearch, stock_status: stockFilter },
+    { search: stockSearch, stock_status: stockFilter, supply_type: supplyFilter },
     { skip: activeTab !== 'manage' }
   );
   const { data: categoryItemsData, isLoading: categoryItemsLoading } = useGetInventoryItemsQuery(
@@ -65,7 +78,9 @@ export default function InventoryManagementPage() {
 
   const openStockModal = (type, id, productId, name, currentStock) => {
     setStockModal({ type, id, productId, name, currentStock });
-    setStockForm({ operation: 'add', quantity: '', reason: 'purchase', note: '' });
+    setStockForm({
+      operation: 'add', quantity: '', reason: 'purchase', note: '', unit_cost: '', payment_method: '', payee: '',
+    });
   };
 
   const handleStockUpdate = async (e) => {
@@ -77,26 +92,34 @@ export default function InventoryManagementPage() {
       toast.error('Enter a valid quantity');
       return;
     }
+    const receivingPurchase = stockForm.reason === 'purchase' && (
+      stockForm.operation === 'add' ||
+      (stockForm.operation === 'set' && qty > Number(stockModal.currentStock || 0))
+    );
+    if (receivingPurchase && !(Number(stockForm.unit_cost) > 0)) {
+      toast.error('Enter the unit cost for this purchase');
+      return;
+    }
+
+    const payload = {
+      quantity: qty,
+      operation: stockForm.operation,
+      reason: stockForm.reason,
+      note: stockForm.note,
+      unit_cost: receivingPurchase ? stockForm.unit_cost : null,
+      payment_method: receivingPurchase ? stockForm.payment_method : '',
+      payee: receivingPurchase ? stockForm.payee : '',
+    };
 
     try {
-      if (stockModal.type === 'variant') {
-        await updateVariantStock({
-          variantId: stockModal.id,
-          quantity: qty,
-          operation: stockForm.operation,
-          reason: stockForm.reason,
-          note: stockForm.note,
-        }).unwrap();
-      } else {
-        await updateProductStock({
-          productId: stockModal.id,
-          quantity: qty,
-          operation: stockForm.operation,
-          reason: stockForm.reason,
-          note: stockForm.note,
-        }).unwrap();
-      }
-      toast.success('Stock updated successfully');
+      const result = stockModal.type === 'variant'
+        ? await updateVariantStock({ variantId: stockModal.id, ...payload }).unwrap()
+        : await updateProductStock({ productId: stockModal.id, ...payload }).unwrap();
+      toast.success(
+        result.voucher_number
+          ? `Stock updated. Voucher ${result.voucher_number} recorded`
+          : 'Stock updated successfully'
+      );
       setStockModal(null);
       refetch();
     } catch (error) {
@@ -146,6 +169,14 @@ export default function InventoryManagementPage() {
         <div className="flex items-center justify-center h-96">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
         </div>
+      </AdminLayout>
+    );
+  }
+
+  if (isError) {
+    return (
+      <AdminLayout title="Inventory">
+        <LoadError title="Could not load inventory" onRetry={refetch} />
       </AdminLayout>
     );
   }
@@ -504,12 +535,21 @@ export default function InventoryManagementPage() {
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                   <input
                     type="text"
-                    placeholder="Search by product name, SKU, or barcode..."
+                    placeholder="Search by product name or SKU..."
                     value={stockSearch}
                     onChange={(e) => setStockSearch(e.target.value)}
                     className="input pl-10 w-full"
                   />
                 </div>
+                <select
+                  value={supplyFilter}
+                  onChange={(e) => setSupplyFilter(e.target.value)}
+                  className="input w-auto min-w-[180px]"
+                >
+                  <option value="">All sources</option>
+                  <option value="available_stock">Available Stock</option>
+                  <option value="seller_provided">Seller-Provided</option>
+                </select>
                 <select
                   value={stockFilter}
                   onChange={(e) => setStockFilter(e.target.value)}
@@ -570,6 +610,9 @@ export default function InventoryManagementPage() {
                               </td>
                               <td className="py-3 px-4">
                                 <p className="font-medium text-gray-900">{product.name}</p>
+                                <div className="mt-1">
+                                  <SupplyBadge type={product.supply_type} seller={product.supplied_by_name} />
+                                </div>
                                 {product.has_variants && (
                                   <p className="text-xs text-primary-600 mt-0.5">{product.variants.length} variant{product.variants.length > 1 ? 's' : ''}</p>
                                 )}
@@ -612,9 +655,7 @@ export default function InventoryManagementPage() {
                                     </div>
                                   </td>
                                   <td className="py-2.5 px-4 text-sm text-gray-500 font-mono">{variant.sku}</td>
-                                  <td className="py-2.5 px-4 text-xs text-gray-400">
-                                    {variant.barcode || '—'}
-                                  </td>
+                                  <td className="py-2.5 px-4 text-xs text-gray-400"></td>
                                   <td className="py-2.5 px-4 text-right text-sm text-gray-700">৳{parseFloat(variant.price).toLocaleString()}</td>
                                   <td className="py-2.5 px-4 text-center">
                                     <span className={`font-bold ${variant.stock_quantity === 0 ? 'text-red-600' : 'text-gray-900'}`}>
@@ -1130,9 +1171,8 @@ export default function InventoryManagementPage() {
                           <div className="border-t bg-gradient-to-b from-blue-50/40 to-transparent">
                             <div className="px-4 py-2 border-b border-blue-100/60">
                               <div className="grid grid-cols-12 gap-2 text-xs font-semibold text-gray-500 uppercase">
-                                <div className="col-span-3">Variant</div>
-                                <div className="col-span-2">SKU</div>
-                                <div className="col-span-2">Barcode</div>
+                                <div className="col-span-4">Variant</div>
+                                <div className="col-span-3">SKU</div>
                                 <div className="col-span-2 text-right">Price</div>
                                 <div className="col-span-1 text-center">Stock</div>
                                 <div className="col-span-2 text-center">Status</div>
@@ -1144,12 +1184,11 @@ export default function InventoryManagementPage() {
                               return (
                                 <div key={variant.id} className="px-4 py-2.5 border-b border-gray-100/60 last:border-b-0 hover:bg-blue-50/30 transition-colors">
                                   <div className="grid grid-cols-12 gap-2 items-center text-sm">
-                                    <div className="col-span-3 flex items-center gap-2">
+                                    <div className="col-span-4 flex items-center gap-2">
                                       <span className="w-1.5 h-1.5 bg-primary-400 rounded-full flex-shrink-0" />
                                       <span className="font-medium text-gray-800 truncate">{vLabel}</span>
                                     </div>
-                                    <div className="col-span-2 text-gray-500 font-mono text-xs truncate">{variant.sku || '—'}</div>
-                                    <div className="col-span-2 text-gray-400 font-mono text-xs truncate">{variant.barcode || '—'}</div>
+                                    <div className="col-span-3 text-gray-500 font-mono text-xs truncate">{variant.sku || '—'}</div>
                                     <div className="col-span-2 text-right text-gray-700">৳{parseFloat(variant.price).toLocaleString()}</div>
                                     <div className="col-span-1 text-center">
                                       <span className={`font-bold ${variant.stock_quantity === 0 ? 'text-red-600' : 'text-gray-900'}`}>
@@ -1286,6 +1325,49 @@ export default function InventoryManagementPage() {
                   ))}
                 </select>
               </div>
+
+              {stockForm.reason === 'purchase' && (stockForm.operation === 'add' || stockForm.operation === 'set') && (
+                <div className="space-y-4 rounded-lg border border-gray-200 p-3">
+                  <p className="text-sm text-gray-600">
+                    A purchase records one expense voucher for the units received. The product&apos;s weighted average cost updates from this unit cost.
+                  </p>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Unit cost (৳)</label>
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={stockForm.unit_cost}
+                      onChange={(e) => setStockForm({ ...stockForm, unit_cost: e.target.value })}
+                      className="input"
+                      placeholder="0.00"
+                      required={stockForm.operation === 'add'}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Payment method</label>
+                    <select
+                      value={stockForm.payment_method}
+                      onChange={(e) => setStockForm({ ...stockForm, payment_method: e.target.value })}
+                      className="input"
+                    >
+                      <option value="">Not specified</option>
+                      <option value="cash">Cash</option>
+                      <option value="card">Card</option>
+                      <option value="mobile_banking">Mobile Banking</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Payee</label>
+                    <input
+                      value={stockForm.payee}
+                      onChange={(e) => setStockForm({ ...stockForm, payee: e.target.value })}
+                      className="input"
+                      placeholder="Supplier name"
+                    />
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Note (optional)</label>

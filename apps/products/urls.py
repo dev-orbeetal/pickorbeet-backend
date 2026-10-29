@@ -13,7 +13,7 @@ from .views import (
     ProductImageUploadView, ProductImageDeleteView,
     BarcodeSearchView, ProductStockUpdateView, LowStockProductsView,
     ProductVariantListCreateView, ProductVariantDetailView,
-    VariantStockUpdateView, InventoryItemsView,
+    VariantStockUpdateView, InventoryItemsView, AdminSellerListView,
     StoreSettingsView, PublicStoreSettingsView,
     PublicContactSubmitView, AdminContactMessageListView, AdminContactMessageDetailView
 )
@@ -47,6 +47,7 @@ urlpatterns = [
     path('admin/low-stock/', LowStockProductsView.as_view(), name='low_stock_products'),
     path('admin/variants/<uuid:variant_id>/stock/', VariantStockUpdateView.as_view(), name='variant_stock_update'),
     path('admin/inventory/', InventoryItemsView.as_view(), name='inventory_items'),
+    path('admin/sellers/', AdminSellerListView.as_view(), name='admin_sellers'),
     path('admin/settings/', StoreSettingsView.as_view(), name='store_settings'),
     path('admin/banners/', AdminHomepageBannerListCreateView.as_view(), name='admin_banner_list'),
     path('admin/banners/<uuid:pk>/', AdminHomepageBannerDetailView.as_view(), name='admin_banner_detail'),

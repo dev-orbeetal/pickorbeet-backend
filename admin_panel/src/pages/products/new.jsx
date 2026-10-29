@@ -1,8 +1,8 @@
-import { useEffect, useState, useRef } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/router';
 import {
   Save, ArrowLeft, Plus, Trash2, Upload, RefreshCw,
-  Barcode, Printer, Image as ImageIcon, X, Copy, Check
+  Image as ImageIcon, X
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '@/components/layout/AdminLayout';
@@ -11,18 +11,15 @@ import {
   useCreateProductMutation,
   useUploadProductImageMutation,
   useCreateVariantMutation,
-  useGetStoreSettingsQuery
+  useGetSellersQuery,
 } from '@/store/api/productsApi';
-import JsBarcode from 'jsbarcode';
 
 export default function NewProductPage() {
   const router = useRouter();
-  const barcodeRef = useRef(null);
   const [loading, setLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   const { data: categoriesData } = useGetCategoriesQuery();
-  const { data: storeSettings } = useGetStoreSettingsQuery();
+  const { data: sellers = [] } = useGetSellersQuery();
   const [createProduct] = useCreateProductMutation();
   const [uploadProductImage] = useUploadProductImageMutation();
   const [createVariant] = useCreateVariantMutation();
@@ -35,7 +32,6 @@ export default function NewProductPage() {
     name: '',
     description: '',
     sku: '',
-    barcode: '',
     category: '',
     subcategory: '',
     price: '',
@@ -46,46 +42,13 @@ export default function NewProductPage() {
     weight: '',
     is_active: true,
     is_featured: false,
+    supply_type: 'available_stock',
+    supplied_by: '',
   });
 
   const [variants, setVariants] = useState([]);
   const [images, setImages] = useState([]);
   const [subcategories, setSubcategories] = useState([]);
-
-  useEffect(() => {
-    // Generate initial barcode when settings are loaded
-    if (storeSettings) {
-      generateBarcode();
-    }
-  }, [storeSettings]);
-
-  useEffect(() => {
-    // Render barcode when barcode value changes
-    if (formData.barcode && barcodeRef.current) {
-      try {
-        JsBarcode(barcodeRef.current, formData.barcode, {
-          format: 'CODE128',
-          width: 2,
-          height: 80,
-          displayValue: true,
-          fontSize: 14,
-          margin: 10,
-          background: '#ffffff',
-        });
-      } catch (error) {
-        console.error('Barcode generation error:', error);
-      }
-    }
-  }, [formData.barcode]);
-
-  // Generate unique barcode with prefix from store settings
-  const generateBarcode = () => {
-    const prefix = storeSettings?.barcode_prefix || 'ZZ';
-    const timestamp = Date.now().toString().slice(-10);
-    const random = Math.floor(Math.random() * 100).toString().padStart(2, '0');
-    const barcode = `${prefix}-${timestamp}${random}`;
-    setFormData(prev => ({ ...prev, barcode }));
-  };
 
   // Generate SKU from product name
   const generateSKU = () => {
@@ -116,23 +79,16 @@ export default function NewProductPage() {
 
   // Variant management
   const addVariant = () => {
-    const prefix = storeSettings?.barcode_prefix || 'ZZ';
-    const newVariant = {
+    setVariants([...variants, {
       id: Date.now(),
       sku: '',
-      barcode: '',
       size: '',
       color: '',
       price: formData.price || '',
       stock_quantity: 0,
       low_stock_threshold: 10,
       is_active: true,
-    };
-    // Generate barcode for variant with prefix
-    const timestamp = Date.now().toString().slice(-10);
-    const random = Math.floor(Math.random() * 100).toString().padStart(2, '0');
-    newVariant.barcode = `${prefix}V-${timestamp}${random}`;
-    setVariants([...variants, newVariant]);
+    }]);
   };
 
   const updateVariant = (id, field, value) => {
@@ -143,14 +99,6 @@ export default function NewProductPage() {
 
   const removeVariant = (id) => {
     setVariants(variants.filter(v => v.id !== id));
-  };
-
-  const generateVariantBarcode = (id) => {
-    const prefix = storeSettings?.barcode_prefix || 'ZZ';
-    const timestamp = Date.now().toString().slice(-10);
-    const random = Math.floor(Math.random() * 100).toString().padStart(2, '0');
-    const barcode = `${prefix}V-${timestamp}${random}`;
-    updateVariant(id, 'barcode', barcode);
   };
 
   // Image handling
@@ -181,85 +129,6 @@ export default function NewProductPage() {
     })));
   };
 
-  const copyBarcode = () => {
-    navigator.clipboard.writeText(formData.barcode);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-    toast.success('Barcode copied to clipboard');
-  };
-
-  const printBarcode = () => {
-    const printWindow = window.open('', '_blank');
-    const barcodeHTML = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Barcode - ${formData.name || 'Product'}</title>
-          <style>
-            body { 
-              font-family: Arial, sans-serif; 
-              display: flex; 
-              flex-direction: column;
-              align-items: center; 
-              justify-content: center; 
-              min-height: 100vh;
-              margin: 0;
-              padding: 20px;
-            }
-            .barcode-container {
-              text-align: center;
-              padding: 20px;
-              border: 2px dashed #ccc;
-              border-radius: 8px;
-            }
-            .product-name { 
-              font-size: 18px; 
-              font-weight: bold; 
-              margin-bottom: 10px; 
-            }
-            .price { 
-              font-size: 24px; 
-              font-weight: bold; 
-              color: #059669;
-              margin-top: 10px;
-            }
-            .sku { 
-              font-size: 12px; 
-              color: #666; 
-              margin-top: 5px;
-            }
-            @media print {
-              body { padding: 0; }
-              .barcode-container { border: none; }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="barcode-container">
-            <div class="product-name">${formData.name || 'Product Name'}</div>
-            <svg id="barcode"></svg>
-            ${formData.price ? `<div class="price">৳${formData.price}</div>` : ''}
-            ${formData.sku ? `<div class="sku">SKU: ${formData.sku}</div>` : ''}
-          </div>
-          <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
-          <script>
-            JsBarcode("#barcode", "${formData.barcode}", {
-              format: "CODE128",
-              width: 2,
-              height: 80,
-              displayValue: true,
-              fontSize: 14,
-              margin: 10,
-            });
-            setTimeout(() => window.print(), 500);
-          </script>
-        </body>
-      </html>
-    `;
-    printWindow.document.write(barcodeHTML);
-    printWindow.document.close();
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -267,19 +136,35 @@ export default function NewProductPage() {
       toast.error('Please fill in all required fields');
       return;
     }
+    if (formData.supply_type === 'seller_provided' && !formData.supplied_by) {
+      toast.error('Select the seller who provides this product');
+      return;
+    }
+    const openingUnits = variants.length
+      ? variants.reduce((sum, variant) => sum + (parseInt(variant.stock_quantity, 10) || 0), 0)
+      : parseInt(formData.stock_quantity, 10) || 0;
+    if (openingUnits > 0 && !(Number(formData.cost_price) > 0)) {
+      toast.error('Enter a cost price to record opening stock as a purchase');
+      return;
+    }
 
     setLoading(true);
     try {
-      // Create product
       const productData = {
-        ...formData,
+        name: formData.name,
+        description: formData.description,
+        sku: formData.sku,
+        category: formData.category,
         price: parseFloat(formData.price),
         compare_price: formData.compare_price ? parseFloat(formData.compare_price) : null,
         cost_price: formData.cost_price ? parseFloat(formData.cost_price) : null,
-        stock_quantity: parseInt(formData.stock_quantity),
+        stock_quantity: variants.length ? 0 : parseInt(formData.stock_quantity || 0, 10),
         low_stock_threshold: parseInt(formData.low_stock_threshold),
-        weight: formData.weight ? parseFloat(formData.weight) : null,
         subcategory: formData.subcategory || null,
+        is_active: formData.is_active,
+        is_featured: formData.is_featured,
+        supply_type: formData.supply_type,
+        supplied_by: formData.supply_type === 'seller_provided' ? formData.supplied_by : null,
       };
 
       const response = await createProduct(productData).unwrap();
@@ -309,7 +194,6 @@ export default function NewProductPage() {
             await createVariant({
               productId,
               sku: variant.sku,
-              barcode: variant.barcode,
               size: variant.size,
               color: variant.color,
               price: variant.price ? parseFloat(variant.price) : null,
@@ -462,58 +346,6 @@ export default function NewProductPage() {
               </div>
             </div>
 
-            {/* Barcode Section */}
-            <div className="card">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold flex items-center gap-2">
-                  <Barcode className="w-5 h-5 text-primary-600" />
-                  Auto-Generated Barcode
-                </h2>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={generateBarcode}
-                    className="btn btn-secondary text-sm"
-                  >
-                    <RefreshCw className="w-4 h-4 mr-1" />
-                    Regenerate
-                  </button>
-                  <button
-                    type="button"
-                    onClick={printBarcode}
-                    className="btn btn-secondary text-sm"
-                  >
-                    <Printer className="w-4 h-4 mr-1" />
-                    Print
-                  </button>
-                </div>
-              </div>
-
-              <div className="bg-gray-50 rounded-xl p-6 text-center">
-                <svg ref={barcodeRef} className="mx-auto"></svg>
-                <div className="mt-4 flex items-center justify-center gap-2">
-                  <code className="bg-white px-4 py-2 rounded-lg border text-lg font-mono">
-                    {formData.barcode}
-                  </code>
-                  <button
-                    type="button"
-                    onClick={copyBarcode}
-                    className="p-2 hover:bg-white rounded-lg transition-colors"
-                    title="Copy barcode"
-                  >
-                    {copied ? (
-                      <Check className="w-5 h-5 text-green-600" />
-                    ) : (
-                      <Copy className="w-5 h-5 text-gray-500" />
-                    )}
-                  </button>
-                </div>
-                <p className="text-sm text-gray-500 mt-3">
-                  This barcode is automatically generated and unique. Customers can scan it to view product details.
-                </p>
-              </div>
-            </div>
-
             {/* Pricing */}
             <div className="card">
               <h2 className="text-lg font-semibold mb-4">Pricing</h2>
@@ -554,7 +386,7 @@ export default function NewProductPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Cost Price (৳)
+                    Cost price (৳)
                   </label>
                   <input
                     type="number"
@@ -566,7 +398,7 @@ export default function NewProductPage() {
                     step="0.01"
                     min="0"
                   />
-                  <p className="text-xs text-gray-500 mt-1">For profit calculation</p>
+                  <p className="text-xs text-gray-500 mt-1">Unit cost for opening stock. Later purchases from Inventory update the weighted average.</p>
                 </div>
               </div>
             </div>
@@ -578,7 +410,7 @@ export default function NewProductPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Stock Quantity
+                      Opening stock
                     </label>
                     <input
                       type="number"
@@ -588,6 +420,7 @@ export default function NewProductPage() {
                       className="input"
                       min="0"
                     />
+                    <p className="text-xs text-gray-500 mt-1">Recorded as a purchase voucher at the cost price above. Later stock changes are made from Inventory.</p>
                   </div>
 
                   <div>
@@ -684,7 +517,7 @@ export default function NewProductPage() {
                         </div>
 
                         <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Stock</label>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Opening stock</label>
                           <input
                             type="number"
                             value={variant.stock_quantity}
@@ -692,6 +525,7 @@ export default function NewProductPage() {
                             className="input text-sm"
                             min="0"
                           />
+                          <p className="text-xs text-gray-500 mt-1">Purchased at the product cost price.</p>
                         </div>
 
                         <div>
@@ -706,38 +540,15 @@ export default function NewProductPage() {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3 mt-3">
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Variant SKU</label>
-                          <input
-                            type="text"
-                            value={variant.sku}
-                            onChange={(e) => updateVariant(variant.id, 'sku', e.target.value)}
-                            className="input text-sm"
-                            placeholder="e.g., TSH-BLK-M"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Variant Barcode</label>
-                          <div className="flex gap-2">
-                            <input
-                              type="text"
-                              value={variant.barcode}
-                              onChange={(e) => updateVariant(variant.id, 'barcode', e.target.value)}
-                              className="input text-sm flex-1 font-mono"
-                              readOnly
-                            />
-                            <button
-                              type="button"
-                              onClick={() => generateVariantBarcode(variant.id)}
-                              className="btn btn-secondary px-2"
-                              title="Regenerate barcode"
-                            >
-                              <RefreshCw className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
+                      <div className="mt-3">
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Variant SKU</label>
+                        <input
+                          type="text"
+                          value={variant.sku}
+                          onChange={(e) => updateVariant(variant.id, 'sku', e.target.value)}
+                          className="input text-sm"
+                          placeholder="e.g., TSH-BLK-M"
+                        />
                       </div>
                     </div>
                   ))}
@@ -880,16 +691,44 @@ export default function NewProductPage() {
               </div>
             </div>
 
-            {/* Quick Info */}
-            <div className="card bg-blue-50 border-blue-200">
-              <h2 className="text-lg font-semibold mb-3 text-blue-900">Barcode Info</h2>
-              <ul className="text-sm text-blue-800 space-y-2">
-                <li>• Barcodes are auto-generated</li>
-                <li>• Each product & variant gets unique barcode</li>
-                <li>• Customers can scan to view product info</li>
-                <li>• Use POS scanner for quick checkout</li>
-                <li>• Print barcodes for physical labels</li>
-              </ul>
+            <div className="card">
+              <h2 className="text-lg font-semibold mb-4">Inventory source</h2>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Classification</label>
+                  <select
+                    name="supply_type"
+                    value={formData.supply_type}
+                    onChange={handleInputChange}
+                    className="input"
+                  >
+                    <option value="available_stock">Available Stock</option>
+                    <option value="seller_provided">Seller-Provided</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Internal only. Shoppers do not see this classification.
+                  </p>
+                </div>
+                {formData.supply_type === 'seller_provided' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Seller <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      name="supplied_by"
+                      value={formData.supplied_by}
+                      onChange={handleInputChange}
+                      className="input"
+                      required
+                    >
+                      <option value="">Select seller</option>
+                      {sellers.map((seller) => (
+                        <option key={seller.id} value={seller.id}>{seller.full_name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

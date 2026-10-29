@@ -317,9 +317,12 @@ class DashboardStatsView(APIView):
     def get(self, request):
         today = timezone.now().date()
         
-        # Today's stats
+        # Today's stats, compared with the previous calendar day.
         today_orders = Order.objects.filter(created_at__date=today)
         today_revenue = today_orders.aggregate(total=Sum('total'))['total'] or 0
+        yesterday = today - timedelta(days=1)
+        yesterday_orders = Order.objects.filter(created_at__date=yesterday)
+        yesterday_revenue = yesterday_orders.aggregate(total=Sum('total'))['total'] or 0
         
         # This month stats
         month_start = today.replace(day=1)
@@ -362,6 +365,10 @@ class DashboardStatsView(APIView):
                 'orders': today_orders.count(),
                 'revenue': float(today_revenue),
             },
+            'yesterday': {
+                'orders': yesterday_orders.count(),
+                'revenue': float(yesterday_revenue),
+            },
             'this_month': {
                 'orders': month_orders.count(),
                 'revenue': float(month_revenue),
@@ -390,13 +397,23 @@ class SalesReportView(APIView):
             created_at__date__lte=end_date,
             payment_status='paid'
         )
+        ranged_orders = Order.objects.filter(
+            created_at__date__gte=start_date,
+            created_at__date__lte=end_date,
+        ).exclude(order_status='cancelled')
+        pending_statuses = [
+            'pending', 'confirmed', 'processing', 'shipped', 'out_for_delivery',
+        ]
         
-        # Overall summary
+        # Overall summary. Revenue and item totals stay on paid orders.
         summary = orders.aggregate(
             total_orders=Count('id'),
             total_revenue=Sum('total'),
             total_items=Sum('items__quantity'),
         )
+        orders_excluding_cancelled = ranged_orders.count()
+        completed_orders = ranged_orders.filter(order_status='delivered').count()
+        pending_orders = ranged_orders.filter(order_status__in=pending_statuses).count()
         
         online_orders = orders.filter(order_type='online').count()
         in_shop_orders = orders.filter(order_type='in_shop').count()
@@ -439,6 +456,10 @@ class SalesReportView(APIView):
             },
             'summary': {
                 'total_orders': summary['total_orders'] or 0,
+                'total_sales': summary['total_orders'] or 0,
+                'orders_excluding_cancelled': orders_excluding_cancelled,
+                'completed_orders': completed_orders,
+                'pending_orders': pending_orders,
                 'total_revenue': float(summary['total_revenue'] or 0),
                 'total_items_sold': summary['total_items'] or 0,
                 'average_order_value': float(avg_order_value),
