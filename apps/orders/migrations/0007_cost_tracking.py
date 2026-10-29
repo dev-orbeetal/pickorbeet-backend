@@ -27,7 +27,7 @@ def backfill_unit_cost(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('orders', '0005_orderitem_compare_price'),
+        ('orders', '0006_product_option_values'),
     ]
 
     operations = [

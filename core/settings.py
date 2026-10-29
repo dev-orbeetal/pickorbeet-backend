@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     'apps.orders',
     'apps.payments',
     'apps.reports',
+    'apps.analytics',
     'apps.shipping',
     'apps.notifications',
     'apps.support',
@@ -152,8 +153,13 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         'shipment_refresh': config('SHIPMENT_REFRESH_RATE', default='10/min'),
         'device_register': config('DEVICE_REGISTER_RATE', default='30/hour'),
+        'analytics_collect': config('ANALYTICS_COLLECT_RATE', default='120/min'),
     },
 }
+
+# Shared with the website collector. Empty in local DEBUG still accepts hits,
+# but ignores client-supplied region fields. Production must set this.
+ANALYTICS_INGEST_SECRET = config('ANALYTICS_INGEST_SECRET', default='')
 
 # JWT Settings
 SIMPLE_JWT = {

@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/router';
 import {
-  Save, ArrowLeft, Plus, Trash2, Upload, RefreshCw,
-  Image as ImageIcon, X
+  Save, ArrowLeft, Upload, RefreshCw,
+  Barcode, Printer, Image as ImageIcon, X, Copy, Check
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '@/components/layout/AdminLayout';
@@ -12,27 +12,33 @@ import {
   useUpdateProductMutation,
   useUploadProductImageMutation,
   useDeleteProductImageMutation,
-  useCreateVariantMutation,
-  useUpdateVariantMutation,
-  useDeleteVariantMutation,
+  useSyncVariantSetupMutation,
+  useGetStoreSettingsQuery,
   useGetSellersQuery,
 } from '@/store/api/productsApi';
+import JsBarcode from 'jsbarcode';
 import { getMediaUrl, routeId } from '@/lib/utils';
+import SpecificationFields, { cleanSpecifications } from '@/components/products/SpecificationFields';
+import VariantOptions from '@/components/products/VariantOptions';
 
 export default function EditProductPage() {
   const router = useRouter();
   const id = routeId(router);
+  const barcodeRef = useRef(null);
+  const variantRef = useRef(null);
   const [loading, setLoading] = useState(false);
+  const [hasVariants, setHasVariants] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const { data: product, isLoading: productLoading, refetch } = useGetProductQuery(id, { skip: !id });
   const { data: categoriesData } = useGetCategoriesQuery();
+  const { data: storeSettings } = useGetStoreSettingsQuery();
   const { data: sellers = [] } = useGetSellersQuery();
   const [updateProduct] = useUpdateProductMutation();
   const [uploadProductImage] = useUploadProductImageMutation();
   const [deleteProductImage] = useDeleteProductImageMutation();
-  const [createVariant] = useCreateVariantMutation();
-  const [updateVariant] = useUpdateVariantMutation();
-  const [deleteVariant] = useDeleteVariantMutation();
+  const [syncVariantSetup] = useSyncVariantSetupMutation();
+  const [variantSnapshot, setVariantSnapshot] = useState(null);
 
   const categories = Array.isArray(categoriesData?.results || categoriesData)
     ? (categoriesData?.results || categoriesData)
@@ -42,6 +48,7 @@ export default function EditProductPage() {
     name: '',
     description: '',
     sku: '',
+    barcode: '',
     category: '',
     subcategory: '',
     price: '',
@@ -52,14 +59,16 @@ export default function EditProductPage() {
     weight: '',
     is_active: true,
     is_featured: false,
+    is_official: false,
+    warranty_period: '',
     supply_type: 'available_stock',
     supplied_by: '',
   });
 
-  const [variants, setVariants] = useState([]);
   const [newImages, setNewImages] = useState([]);
   const [existingImages, setExistingImages] = useState([]);
   const [subcategories, setSubcategories] = useState([]);
+  const [specifications, setSpecifications] = useState([]);
 
   // Load product data when available
   useEffect(() => {
@@ -68,6 +77,7 @@ export default function EditProductPage() {
         name: product.name || '',
         description: product.description || '',
         sku: product.sku || '',
+        barcode: product.barcode || '',
         category: product.category?.id || product.category || '',
         subcategory: product.subcategory?.id || product.subcategory || '',
         price: product.price || '',
@@ -78,6 +88,8 @@ export default function EditProductPage() {
         weight: product.weight || '',
         is_active: product.is_active ?? true,
         is_featured: product.is_featured ?? false,
+        is_official: product.is_official ?? false,
+        warranty_period: product.warranty_period || '',
         supply_type: product.supply_type || 'available_stock',
         supplied_by: product.supplied_by || '',
       });
@@ -90,13 +102,14 @@ export default function EditProductPage() {
         })));
       }
 
-      // Load existing variants
-      if (product.variants) {
-        setVariants(product.variants.map(v => ({
-          ...v,
-          isExisting: true,
-        })));
-      }
+      setHasVariants((product.variants || []).length > 0);
+
+      setSpecifications(
+        (product.specifications || []).map((row) => ({
+          name: row.name || '',
+          value: row.value || '',
+        })),
+      );
 
       // Set subcategories if category is selected
       if (product.category) {
@@ -106,6 +119,25 @@ export default function EditProductPage() {
       }
     }
   }, [product, categories]);
+
+  useEffect(() => {
+    // Render barcode when barcode value changes
+    if (formData.barcode && barcodeRef.current) {
+      try {
+        JsBarcode(barcodeRef.current, formData.barcode, {
+          format: 'CODE128',
+          width: 2,
+          height: 80,
+          displayValue: true,
+          fontSize: 14,
+          margin: 10,
+          background: '#ffffff',
+        });
+      } catch (error) {
+        console.error('Barcode generation error:', error);
+      }
+    }
+  }, [formData.barcode]);
 
   const handleCategoryChange = (categoryId) => {
     setFormData(prev => ({ ...prev, category: categoryId, subcategory: '' }));
@@ -119,40 +151,6 @@ export default function EditProductPage() {
       ...prev,
       [name]: type === 'checkbox' ? checked : value
     }));
-  };
-
-  // Variant management
-  const addVariant = () => {
-    setVariants([...variants, {
-      id: `new-${Date.now()}`,
-      sku: '',
-      size: '',
-      color: '',
-      price: formData.price || '',
-      stock_quantity: 0,
-      low_stock_threshold: 10,
-      is_active: true,
-      isNew: true,
-    }]);
-  };
-
-  const updateVariantData = (id, field, value) => {
-    setVariants(variants.map(v =>
-      v.id === id ? { ...v, [field]: value, isModified: !v.isNew } : v
-    ));
-  };
-
-  const removeVariantHandler = async (variant) => {
-    if (variant.isExisting && !variant.isNew) {
-      try {
-        await deleteVariant({ productId: id, variantId: variant.id }).unwrap();
-        toast.success('Variant deleted');
-      } catch (error) {
-        toast.error('Failed to delete variant');
-        return;
-      }
-    }
-    setVariants(variants.filter(v => v.id !== variant.id));
   };
 
   // Image handling
@@ -186,6 +184,85 @@ export default function EditProductPage() {
     }
   };
 
+  const copyBarcode = () => {
+    navigator.clipboard.writeText(formData.barcode);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+    toast.success('Barcode copied to clipboard');
+  };
+
+  const printBarcode = () => {
+    const printWindow = window.open('', '_blank');
+    const barcodeHTML = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Barcode - ${formData.name || 'Product'}</title>
+          <style>
+            body { 
+              font-family: Arial, sans-serif; 
+              display: flex; 
+              flex-direction: column;
+              align-items: center; 
+              justify-content: center; 
+              min-height: 100vh;
+              margin: 0;
+              padding: 20px;
+            }
+            .barcode-container {
+              text-align: center;
+              padding: 20px;
+              border: 2px dashed #ccc;
+              border-radius: 8px;
+            }
+            .product-name { 
+              font-size: 18px; 
+              font-weight: bold; 
+              margin-bottom: 10px; 
+            }
+            .price { 
+              font-size: 24px; 
+              font-weight: bold; 
+              color: #059669;
+              margin-top: 10px;
+            }
+            .sku { 
+              font-size: 12px; 
+              color: #666; 
+              margin-top: 5px;
+            }
+            @media print {
+              body { padding: 0; }
+              .barcode-container { border: none; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="barcode-container">
+            <div class="product-name">${formData.name || 'Product Name'}</div>
+            <svg id="barcode"></svg>
+            ${formData.price ? `<div class="price">৳${formData.price}</div>` : ''}
+            ${formData.sku ? `<div class="sku">SKU: ${formData.sku}</div>` : ''}
+          </div>
+          <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+          <script>
+            JsBarcode("#barcode", "${formData.barcode}", {
+              format: "CODE128",
+              width: 2,
+              height: 80,
+              displayValue: true,
+              fontSize: 14,
+              margin: 10,
+            });
+            setTimeout(() => window.print(), 500);
+          </script>
+        </body>
+      </html>
+    `;
+    printWindow.document.write(barcodeHTML);
+    printWindow.document.close();
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -197,11 +274,16 @@ export default function EditProductPage() {
       toast.error('Select the seller who provides this product');
       return;
     }
-    const newOpening = variants
-      .filter((variant) => variant.isNew)
-      .reduce((sum, variant) => sum + (parseInt(variant.stock_quantity, 10) || 0), 0);
-    if (newOpening > 0 && !(Number(formData.cost_price) > 0)) {
-      toast.error('A weighted average cost is required before new variants can be given opening stock');
+
+    const specResult = cleanSpecifications(specifications);
+    if (specResult.error) {
+      toast.error(specResult.error);
+      return;
+    }
+
+    const setup = variantRef.current?.getSetup();
+    if (setup?.error) {
+      toast.error(setup.error);
       return;
     }
 
@@ -213,18 +295,22 @@ export default function EditProductPage() {
         name: formData.name,
         description: formData.description,
         sku: formData.sku || null,
+        barcode: formData.barcode,
         category: formData.category,
         subcategory: formData.subcategory || null,
         price: parseFloat(formData.price),
         compare_price: formData.compare_price ? parseFloat(formData.compare_price) : null,
         cost_price: formData.cost_price ? parseFloat(formData.cost_price) : null,
-        stock_quantity: parseInt(formData.stock_quantity || 0, 10),
+        stock_quantity: parseInt(formData.stock_quantity),
         low_stock_threshold: parseInt(formData.low_stock_threshold),
         weight: formData.weight ? parseFloat(formData.weight) : null,
         is_active: formData.is_active,
         is_featured: formData.is_featured,
+        is_official: formData.is_official,
+        warranty_period: formData.warranty_period,
         supply_type: formData.supply_type,
         supplied_by: formData.supply_type === 'seller_provided' ? formData.supplied_by : null,
+        specifications: specResult.specifications,
       };
 
       await updateProduct(productData).unwrap();
@@ -244,40 +330,9 @@ export default function EditProductPage() {
         }
       }
 
-      // Handle variants
-      for (const variant of variants) {
-        if (variant.isNew) {
-          try {
-            await createVariant({
-              productId: id,
-              sku: variant.sku,
-              size: variant.size,
-              color: variant.color,
-              price: variant.price ? parseFloat(variant.price) : null,
-              stock_quantity: parseInt(variant.stock_quantity),
-              low_stock_threshold: parseInt(variant.low_stock_threshold ?? 10),
-              is_active: variant.is_active,
-            }).unwrap();
-          } catch (varError) {
-            console.error('Variant creation error:', varError);
-          }
-        } else if (variant.isModified) {
-          try {
-            await updateVariant({
-              productId: id,
-              variantId: variant.id,
-              sku: variant.sku,
-              size: variant.size,
-              color: variant.color,
-              price: variant.price ? parseFloat(variant.price) : null,
-              stock_quantity: parseInt(variant.stock_quantity),
-              low_stock_threshold: parseInt(variant.low_stock_threshold ?? 10),
-              is_active: variant.is_active,
-            }).unwrap();
-          } catch (varError) {
-            console.error('Variant update error:', varError);
-          }
-        }
+      if (setup?.payload) {
+        const saved = await syncVariantSetup({ productId: id, ...setup.payload }).unwrap();
+        setVariantSnapshot(saved);
       }
 
       toast.success('Product updated successfully!');
@@ -290,12 +345,6 @@ export default function EditProductPage() {
       setLoading(false);
     }
   };
-
-  const sizes = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL', '28', '30', '32', '34', '36', '38', '40', '42'];
-  const colors = [
-    'Black', 'White', 'Red', 'Blue', 'Green', 'Yellow', 'Orange', 'Purple',
-    'Pink', 'Brown', 'Gray', 'Navy', 'Beige', 'Maroon', 'Olive'
-  ];
 
   if (productLoading) {
     return (
@@ -429,6 +478,49 @@ export default function EditProductPage() {
               </div>
             </div>
 
+            <SpecificationFields rows={specifications} onChange={setSpecifications} />
+
+            {/* Barcode Section */}
+            <div className="card">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold flex items-center gap-2">
+                  <Barcode className="w-5 h-5 text-primary-600" />
+                  Product Barcode
+                </h2>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={printBarcode}
+                    className="btn btn-secondary text-sm"
+                  >
+                    <Printer className="w-4 h-4 mr-1" />
+                    Print
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-gray-50 rounded-xl p-6 text-center">
+                <svg ref={barcodeRef} className="mx-auto"></svg>
+                <div className="mt-4 flex items-center justify-center gap-2">
+                  <code className="bg-white px-4 py-2 rounded-lg border text-lg font-mono">
+                    {formData.barcode}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={copyBarcode}
+                    className="p-2 hover:bg-white rounded-lg transition-colors"
+                    title="Copy barcode"
+                  >
+                    {copied ? (
+                      <Check className="w-5 h-5 text-green-600" />
+                    ) : (
+                      <Copy className="w-5 h-5 text-gray-500" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+
             {/* Pricing */}
             <div className="card">
               <h2 className="text-lg font-semibold mb-4">Pricing</h2>
@@ -469,41 +561,40 @@ export default function EditProductPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Weighted average cost (৳)
+                    Cost Price (৳)
                   </label>
                   <input
                     type="number"
                     name="cost_price"
                     value={formData.cost_price}
-                    className="input bg-gray-50"
+                    onChange={handleInputChange}
+                    className="input"
                     placeholder="0.00"
                     step="0.01"
                     min="0"
-                    readOnly
                   />
-                  <p className="text-xs text-gray-500 mt-1">Calculated from purchases. Receive more stock from Inventory to update it.</p>
+                  <p className="text-xs text-gray-500 mt-1">For profit calculation</p>
                 </div>
               </div>
             </div>
 
             {/* Inventory — only show for products without variants */}
-            {variants.length === 0 && (
+            {!hasVariants && (
               <div className="card">
                 <h2 className="text-lg font-semibold mb-4">Inventory</h2>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Stock quantity
+                      Stock Quantity
                     </label>
                     <input
                       type="number"
                       name="stock_quantity"
                       value={formData.stock_quantity}
-                      className="input bg-gray-50"
+                      onChange={handleInputChange}
+                      className="input"
                       min="0"
-                      readOnly
                     />
-                    <p className="text-xs text-gray-500 mt-1">Change stock from Inventory so each purchase keeps its voucher.</p>
                   </div>
 
                   <div>
@@ -524,130 +615,17 @@ export default function EditProductPage() {
               </div>
             )}
 
-            {/* Variants */}
-            <div className="card">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold">Product Variants</h2>
-                <button
-                  type="button"
-                  onClick={addVariant}
-                  className="btn btn-secondary text-sm"
-                >
-                  <Plus className="w-4 h-4 mr-1" />
-                  Add Variant
-                </button>
-              </div>
-
-              {variants.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  <p>No variants. Add variants for different sizes, colors, etc.</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {variants.map((variant, index) => (
-                    <div key={variant.id} className="border rounded-lg p-4 bg-gray-50">
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="font-medium text-sm">
-                          Variant #{index + 1}
-                          {variant.isNew && <span className="ml-2 text-xs text-green-600">(New)</span>}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => removeVariantHandler(variant)}
-                          className="text-red-500 hover:text-red-700"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-
-                      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Size</label>
-                          <select
-                            value={variant.size || ''}
-                            onChange={(e) => updateVariantData(variant.id, 'size', e.target.value)}
-                            className="input text-sm"
-                          >
-                            <option value="">Select size</option>
-                            {sizes.map(size => (
-                              <option key={size} value={size}>{size}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Color</label>
-                          <select
-                            value={variant.color || ''}
-                            onChange={(e) => updateVariantData(variant.id, 'color', e.target.value)}
-                            className="input text-sm"
-                          >
-                            <option value="">Select color</option>
-                            {colors.map(color => (
-                              <option key={color} value={color}>{color}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Price (৳)</label>
-                          <input
-                            type="number"
-                            value={variant.price || ''}
-                            onChange={(e) => updateVariantData(variant.id, 'price', e.target.value)}
-                            className="input text-sm"
-                            placeholder="Same as product"
-                            step="0.01"
-                            min="0"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">
-                            {variant.isNew ? 'Opening stock' : 'Stock'}
-                          </label>
-                          <input
-                            type="number"
-                            value={variant.stock_quantity || 0}
-                            onChange={(e) => updateVariantData(variant.id, 'stock_quantity', e.target.value)}
-                            className={`input text-sm ${variant.isNew ? '' : 'bg-gray-50'}`}
-                            min="0"
-                            readOnly={!variant.isNew}
-                          />
-                          <p className="text-xs text-gray-500 mt-1">
-                            {variant.isNew
-                              ? 'Recorded as a purchase at the weighted average cost.'
-                              : 'Change stock from Inventory.'}
-                          </p>
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Low Stock Alert</label>
-                          <input
-                            type="number"
-                            value={variant.low_stock_threshold ?? 10}
-                            onChange={(e) => updateVariantData(variant.id, 'low_stock_threshold', e.target.value)}
-                            className="input text-sm"
-                            min="0"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="mt-3">
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Variant SKU</label>
-                        <input
-                          type="text"
-                          value={variant.sku || ''}
-                          onChange={(e) => updateVariantData(variant.id, 'sku', e.target.value)}
-                          className="input text-sm"
-                          placeholder="e.g., TSH-BLK-M"
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <VariantOptions
+              key={`${product.id}:${(variantSnapshot?.variants || product.variants || []).map((variant) => variant.id).join(',')}`}
+              ref={variantRef}
+              productSku={formData.sku}
+              barcodePrefix={storeSettings?.barcode_prefix || 'ZZ'}
+              productName={formData.name}
+              productPrice={formData.price}
+              initialGroups={variantSnapshot?.option_groups || product.option_groups}
+              initialVariants={variantSnapshot?.variants || product.variants}
+              onCount={(count) => setHasVariants(count > 0)}
+            />
 
             {/* Images */}
             <div className="card">
@@ -768,6 +746,7 @@ export default function EditProductPage() {
               </div>
             </div>
 
+            
             <div className="card">
               <h2 className="text-lg font-semibold mb-4">Inventory source</h2>
               <div className="space-y-4">
@@ -805,6 +784,42 @@ export default function EditProductPage() {
                     </select>
                   </div>
                 )}
+              </div>
+            </div>
+
+<div className="card">
+              <h2 className="text-lg font-semibold mb-1">Official & warranty</h2>
+              <p className="text-sm text-gray-500 mb-4">Shown on the product page for the website and the app.</p>
+              <div className="space-y-4">
+                <label className="flex items-center justify-between gap-3 cursor-pointer">
+                  <span>
+                    <span className="block text-gray-700">Official product</span>
+                    <span className="block text-xs text-gray-500">Adds the Official badge on the product photo.</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    name="is_official"
+                    checked={formData.is_official}
+                    onChange={handleInputChange}
+                    className="toggle"
+                  />
+                </label>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="warranty_period">
+                    Warranty period
+                  </label>
+                  <input
+                    id="warranty_period"
+                    type="text"
+                    name="warranty_period"
+                    value={formData.warranty_period}
+                    onChange={handleInputChange}
+                    maxLength={80}
+                    placeholder="1 year"
+                    className="input"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">Leave empty when this product has no warranty.</p>
+                </div>
               </div>
             </div>
 

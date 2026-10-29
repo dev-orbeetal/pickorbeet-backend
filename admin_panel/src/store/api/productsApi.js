@@ -109,6 +109,17 @@ export const productsApi = baseApi.injectEndpoints({
       ],
     }),
 
+    syncVariantSetup: builder.mutation({
+      query: ({ productId, ...body }) => ({
+        url: `/products/admin/products/${productId}/variant-setup/`,
+        method: 'PUT',
+        body,
+      }),
+      invalidatesTags: (result, error, { productId }) => [
+        { type: 'Products', id: productId },
+      ],
+    }),
+
     deleteVariant: builder.mutation({
       query: ({ productId, variantId }) => ({
         url: `/products/admin/products/${productId}/variants/${variantId}/`,
@@ -219,6 +230,7 @@ export const {
   useCreateVariantMutation,
   useUpdateVariantMutation,
   useDeleteVariantMutation,
+  useSyncVariantSetupMutation,
   useGetInventoryItemsQuery,
   useUpdateProductStockMutation,
   useUpdateVariantStockMutation,

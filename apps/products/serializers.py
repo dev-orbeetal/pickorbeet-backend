@@ -2,8 +2,12 @@
 Serializers for products app.
 """
 from django.db import transaction
+from django.db.models import Avg, Count
 from rest_framework import serializers
-from .models import Category, SubCategory, Product, ProductImage, ProductVariant, ContactMessage, HomepageBanner
+from .models import (
+    Category, SubCategory, Product, ProductImage, ProductVariant, ProductSpecification,
+    ProductReview, ContactMessage, HomepageBanner,
+)
 
 
 class RelativeImageField(serializers.ImageField):
@@ -27,14 +31,52 @@ class ProductImageSerializer(serializers.ModelSerializer):
         fields = ['id', 'image', 'alt_text', 'is_primary', 'display_order']
 
 
+class ProductSpecificationSerializer(serializers.ModelSerializer):
+    """Name/value row. Blank pairs are dropped by the product write serializer."""
+    name = serializers.CharField(max_length=80, allow_blank=True, trim_whitespace=True)
+    value = serializers.CharField(max_length=255, allow_blank=True, trim_whitespace=True)
+
+    class Meta:
+        model = ProductSpecification
+        fields = ['id', 'name', 'value', 'sort_order']
+        read_only_fields = ['id', 'sort_order']
+
+
+def review_stats(product):
+    """Average and count from the catalog annotation, or one query when it is absent."""
+    cached = getattr(product, '_catalog_review_stats', None)
+    if cached is not None:
+        return cached
+    data = product.__dict__
+    if 'rating_average' in data or 'review_count' in data:
+        average = data.get('rating_average')
+        count = data.get('review_count') or 0
+    else:
+        row = product.reviews.aggregate(average=Avg('rating'), count=Count('id'))
+        average = row['average']
+        count = row['count']
+    stats = {
+        'rating_average': None if average is None else round(float(average), 1),
+        'review_count': int(count or 0),
+    }
+    product._catalog_review_stats = stats
+    return stats
+
+
 class ProductVariantSerializer(serializers.ModelSerializer):
     """Serializer for product variants."""
     effective_price = serializers.ReadOnlyField()
+    options = serializers.SerializerMethodField()
 
     class Meta:
         model = ProductVariant
-        fields = ['id', 'sku', 'barcode', 'size', 'color', 'price', 
-                  'stock_quantity', 'low_stock_threshold', 'is_active', 'effective_price']
+        fields = ['id', 'sku', 'barcode', 'size', 'color', 'price',
+                  'stock_quantity', 'low_stock_threshold', 'is_active', 'effective_price',
+                  'options']
+
+    def get_options(self, obj):
+        from apps.products.variants import variant_options
+        return variant_options(obj)
 
     def create(self, validated_data):
         from apps.products.costing import StockError, record_purchase
@@ -127,6 +169,9 @@ class ProductListSerializer(serializers.ModelSerializer):
     is_low_stock = serializers.ReadOnlyField()
     is_out_of_stock = serializers.ReadOnlyField()
     variants = ProductVariantSerializer(many=True, read_only=True)
+    specifications = ProductSpecificationSerializer(many=True, read_only=True)
+    rating_average = serializers.SerializerMethodField()
+    review_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -135,7 +180,14 @@ class ProductListSerializer(serializers.ModelSerializer):
                   'primary_image', 'discount_percentage', 'stock_quantity',
                   'low_stock_threshold',
                   'is_low_stock', 'is_out_of_stock', 'is_featured', 'is_active',
-                  'variants']
+                  'is_official', 'warranty_period',
+                  'variants', 'specifications', 'rating_average', 'review_count']
+
+    def get_rating_average(self, obj):
+        return review_stats(obj)['rating_average']
+
+    def get_review_count(self, obj):
+        return review_stats(obj)['review_count']
 
 
 class ProductDetailSerializer(serializers.ModelSerializer):
@@ -148,6 +200,10 @@ class ProductDetailSerializer(serializers.ModelSerializer):
     discount_percentage = serializers.ReadOnlyField()
     is_low_stock = serializers.ReadOnlyField()
     is_out_of_stock = serializers.ReadOnlyField()
+    specifications = ProductSpecificationSerializer(many=True, read_only=True)
+    option_groups = serializers.SerializerMethodField()
+    rating_average = serializers.SerializerMethodField()
+    review_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -156,7 +212,20 @@ class ProductDetailSerializer(serializers.ModelSerializer):
                   'price', 'compare_price', 'size', 'color', 'material',
                   'stock_quantity', 'is_low_stock', 'is_out_of_stock',
                   'discount_percentage', 'is_active', 'is_featured',
-                  'primary_image', 'images', 'variants', 'created_at', 'updated_at']
+                  'is_official', 'warranty_period',
+                  'primary_image', 'images', 'variants', 'specifications',
+                  'option_groups',
+                  'rating_average', 'review_count', 'created_at', 'updated_at']
+
+    def get_option_groups(self, obj):
+        from apps.products.variants import option_groups
+        return option_groups(obj)
+
+    def get_rating_average(self, obj):
+        return review_stats(obj)['rating_average']
+
+    def get_review_count(self, obj):
+        return review_stats(obj)['review_count']
 
 
 class AdminProductListSerializer(ProductListSerializer):
@@ -190,6 +259,7 @@ class AdminProductDetailSerializer(ProductDetailSerializer):
 
 class ProductCreateUpdateSerializer(serializers.ModelSerializer):
     """Serializer for creating/updating products."""
+    specifications = ProductSpecificationSerializer(many=True, required=False)
 
     class Meta:
         model = Product
@@ -197,7 +267,8 @@ class ProductCreateUpdateSerializer(serializers.ModelSerializer):
                   'description', 'short_description', 'price', 'compare_price',
                   'cost_price', 'size', 'color', 'material', 'stock_quantity',
                   'low_stock_threshold', 'is_active', 'is_featured',
-                  'supply_type', 'supplied_by']
+                  'supply_type', 'supplied_by',
+                  'is_official', 'warranty_period', 'specifications']
         read_only_fields = ['id', 'slug']
 
     def validate_sku(self, value):
@@ -207,6 +278,21 @@ class ProductCreateUpdateSerializer(serializers.ModelSerializer):
     def validate_barcode(self, value):
         """Convert empty string to None to avoid unique constraint violation."""
         return value.strip() if value and value.strip() else None
+
+    def validate_warranty_period(self, value):
+        return (value or '').strip()
+
+    def validate_specifications(self, value):
+        cleaned = []
+        for row in value:
+            name = (row.get('name') or '').strip()
+            spec_value = (row.get('value') or '').strip()
+            if not name and not spec_value:
+                continue
+            if not name or not spec_value:
+                raise serializers.ValidationError('Each specification needs a name and a value.')
+            cleaned.append({'name': name, 'value': spec_value})
+        return cleaned
 
     def validate(self, attrs):
         supply_type = attrs.get(
@@ -241,14 +327,27 @@ class ProductCreateUpdateSerializer(serializers.ModelSerializer):
                 })
         return attrs
 
+    def _replace_specifications(self, product, rows):
+        product.specifications.all().delete()
+        for index, row in enumerate(rows):
+            ProductSpecification.objects.create(
+                product=product,
+                name=row['name'],
+                value=row['value'],
+                sort_order=index,
+            )
+
     def create(self, validated_data):
         from apps.products.costing import StockError, record_purchase
 
+        rows = validated_data.pop('specifications', None)
         stock = int(validated_data.pop('stock_quantity', 0) or 0)
         cost = validated_data.get('cost_price')
         validated_data['stock_quantity'] = 0
         with transaction.atomic():
             product = super().create(validated_data)
+            if rows is not None:
+                self._replace_specifications(product, rows)
             if stock > 0:
                 try:
                     record_purchase(
@@ -265,9 +364,35 @@ class ProductCreateUpdateSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         # Stock and average cost are maintained by purchases, sales, and inventory adjustments.
+        rows = validated_data.pop('specifications', None)
         validated_data.pop('stock_quantity', None)
         validated_data.pop('cost_price', None)
-        return super().update(instance, validated_data)
+        product = super().update(instance, validated_data)
+        if rows is not None:
+            self._replace_specifications(product, rows)
+        return product
+
+
+class ProductReviewSerializer(serializers.ModelSerializer):
+    author = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProductReview
+        fields = ['id', 'author', 'rating', 'comment', 'created_at', 'updated_at']
+
+    def get_author(self, obj):
+        name = f'{obj.user.first_name} {obj.user.last_name}'.strip()
+        return name or 'Customer'
+
+
+class ProductReviewWriteSerializer(serializers.Serializer):
+    rating = serializers.IntegerField(min_value=1, max_value=5)
+    comment = serializers.CharField(max_length=2000, trim_whitespace=True)
+
+    def validate_comment(self, value):
+        if not value:
+            raise serializers.ValidationError('Write a short comment with your rating.')
+        return value
 
 
 class BarcodeProductSerializer(serializers.ModelSerializer):

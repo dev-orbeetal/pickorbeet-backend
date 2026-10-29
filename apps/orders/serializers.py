@@ -136,14 +136,26 @@ class CartItemSerializer(serializers.ModelSerializer):
     discount_percentage = serializers.SerializerMethodField()
     stock_quantity = serializers.SerializerMethodField()
     is_out_of_stock = serializers.SerializerMethodField()
-    size = serializers.CharField(source='variant.size', read_only=True)
-    color = serializers.CharField(source='variant.color', read_only=True)
+    size = serializers.SerializerMethodField()
+    color = serializers.SerializerMethodField()
+    options = serializers.SerializerMethodField()
 
     class Meta:
         model = CartItem
         fields = ['id', 'product', 'variant', 'product_name', 'product_slug', 'product_image',
                   'short_description', 'quantity', 'unit_price', 'total_price', 'compare_price',
-                  'discount_percentage', 'stock_quantity', 'is_out_of_stock', 'size', 'color']
+                  'discount_percentage', 'stock_quantity', 'is_out_of_stock', 'size', 'color',
+                  'options']
+
+    def get_size(self, obj):
+        return obj.variant.size if obj.variant and obj.variant.size else None
+
+    def get_color(self, obj):
+        return obj.variant.color if obj.variant and obj.variant.color else None
+
+    def get_options(self, obj):
+        from apps.products.variants import variant_options
+        return variant_options(obj.variant)
 
     def get_discount_percentage(self, obj):
         return discount_percent(obj.product.compare_price, obj.unit_price)
@@ -205,7 +217,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrderItem
         fields = ['id', 'product', 'variant', 'product_name', 'product_sku', 'product_slug',
-                  'product_image', 'size', 'color', 'quantity', 'unit_price', 'compare_price',
+                  'product_image', 'size', 'color', 'options', 'quantity', 'unit_price', 'compare_price',
                   'discount_percentage', 'total_price']
         read_only_fields = ['id', 'total_price']
 
@@ -315,6 +327,7 @@ class OrderListSerializer(serializers.ModelSerializer):
             'product_image': _item_image_url(item, self.context.get('request')),
             'size': item.size or '',
             'color': item.color or '',
+            'options': item.options or [],
             'quantity': item.quantity,
             'unit_price': format(item.unit_price, 'f'),
             'compare_price': format(item.compare_price, 'f') if item.compare_price is not None else None,

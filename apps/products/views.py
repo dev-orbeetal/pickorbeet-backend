@@ -1,7 +1,9 @@
 """
 Views for products app.
 """
+import re
 import uuid
+from decimal import Decimal
 
 from rest_framework import generics, status, filters
 from rest_framework.exceptions import ValidationError
@@ -10,15 +12,20 @@ from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import models
-from django.db.models import F, Prefetch, Q
-from .models import Category, SubCategory, Product, ProductImage, ProductVariant, ContactMessage, HomepageBanner
+from django.db.models import Avg, Count, F, FloatField, IntegerField, OuterRef, Prefetch, Q, Subquery, Value
+from django.db.models.functions import Coalesce
+from django.shortcuts import get_object_or_404
+from .models import (
+    Category, SubCategory, Product, ProductImage, ProductVariant, ProductReview,
+    ContactMessage, HomepageBanner, with_catalog_stats,
+)
 from .serializers import (
     CategorySerializer, CategoryListSerializer, SubCategorySerializer,
     ProductListSerializer, ProductDetailSerializer, ProductCreateUpdateSerializer,
     AdminProductListSerializer, AdminProductDetailSerializer,
     ProductImageSerializer, ProductVariantSerializer, BarcodeProductSerializer,
     ProductStockUpdateSerializer, ContactMessageSubmitSerializer, ContactMessageSerializer,
-    HomepageBannerSerializer,
+    HomepageBannerSerializer, ProductReviewSerializer, ProductReviewWriteSerializer,
 )
 from apps.accounts.permissions import IsStaffUser, IsSeller
 from .costing import StockError, apply_stock_operation, remove_units
@@ -31,6 +38,43 @@ def public_categories():
     return Category.objects.filter(is_active=True).prefetch_related(
         Prefetch('subcategories', queryset=active_subcategories)
     )
+
+
+def catalog_price(amount):
+    """Decimal string with two places, which is what price feeds expect."""
+    if amount is None:
+        return None
+    return f'{Decimal(amount):.2f}'
+
+
+def catalog_in_stock(product):
+    """True when the product, or any active variant, can still be sold."""
+    variants = [variant for variant in product.variants.all() if variant.is_active]
+    if variants:
+        return any(variant.stock_quantity > 0 for variant in variants)
+    return product.stock_quantity > 0
+
+
+def catalog_image(product):
+    """Primary image path, then the first image. Relative /media URL, or None."""
+    images = list(product.images.all())
+    chosen = next((image for image in images if image.is_primary), None)
+    if chosen is None and images:
+        chosen = images[0]
+    if chosen is None or not chosen.image:
+        return None
+    try:
+        return chosen.image.url
+    except ValueError:
+        return None
+
+
+def catalog_brand(product):
+    """Manufacturer from a specification named Brand, when the shop entered one."""
+    for spec in product.specifications.all():
+        if (spec.name or '').strip().lower() == 'brand' and (spec.value or '').strip():
+            return spec.value.strip()
+    return None
 
 
 # Public Views
@@ -82,7 +126,9 @@ class ProductListView(generics.ListAPIView):
     ordering_fields = ['price', 'created_at', 'name']
 
     def get_queryset(self):
-        queryset = Product.objects.filter(is_active=True).select_related('category', 'subcategory')
+        queryset = with_catalog_stats(
+            Product.objects.filter(is_active=True).select_related('category', 'subcategory')
+        )
         
         # Multi-value category filter (comma-separated IDs)
         category_param = self.request.query_params.get('category')
@@ -152,7 +198,56 @@ class ProductDetailView(generics.RetrieveAPIView):
     lookup_field = 'slug'
     
     def get_queryset(self):
-        return Product.objects.filter(is_active=True).prefetch_related('images', 'variants')
+        return with_catalog_stats(
+            Product.objects.filter(is_active=True).prefetch_related('images', 'variants')
+        )
+
+
+class ProductReviewView(APIView):
+    """Public review list. Signed-in shoppers can leave one review and delete it."""
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
+    def get_product(self, slug):
+        return get_object_or_404(Product, slug=slug, is_active=True)
+
+    def get(self, request, slug):
+        product = self.get_product(slug)
+        reviews = product.reviews.select_related('user')
+        stats = reviews.aggregate(average=Avg('rating'), count=Count('id'))
+        mine = None
+        if request.user.is_authenticated:
+            mine = reviews.filter(user=request.user).first()
+        return Response({
+            'average': None if stats['average'] is None else round(float(stats['average']), 1),
+            'count': stats['count'] or 0,
+            'mine': ProductReviewSerializer(mine).data if mine else None,
+            'results': ProductReviewSerializer(reviews[:100], many=True).data,
+        })
+
+    def post(self, request, slug):
+        product = self.get_product(slug)
+        serializer = ProductReviewWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        review, created = ProductReview.objects.update_or_create(
+            product=product,
+            user=request.user,
+            defaults=serializer.validated_data,
+        )
+        review = ProductReview.objects.select_related('user').get(pk=review.pk)
+        return Response(
+            ProductReviewSerializer(review).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+    def delete(self, request, slug):
+        product = self.get_product(slug)
+        review = get_object_or_404(ProductReview, product=product, user=request.user)
+        review.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class FeaturedProductsView(generics.ListAPIView):
@@ -161,7 +256,7 @@ class FeaturedProductsView(generics.ListAPIView):
     permission_classes = [AllowAny]
     
     def get_queryset(self):
-        return Product.objects.filter(is_active=True, is_featured=True)[:12]
+        return with_catalog_stats(Product.objects.filter(is_active=True, is_featured=True))[:12]
 
 
 class HomepageConfigView(APIView):
@@ -171,6 +266,59 @@ class HomepageConfigView(APIView):
     def get(self, request):
         from .homepage import build_homepage
         return Response(build_homepage(request))
+
+
+class CatalogIndexView(APIView):
+    """Every active product and category, with no page size, for sitemap and feed."""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        reviews = ProductReview.objects.filter(product_id=OuterRef('pk')).order_by()
+        average = reviews.values('product_id').annotate(avg=Avg('rating')).values('avg')[:1]
+        total = reviews.values('product_id').annotate(total=Count('pk')).values('total')[:1]
+        products = (
+            Product.objects.filter(is_active=True)
+            .select_related('category')
+            .annotate(
+                rating_average=Subquery(average, output_field=FloatField()),
+                review_count=Coalesce(Subquery(total, output_field=IntegerField()), Value(0)),
+            )
+            .prefetch_related('specifications', 'images', 'variants')
+            .order_by('slug')
+        )
+        product_rows = []
+        for product in products:
+            average_rating = product.rating_average
+            product_rows.append({
+                'slug': product.slug,
+                'name': product.name,
+                'updated_at': product.updated_at.isoformat(),
+                'price': catalog_price(product.price),
+                'short_description': product.short_description or '',
+                'image': catalog_image(product),
+                'in_stock': catalog_in_stock(product),
+                'category_slug': product.category.slug if product.category_id else None,
+                'brand': catalog_brand(product),
+                'rating_average': None if average_rating is None else round(float(average_rating), 1),
+                'review_count': int(product.review_count or 0),
+            })
+
+        categories = []
+        for category in public_categories():
+            categories.append({
+                'slug': category.slug,
+                'name': category.name,
+                'updated_at': category.updated_at.isoformat(),
+                'subcategories': [
+                    {
+                        'slug': sub.slug,
+                        'name': sub.name,
+                        'updated_at': sub.updated_at.isoformat(),
+                    }
+                    for sub in category.subcategories.all()
+                ],
+            })
+        return Response({'products': product_rows, 'categories': categories})
 
 
 def _logo_url(settings_obj, request):
@@ -219,9 +367,9 @@ class CategoryProductsView(generics.ListAPIView):
         categories = Category.objects.filter(is_active=True)[:6]
         result = []
         for category in categories:
-            products = Product.objects.filter(
+            products = with_catalog_stats(Product.objects.filter(
                 category=category, is_active=True
-            )[:4]
+            ))[:4]
             result.append({
                 'category': CategoryListSerializer(category).data,
                 'products': ProductListSerializer(products, many=True).data
@@ -271,9 +419,9 @@ class AdminProductListCreateView(generics.ListCreateAPIView):
         return AdminProductListSerializer
 
     def get_queryset(self):
-        return Product.objects.all().select_related(
+        return with_catalog_stats(Product.objects.all().select_related(
             'category', 'subcategory', 'supplied_by'
-        ).prefetch_related('variants')
+        ).prefetch_related('variants'))
 
     def create(self, request, *args, **kwargs):
         try:
@@ -634,11 +782,36 @@ class LowStockProductsView(generics.ListAPIView):
             variants__is_active=True,
             variants__stock_quantity__lte=models.F('variants__low_stock_threshold'),
         )
-        return Product.objects.filter(
+        return with_catalog_stats(Product.objects.filter(
             is_active=True
         ).filter(
             no_variant_low | variant_low
-        ).distinct().prefetch_related('variants').order_by('name')
+        ).distinct().prefetch_related('variants').order_by('name'))
+
+
+class VariantSetupView(APIView):
+    """Replace a product's options and the combinations shoppers can buy."""
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def put(self, request, product_id):
+        from apps.products.variants import SetupError, option_groups, sync_variant_setup
+
+        product = get_object_or_404(Product, pk=product_id)
+        try:
+            sync_variant_setup(
+                product,
+                request.data.get('option_groups', []),
+                request.data.get('variants', []),
+            )
+        except SetupError as exc:
+            return Response({'detail': exc.message}, status=status.HTTP_400_BAD_REQUEST)
+        product = Product.objects.prefetch_related(
+            'options__values', 'variants__values__option',
+        ).get(pk=product.pk)
+        return Response({
+            'option_groups': option_groups(product),
+            'variants': ProductVariantSerializer(product.variants.all(), many=True).data,
+        })
 
 
 class ProductVariantListCreateView(generics.ListCreateAPIView):
@@ -679,6 +852,34 @@ class ProductVariantDetailView(generics.RetrieveUpdateDestroyAPIView):
         instance.delete()
 
 
+_BADGE_SIZES = {'small', 'medium', 'large'}
+_BADGE_POSITIONS = {'top-left', 'top-right', 'bottom-left', 'bottom-right'}
+_BADGE_COLOR = re.compile(r'^#[0-9A-Fa-f]{6}$')
+
+
+def _clean_official_badge(field, value):
+    text = '' if value is None else str(value).strip()
+    if field == 'official_badge_size':
+        text = text.lower()
+        return text if text in _BADGE_SIZES else None
+    if field == 'official_badge_position':
+        text = text.lower()
+        return text if text in _BADGE_POSITIONS else None
+    if not text.startswith('#'):
+        text = f'#{text}'
+    if not _BADGE_COLOR.match(text):
+        return None
+    return text.upper()
+
+
+def _official_badge_error(field):
+    if field == 'official_badge_size':
+        return 'Choose a small, medium, or large official badge.'
+    if field == 'official_badge_position':
+        return 'Choose a corner for the official badge.'
+    return 'Choose a color for the official badge.'
+
+
 class PublicStoreSettingsView(APIView):
     """Public endpoint for client to fetch store settings (no auth required)."""
     permission_classes = [AllowAny]
@@ -696,6 +897,9 @@ class PublicStoreSettingsView(APIView):
             'contact_email_2': settings.contact_email_2,
             'business_hours': settings.business_hours,
             'map_embed_url': settings.map_embed_url,
+            'official_badge_size': settings.official_badge_size,
+            'official_badge_color': settings.official_badge_color,
+            'official_badge_position': settings.official_badge_position,
         })
 
 
@@ -709,10 +913,17 @@ class StoreSettingsView(APIView):
         'contact_email_1', 'contact_email_2', 'business_hours',
         'map_embed_url',
     ]
+    BADGE_FIELDS = (
+        'official_badge_size',
+        'official_badge_color',
+        'official_badge_position',
+    )
 
     def _payload(self, settings, request):
         data = {field: getattr(settings, field) for field in self.SETTINGS_FIELDS}
         data['logo'] = _logo_url(settings, request)
+        for field in self.BADGE_FIELDS:
+            data[field] = getattr(settings, field)
         return data
 
     def get(self, request):
@@ -730,6 +941,17 @@ class StoreSettingsView(APIView):
             if value is not None:
                 setattr(settings, field, value)
                 updated = True
+        for field in self.BADGE_FIELDS:
+            if field not in request.data:
+                continue
+            cleaned = _clean_official_badge(field, request.data.get(field))
+            if cleaned is None:
+                return Response(
+                    {'detail': _official_badge_error(field)},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            setattr(settings, field, cleaned)
+            updated = True
         if 'logo' in request.FILES:
             settings.logo = request.FILES['logo']
             updated = True

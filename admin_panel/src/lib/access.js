@@ -20,6 +20,7 @@ export const MENU_GROUPS = [
     label: 'Money',
     items: [
       { href: '/reports', label: 'Reports', icon: 'BarChart3', roles: ['accountant', 'super_admin'] },
+      { href: '/traffic', label: 'Traffic', icon: 'Activity', roles: ['seller', 'accountant', 'super_admin'] },
       { href: '/payments', label: 'Payments', icon: 'Receipt', roles: ['accountant', 'super_admin'] },
       { href: '/finance', label: 'Finance', icon: 'Wallet', roles: ['accountant', 'super_admin'] },
     ],

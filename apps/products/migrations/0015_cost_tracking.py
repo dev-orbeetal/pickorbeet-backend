@@ -29,7 +29,7 @@ def seed_opening_stock(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('products', '0010_product_supply_type'),
+        ('products', '0014_product_supply_type'),
     ]
 
     operations = [

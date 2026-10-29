@@ -6,7 +6,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
-        ('products', '0009_real_store_contact'),
+        ('products', '0013_store_official_badge'),
     ]
 
     operations = [

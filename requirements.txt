@@ -45,6 +45,10 @@ google-auth-httplib2==0.2.0
 # HTTP client (Steadfast courier API)
 requests>=2.31,<3
 
+# Visitor device classification for traffic analytics
+user-agents==2.2.0
+ua-parser==1.0.2
+
 # Utils
 django-filter==23.5
 drf-yasg==1.21.7

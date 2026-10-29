@@ -10,3 +10,4 @@ export * from './paymentsApi';
 export * from './customersApi';
 export * from './contactApi';
 export * from './supportApi';
+export * from './trafficApi';

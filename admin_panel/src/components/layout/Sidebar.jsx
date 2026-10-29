@@ -2,14 +2,14 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { useSelector } from 'react-redux';
 import {
-  LayoutDashboard, Package, ShoppingCart, Users, BarChart3,
+  LayoutDashboard, Package, ShoppingCart, Users, BarChart3, Activity,
   Settings, Tag, ShoppingBag, Receipt, UserCog,
   Warehouse, Ticket, MessageSquare, Headphones, Wallet
 } from 'lucide-react';
 import { MENU_GROUPS } from '@/lib/access';
 
 const ICONS = {
-  LayoutDashboard, Package, ShoppingCart, Users, BarChart3,
+  LayoutDashboard, Package, ShoppingCart, Users, BarChart3, Activity,
   Settings, Tag, ShoppingBag, Receipt, UserCog,
   Warehouse, Ticket, MessageSquare, Headphones, Wallet,
 };

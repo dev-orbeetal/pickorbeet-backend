@@ -4,15 +4,15 @@ URL patterns for products app.
 from django.urls import path
 from .views import (
     CategoryListView, CategoryDetailView, SubCategoryListView,
-    ProductListView, ProductDetailView, FeaturedProductsView, CategoryProductsView,
-    HomepageBannerListView, HomepageConfigView,
+    ProductListView, ProductDetailView, ProductReviewView, FeaturedProductsView, CategoryProductsView,
+    HomepageBannerListView, HomepageConfigView, CatalogIndexView,
     AdminHomepageBannerListCreateView, AdminHomepageBannerDetailView,
     AdminCategoryListCreateView, AdminCategoryDetailView,
     AdminSubCategoryListCreateView, AdminSubCategoryDetailView,
     AdminProductListCreateView, AdminProductDetailView,
     ProductImageUploadView, ProductImageDeleteView,
     BarcodeSearchView, ProductStockUpdateView, LowStockProductsView,
-    ProductVariantListCreateView, ProductVariantDetailView,
+    ProductVariantListCreateView, ProductVariantDetailView, VariantSetupView,
     VariantStockUpdateView, InventoryItemsView, AdminSellerListView,
     StoreSettingsView, PublicStoreSettingsView,
     PublicContactSubmitView, AdminContactMessageListView, AdminContactMessageDetailView
@@ -26,9 +26,11 @@ urlpatterns = [
     path('', ProductListView.as_view(), name='product_list'),
     path('banners/', HomepageBannerListView.as_view(), name='homepage_banners'),
     path('homepage/', HomepageConfigView.as_view(), name='homepage_config'),
+    path('catalog-index/', CatalogIndexView.as_view(), name='catalog_index'),
     path('featured/', FeaturedProductsView.as_view(), name='featured_products'),
     path('by-category/', CategoryProductsView.as_view(), name='products_by_category'),
     path('settings/public/', PublicStoreSettingsView.as_view(), name='public_store_settings'),
+    path('<slug:slug>/reviews/', ProductReviewView.as_view(), name='product_reviews'),
     path('<slug:slug>/', ProductDetailView.as_view(), name='product_detail'),
     
     # Admin endpoints
@@ -39,6 +41,7 @@ urlpatterns = [
     path('admin/products/', AdminProductListCreateView.as_view(), name='admin_product_list'),
     path('admin/products/<uuid:pk>/', AdminProductDetailView.as_view(), name='admin_product_detail'),
     path('admin/products/<uuid:product_id>/images/', ProductImageUploadView.as_view(), name='product_image_upload'),
+    path('admin/products/<uuid:product_id>/variant-setup/', VariantSetupView.as_view(), name='product_variant_setup'),
     path('admin/products/<uuid:product_id>/variants/', ProductVariantListCreateView.as_view(), name='product_variant_list'),
     path('admin/products/<uuid:product_id>/variants/<uuid:pk>/', ProductVariantDetailView.as_view(), name='product_variant_detail'),
     path('admin/images/<uuid:pk>/', ProductImageDeleteView.as_view(), name='product_image_delete'),
