@@ -1,12 +1,13 @@
-import { useState, useMemo } from 'react';
+import { Fragment, useState, useMemo } from 'react';
 import Link from 'next/link';
 import {
   Search, Plus, Edit, Trash2, AlertTriangle,
-  ChevronDown, ChevronRight, Copy, Check, Barcode,
+  ChevronDown, ChevronRight, Copy, Check,
   Package, Layers
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '@/components/layout/AdminLayout';
+import Pagination from '@/components/ui/Pagination';
 import { useGetProductsQuery, useDeleteProductMutation } from '@/store/api/productsApi';
 import { useGetCategoriesQuery } from '@/store/api/categoriesApi';
 import { getMediaUrl } from '@/lib/utils';
@@ -17,25 +18,38 @@ export default function ProductsPage() {
     category: '',
     is_active: '',
   });
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [expandedProducts, setExpandedProducts] = useState({});
   const [copiedBarcode, setCopiedBarcode] = useState(null);
 
   const queryParams = useMemo(() => {
-    const params = {};
+    const params = { page, page_size: pageSize };
     if (filters.search) params.search = filters.search;
     if (filters.category) params.category = filters.category;
     if (filters.is_active) params.is_active = filters.is_active;
     return params;
-  }, [filters]);
+  }, [filters, page, pageSize]);
 
   const { data: categoriesData } = useGetCategoriesQuery();
-  const { data: productsData, isLoading: loading } = useGetProductsQuery(queryParams);
+  const { data: productsData, isLoading: loading, isFetching } = useGetProductsQuery(queryParams);
   const [deleteProduct] = useDeleteProductMutation();
 
   const categories = Array.isArray(categoriesData?.results || categoriesData)
     ? (categoriesData?.results || categoriesData)
     : [];
   const products = productsData?.results || productsData || [];
+  const totalCount = typeof productsData?.count === 'number' ? productsData.count : products.length;
+
+  const updateFilters = (patch) => {
+    setFilters((prev) => ({ ...prev, ...patch }));
+    setPage(1);
+  };
+
+  const handlePageSizeChange = (size) => {
+    setPageSize(size);
+    setPage(1);
+  };
 
   const handleDelete = async (id) => {
     if (!confirm('Are you sure you want to delete this product?')) return;
@@ -61,19 +75,6 @@ export default function ProductsPage() {
 
   const getImageUrl = (img) => getMediaUrl(img);
 
-  const getStockBadge = (product) => {
-    const variants = product.variants || [];
-    const hasVariants = variants.length > 0;
-    const totalStock = hasVariants
-      ? variants.reduce((sum, v) => sum + (v.stock_quantity || 0), 0)
-      : product.stock_quantity;
-
-    if (totalStock === 0) return { label: 'Out of Stock', cls: 'bg-red-100 text-red-700' };
-    if (product.is_low_stock || totalStock <= (product.low_stock_threshold || 5))
-      return { label: `Low: ${totalStock}`, cls: 'bg-yellow-100 text-yellow-700' };
-    return { label: totalStock, cls: 'text-gray-900' };
-  };
-
   return (
     <AdminLayout title="Products">
       {/* Header */}
@@ -85,7 +86,7 @@ export default function ProductsPage() {
               type="text"
               placeholder="Search products..."
               value={filters.search}
-              onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+              onChange={(e) => updateFilters({ search: e.target.value })}
               className="input pl-10"
             />
           </div>
@@ -94,13 +95,23 @@ export default function ProductsPage() {
         <div className="flex items-center gap-3">
           <select
             value={filters.category}
-            onChange={(e) => setFilters({ ...filters, category: e.target.value })}
+            onChange={(e) => updateFilters({ category: e.target.value })}
             className="input w-auto"
           >
             <option value="">All Categories</option>
             {Array.isArray(categories) && categories.map((cat) => (
               <option key={cat.id} value={cat.id}>{cat.name}</option>
             ))}
+          </select>
+
+          <select
+            value={filters.is_active}
+            onChange={(e) => updateFilters({ is_active: e.target.value })}
+            className="input w-auto"
+          >
+            <option value="">All Status</option>
+            <option value="true">Active</option>
+            <option value="false">Inactive</option>
           </select>
 
           <Link href="/products/new" className="btn btn-primary">
@@ -155,14 +166,13 @@ export default function ProductsPage() {
                   const variants = product.variants || [];
                   const hasVariants = variants.length > 0;
                   const isExpanded = expandedProducts[product.id];
-                  const stockBadge = getStockBadge(product);
                   const totalStock = hasVariants
                     ? variants.reduce((sum, v) => sum + (v.stock_quantity || 0), 0)
                     : product.stock_quantity;
 
                   return (
-                    <>{/* Product Row */}
-                      <tr key={product.id} className="border-b border-gray-100 hover:bg-gray-50/70 transition-colors">
+                    <Fragment key={product.id}>
+                      <tr className={`border-b border-gray-100 hover:bg-gray-50/70 transition-colors ${isFetching ? 'opacity-70' : ''}`}>
                         {/* Expand toggle */}
                         <td className="py-3 px-3">
                           {hasVariants ? (
@@ -192,7 +202,7 @@ export default function ProductsPage() {
                               <p className="font-semibold text-gray-900 truncate">{product.name}</p>
                               <div className="flex items-center gap-2 mt-0.5">
                                 {product.is_featured && (
-                                  <span className="px-1.5 py-0.5 bg-primary-50 text-primary-700 rounded text-[10px] font-bold uppercase">Featured</span>
+                                  <span className="px-1.5 py-0.5 bg-primary-50 text-primary-700 rounded text-[10px] font-bold uppercase">Trending</span>
                                 )}
                                 {hasVariants && (
                                   <span className="flex items-center gap-1 text-xs text-gray-500">
@@ -337,7 +347,7 @@ export default function ProductsPage() {
                           </tr>
                         );
                       })}
-                    </>
+                    </Fragment>
                   );
                 })
               )}
@@ -345,12 +355,15 @@ export default function ProductsPage() {
           </table>
         </div>
 
-        {/* Footer */}
-        {!loading && products.length > 0 && (
-          <div className="px-4 py-3 border-t bg-gray-50 text-sm text-gray-500 flex items-center justify-between">
-            <span>{products.length} product{products.length !== 1 ? 's' : ''}</span>
-            <span>{products.reduce((sum, p) => sum + (p.variants?.length || 0), 0)} total variants</span>
-          </div>
+        {!loading && (
+          <Pagination
+            page={page}
+            pageSize={pageSize}
+            count={totalCount}
+            onPageChange={setPage}
+            onPageSizeChange={handlePageSizeChange}
+            itemLabel="products"
+          />
         )}
       </div>
     </AdminLayout>

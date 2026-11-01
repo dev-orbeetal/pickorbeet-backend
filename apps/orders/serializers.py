@@ -439,6 +439,9 @@ class InShopOrderItemSerializer(serializers.Serializer):
     product_id = serializers.UUIDField()
     variant_id = serializers.UUIDField(required=False, allow_null=True)
     quantity = serializers.IntegerField(min_value=1)
+    unit_price = serializers.DecimalField(
+        max_digits=10, decimal_places=2, min_value=0, required=False
+    )
 
 
 class InShopOrderSerializer(serializers.Serializer):
@@ -450,6 +453,78 @@ class InShopOrderSerializer(serializers.Serializer):
     discount = serializers.DecimalField(max_digits=10, decimal_places=2, default=0)
     payment_method = serializers.ChoiceField(choices=['cash', 'card', 'mobile_banking'])
     notes = serializers.CharField(required=False, allow_blank=True)
+
+
+class AdminManualOrderItemSerializer(serializers.Serializer):
+    """Line item for an admin-created online / external order."""
+    product_id = serializers.UUIDField()
+    variant_id = serializers.UUIDField(required=False, allow_null=True)
+    quantity = serializers.IntegerField(min_value=1)
+    unit_price = serializers.DecimalField(
+        max_digits=10, decimal_places=2, min_value=0, required=False
+    )
+
+
+class AdminManualOrderSerializer(serializers.Serializer):
+    """Create an online order from admin (Facebook, WhatsApp, phone, etc.)."""
+    guest_name = serializers.CharField(max_length=200)
+    guest_phone = serializers.CharField(max_length=20)
+    guest_email = serializers.EmailField(required=False, allow_blank=True)
+
+    shipping_name = serializers.CharField(max_length=200, required=False, allow_blank=True)
+    shipping_phone = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    shipping_address_line1 = serializers.CharField(max_length=255)
+    shipping_address_line2 = serializers.CharField(required=False, allow_blank=True)
+    shipping_city = serializers.CharField(max_length=100)
+    shipping_district = serializers.CharField(max_length=100)
+    shipping_postal_code = serializers.CharField(required=False, allow_blank=True)
+
+    items = AdminManualOrderItemSerializer(many=True, allow_empty=False)
+    discount = serializers.DecimalField(max_digits=10, decimal_places=2, required=False, default=0)
+    delivery_charge = serializers.DecimalField(
+        max_digits=10, decimal_places=2, min_value=0, required=False, allow_null=True
+    )
+
+    payment_method = serializers.ChoiceField(
+        choices=['cod', 'cash', 'bkash', 'nagad', 'card', 'mobile_banking', 'bank_transfer'],
+        default='cod',
+    )
+    payment_status = serializers.ChoiceField(
+        choices=['pending', 'paid'],
+        default='pending',
+        required=False,
+    )
+    order_status = serializers.ChoiceField(
+        choices=['pending', 'confirmed'],
+        default='pending',
+        required=False,
+    )
+    source = serializers.CharField(max_length=80, required=False, allow_blank=True)
+    notes = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_guest_phone(self, value):
+        try:
+            return normalize_phone(value)
+        except ShipmentError as exc:
+            raise serializers.ValidationError(exc.message)
+
+    def validate_shipping_phone(self, value):
+        if not value:
+            return value
+        try:
+            return normalize_phone(value)
+        except ShipmentError as exc:
+            raise serializers.ValidationError(exc.message)
+
+    def validate_items(self, value):
+        if not value:
+            raise serializers.ValidationError('Add at least one product.')
+        return value
+
+    def validate(self, attrs):
+        attrs['shipping_name'] = (attrs.get('shipping_name') or attrs['guest_name']).strip()
+        attrs['shipping_phone'] = attrs.get('shipping_phone') or attrs['guest_phone']
+        return attrs
 
 
 class OrderStatusUpdateSerializer(serializers.Serializer):

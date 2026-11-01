@@ -116,6 +116,16 @@ export default function POSPage() {
     setCart(newCart);
   };
 
+  const updateUnitPrice = (index, value) => {
+    const parsed = parseFloat(value);
+    const newCart = [...cart];
+    newCart[index] = {
+      ...newCart[index],
+      unit_price: Number.isFinite(parsed) && parsed >= 0 ? parsed : 0,
+    };
+    setCart(newCart);
+  };
+
   const removeItem = (index) => {
     const newCart = [...cart];
     newCart.splice(index, 1);
@@ -140,6 +150,7 @@ export default function POSPage() {
           product_id: item.id,
           variant_id: item.variant_id || null,
           quantity: item.quantity,
+          unit_price: item.unit_price,
         })),
         discount,
         payment_method: paymentMethod,
@@ -259,7 +270,25 @@ export default function POSPage() {
                         {item.variant_label && (
                           <p className="text-xs text-primary-600 font-medium">{item.variant_label}</p>
                         )}
-                        <p className="text-sm text-gray-500">৳{item.unit_price.toLocaleString()}</p>
+                        <div className="mt-1 flex items-center gap-2">
+                          <div className="relative w-28">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">৳</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={item.unit_price}
+                              onChange={(e) => updateUnitPrice(index, e.target.value)}
+                              className="input py-1 pl-5 pr-2 text-sm"
+                              aria-label={`Unit price for ${item.name}`}
+                            />
+                          </div>
+                          {parseFloat(item.price) !== item.unit_price && (
+                            <span className="text-xs text-gray-400 line-through">
+                              ৳{parseFloat(item.price).toLocaleString()}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <button

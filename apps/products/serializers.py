@@ -5,7 +5,7 @@ from django.db.models import Avg, Count
 from rest_framework import serializers
 from .models import (
     Category, SubCategory, Product, ProductImage, ProductVariant, ProductSpecification,
-    ProductReview, ContactMessage, HomepageBanner,
+    ProductReview, ContactMessage, HomepageBanner, HomepageSection, HomepageSectionProduct,
 )
 
 
@@ -301,6 +301,89 @@ class HomepageBannerSerializer(serializers.ModelSerializer):
     class Meta:
         model = HomepageBanner
         fields = ['id', 'image', 'title', 'subtitle', 'button_label', 'link', 'placement', 'display_order', 'is_active']
+
+
+class HomepageSectionProductSerializer(serializers.ModelSerializer):
+    """Product row inside an admin-managed homepage section."""
+    id = serializers.UUIDField(source='product.id', read_only=True)
+    name = serializers.CharField(source='product.name', read_only=True)
+    sku = serializers.CharField(source='product.sku', read_only=True)
+    price = serializers.DecimalField(
+        source='product.price', max_digits=10, decimal_places=2, read_only=True
+    )
+    primary_image = serializers.SerializerMethodField()
+    is_active = serializers.BooleanField(source='product.is_active', read_only=True)
+
+    class Meta:
+        model = HomepageSectionProduct
+        fields = ['id', 'name', 'sku', 'price', 'primary_image', 'is_active', 'display_order']
+
+    def get_primary_image(self, obj):
+        return obj.product.primary_image
+
+
+class HomepageSectionSerializer(serializers.ModelSerializer):
+    """Admin serializer for curated homepage product rows."""
+    products = HomepageSectionProductSerializer(source='section_products', many=True, read_only=True)
+    product_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        write_only=True,
+    )
+
+    class Meta:
+        model = HomepageSection
+        fields = [
+            'id', 'key', 'section_type', 'title', 'subtitle', 'is_enabled',
+            'display_order', 'item_limit', 'view_all_label', 'view_all_url',
+            'product_source', 'products', 'product_ids',
+        ]
+        read_only_fields = ['id', 'key', 'section_type', 'display_order']
+
+    def validate_product_source(self, value):
+        allowed = {'manual', 'latest', 'on_sale', 'featured'}
+        if value not in allowed:
+            raise serializers.ValidationError('Invalid product source.')
+        return value
+
+    def validate_item_limit(self, value):
+        if value < 1 or value > 24:
+            raise serializers.ValidationError('Item limit must be between 1 and 24.')
+        return value
+
+    def validate_product_ids(self, value):
+        if not value:
+            return value
+        unique = list(dict.fromkeys(value))
+        found = set(
+            Product.objects.filter(id__in=unique).values_list('id', flat=True)
+        )
+        missing = [str(product_id) for product_id in unique if product_id not in found]
+        if missing:
+            raise serializers.ValidationError(f'Unknown product ids: {", ".join(missing)}')
+        return unique
+
+    def update(self, instance, validated_data):
+        product_ids = validated_data.pop('product_ids', serializers.empty)
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        instance.save()
+
+        if product_ids is not serializers.empty:
+            # Auto "latest" mode ignores curated picks — clear any leftovers.
+            if instance.product_source == 'latest':
+                product_ids = []
+            instance.section_products.all().delete()
+            HomepageSectionProduct.objects.bulk_create([
+                HomepageSectionProduct(
+                    section=instance,
+                    product_id=product_id,
+                    display_order=index,
+                )
+                for index, product_id in enumerate(product_ids)
+            ])
+
+        return instance
 
 
 class ContactMessageSubmitSerializer(serializers.ModelSerializer):

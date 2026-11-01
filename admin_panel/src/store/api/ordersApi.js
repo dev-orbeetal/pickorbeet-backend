@@ -48,6 +48,20 @@ export const ordersApi = baseApi.injectEndpoints({
       ],
     }),
 
+    createManualOrder: builder.mutation({
+      query: (data) => ({
+        url: '/orders/admin/manual/',
+        method: 'POST',
+        body: data,
+      }),
+      invalidatesTags: [
+        { type: 'Orders', id: 'LIST' },
+        'Dashboard',
+        'Inventory',
+        { type: 'Products', id: 'LIST' },
+      ],
+    }),
+
     deleteOrder: builder.mutation({
       query: (id) => ({
         url: `/orders/admin/${id}/`,
@@ -124,6 +138,7 @@ export const {
   useGetOrderQuery,
   useUpdateOrderStatusMutation,
   useCreateInShopOrderMutation,
+  useCreateManualOrderMutation,
   useDeleteOrderMutation,
   useBookShipmentMutation,
   useRefreshShipmentMutation,

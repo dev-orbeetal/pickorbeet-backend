@@ -7,7 +7,7 @@ from .views import (
     CheckoutView,     CustomerOrderListView, CustomerOrderDetailView,
     CustomerOrderSummaryView, CustomerOrderDeliveryView, CustomerCancelOrderView,
     TrackOrderView, AdminOrderListView, AdminOrderDetailView,
-    UpdateOrderStatusView, InShopOrderView,
+    UpdateOrderStatusView, InShopOrderView, AdminManualOrderView,
     ValidateCouponView, ApplyCouponToCartView,
     AdminCouponListCreateView, AdminCouponDetailView, AdminCouponStatsView,
     PublicDeliveryOptionsView, AdminDeliveryOptionListCreateView, AdminDeliveryOptionDetailView
@@ -47,6 +47,7 @@ urlpatterns = [
     path('admin/<uuid:pk>/shipment/', AdminBookShipmentView.as_view(), name='admin_book_shipment'),
     path('admin/<uuid:pk>/shipment/refresh/', AdminRefreshShipmentView.as_view(), name='admin_refresh_shipment'),
     path('admin/in-shop/', InShopOrderView.as_view(), name='in_shop_order'),
+    path('admin/manual/', AdminManualOrderView.as_view(), name='admin_manual_order'),
     
     # Admin coupon management
     path('admin/coupons/', AdminCouponListCreateView.as_view(), name='admin_coupon_list'),

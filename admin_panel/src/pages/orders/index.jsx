@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { Search, Filter, Eye, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Eye, Trash2, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '@/components/layout/AdminLayout';
 import { useGetOrdersQuery, useDeleteOrderMutation } from '@/store/api/ordersApi';
@@ -68,6 +68,16 @@ export default function OrdersPage() {
 
   return (
     <AdminLayout title="Orders">
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <p className="text-sm text-gray-500">
+          Manage website orders and create custom orders from Facebook or other channels.
+        </p>
+        <Link href="/orders/new" className="btn btn-primary">
+          <Plus className="w-4 h-4 mr-2" />
+          Create order
+        </Link>
+      </div>
+
       {/* Filters */}
       <div className="card p-4 mb-6">
         <div className="flex flex-wrap gap-4">

@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django_filters.rest_framework import DjangoFilterBackend
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from django.db.models import Count, Q
@@ -14,8 +15,8 @@ from .models import Order, OrderItem, OrderStatusHistory, Cart, CartItem, Coupon
 from .serializers import (
     CartSerializer, CartItemSerializer, AddToCartSerializer, UpdateCartItemSerializer,
     OrderListSerializer, OrderDetailSerializer, CheckoutSerializer,
-    InShopOrderSerializer, OrderStatusUpdateSerializer, TrackOrderSerializer,
-    OrderStatusHistorySerializer, CouponSerializer, CouponCreateSerializer,
+    InShopOrderSerializer, AdminManualOrderSerializer, OrderStatusUpdateSerializer,
+    TrackOrderSerializer, OrderStatusHistorySerializer, CouponSerializer, CouponCreateSerializer,
     ValidateCouponSerializer, ApplyCouponSerializer, DeliveryOptionSerializer,
     DeliveryUpdateSerializer,
 )
@@ -30,7 +31,9 @@ from apps.accounts.permissions import IsStaffUser, IsSeller, IsSuperAdmin
 from apps.shipping.services import status_group
 from apps.notifications.services import notify_order_placed
 from apps.orders.emails import notify_order_placed_email
-from .services import DeliveryUpdateError, change_order_status, update_delivery_details
+from .services import (
+    DeliveryUpdateError, change_order_status, is_inside_dhaka, update_delivery_details,
+)
 
 
 def public_shipment_summary(order):
@@ -588,15 +591,27 @@ class InShopOrderView(APIView):
                 if item_data.get('variant_id'):
                     variant = ProductVariant.objects.get(id=item_data['variant_id'])
                 
-                unit_price = variant.effective_price if variant else product.price
+                catalog_price = variant.effective_price if variant else product.price
+                if 'unit_price' in item_data and item_data['unit_price'] is not None:
+                    unit_price = Decimal(item_data['unit_price'])
+                else:
+                    unit_price = catalog_price
                 quantity = item_data['quantity']
                 subtotal += unit_price * quantity
+
+                # When staff overrides the charged price, snapshot the catalog
+                # selling price as compare_price so the deal remains visible.
+                if unit_price != Decimal(catalog_price):
+                    compare_price = catalog_price
+                else:
+                    compare_price = product.compare_price
                 
                 order_items.append({
                     'product': product,
                     'variant': variant,
                     'quantity': quantity,
                     'unit_price': unit_price,
+                    'compare_price': compare_price,
                 })
             
             # Create order
@@ -635,7 +650,7 @@ class InShopOrderView(APIView):
                     options=snapshot_options(item['variant']),
                     quantity=item['quantity'],
                     unit_price=item['unit_price'],
-                    compare_price=item['product'].compare_price,
+                    compare_price=item['compare_price'],
                 )
                 
                 # Update stock
@@ -675,6 +690,158 @@ class InShopOrderView(APIView):
         return Response({
             'message': 'In-shop order created successfully',
             'order': OrderDetailSerializer(order).data
+        }, status=status.HTTP_201_CREATED)
+
+
+class AdminManualOrderView(APIView):
+    """Create an online order from admin for Facebook / phone / other channels."""
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def post(self, request):
+        serializer = AdminManualOrderSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        items_data = data['items']
+        requested_status = data.get('order_status', 'pending')
+        payment_status = data.get('payment_status', 'pending')
+        discount = Decimal(data.get('discount') or 0)
+
+        with transaction.atomic():
+            subtotal = Decimal('0')
+            order_items = []
+
+            for item_data in items_data:
+                try:
+                    product = Product.objects.get(id=item_data['product_id'])
+                except Product.DoesNotExist:
+                    return Response(
+                        {'error': f'Product not found: {item_data["product_id"]}'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                variant = None
+                if item_data.get('variant_id'):
+                    try:
+                        variant = ProductVariant.objects.get(
+                            id=item_data['variant_id'], product=product
+                        )
+                    except ProductVariant.DoesNotExist:
+                        return Response(
+                            {'error': f'Variant not found: {item_data["variant_id"]}'},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+
+                catalog_price = variant.effective_price if variant else product.price
+                if 'unit_price' in item_data and item_data['unit_price'] is not None:
+                    unit_price = Decimal(item_data['unit_price'])
+                else:
+                    unit_price = Decimal(catalog_price)
+
+                quantity = item_data['quantity']
+                subtotal += unit_price * quantity
+
+                if unit_price != Decimal(catalog_price):
+                    compare_price = catalog_price
+                else:
+                    compare_price = product.compare_price
+
+                order_items.append({
+                    'product': product,
+                    'variant': variant,
+                    'quantity': quantity,
+                    'unit_price': unit_price,
+                    'compare_price': compare_price,
+                })
+
+            inside = is_inside_dhaka(data['shipping_city'], data['shipping_district'])
+            if data.get('delivery_charge') is not None:
+                delivery_charge = Decimal(data['delivery_charge'])
+                explicit_delivery = True
+            else:
+                delivery_charge = Decimal(
+                    settings.DELIVERY_CHARGE_INSIDE_DHAKA
+                    if inside
+                    else settings.DELIVERY_CHARGE_OUTSIDE_DHAKA
+                )
+                explicit_delivery = False
+
+            source = (data.get('source') or '').strip()
+            notes = (data.get('notes') or '').strip()
+            if source:
+                notes = f'Source: {source}' + (f'\n{notes}' if notes else '')
+
+            # Non-zero delivery avoids Order.save() overwriting an explicit free (0) charge.
+            create_delivery = delivery_charge if delivery_charge or not explicit_delivery else Decimal('0.01')
+
+            order = Order.objects.create(
+                guest_name=data['guest_name'],
+                guest_phone=data['guest_phone'],
+                guest_email=data.get('guest_email') or None,
+                order_type='online',
+                order_status='pending',
+                payment_status=payment_status,
+                shipping_name=data['shipping_name'],
+                shipping_phone=data['shipping_phone'],
+                shipping_address_line1=data['shipping_address_line1'],
+                shipping_address_line2=data.get('shipping_address_line2') or '',
+                shipping_city=data['shipping_city'],
+                shipping_district=data['shipping_district'],
+                shipping_postal_code=data.get('shipping_postal_code') or '',
+                is_inside_dhaka=inside,
+                subtotal=subtotal,
+                discount=discount,
+                delivery_charge=create_delivery,
+                payment_method=data.get('payment_method') or 'cod',
+                processed_by=request.user,
+                notes=notes,
+                stock_reduced=False,
+            )
+
+            if explicit_delivery and delivery_charge != order.delivery_charge:
+                Order.objects.filter(pk=order.pk).update(
+                    delivery_charge=delivery_charge,
+                    total=subtotal + delivery_charge - discount,
+                    is_inside_dhaka=inside,
+                )
+                order.refresh_from_db()
+
+            for item in order_items:
+                OrderItem.objects.create(
+                    order=order,
+                    product=item['product'],
+                    variant=item['variant'],
+                    product_name=item['product'].name,
+                    product_sku=item['product'].sku,
+                    size=item['variant'].size if item['variant'] else item['product'].size,
+                    color=item['variant'].color if item['variant'] else item['product'].color,
+                    options=snapshot_options(item['variant']),
+                    quantity=item['quantity'],
+                    unit_price=item['unit_price'],
+                    compare_price=item['compare_price'],
+                )
+
+            OrderStatusHistory.objects.create(
+                order=order,
+                status='pending',
+                note=f'Manual order created by staff'
+                     + (f' ({source})' if source else ''),
+                changed_by=request.user,
+            )
+
+            if requested_status != 'pending':
+                order = change_order_status(
+                    order,
+                    requested_status,
+                    note=f'Status set on creation by staff',
+                    changed_by=request.user,
+                )
+
+        notify_order_placed(order)
+        notify_order_placed_email(order)
+
+        return Response({
+            'message': 'Order created successfully',
+            'order': OrderDetailSerializer(order, context={'request': request}).data,
         }, status=status.HTTP_201_CREATED)
 
 

@@ -721,8 +721,11 @@ export default function EditProductPage() {
                     className="toggle"
                   />
                 </label>
-                <label className="flex items-center justify-between cursor-pointer">
-                  <span className="text-gray-700">Featured</span>
+                <label className="flex items-center justify-between gap-3 cursor-pointer">
+                  <span>
+                    <span className="block text-gray-700">Show in Trending</span>
+                    <span className="block text-xs text-gray-500">Homepage on website &amp; app</span>
+                  </span>
                   <input
                     type="checkbox"
                     name="is_featured"
