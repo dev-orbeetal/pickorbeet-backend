@@ -114,17 +114,30 @@ function presetHex(label) {
   return match?.hex || '#D5DDE8';
 }
 
+function looksLikeColorOption(name) {
+  return /\bcolou?rs?\b/i.test(String(name || '').trim());
+}
+
+function withColorHexes(values) {
+  return values.map((value) => ({
+    ...value,
+    colorHex: normalizeHex(value.colorHex) || presetHex(value.label),
+  }));
+}
+
 function groupState(group) {
+  const name = group.name || '';
+  const kind = group.kind === 'swatch' || looksLikeColorOption(name) ? 'swatch' : 'text';
   return {
     key: nextKey(),
-    name: group.name || '',
-    kind: group.kind === 'swatch' ? 'swatch' : 'text',
+    name,
+    kind,
     draft: '',
     draftHex: '#3B82F6',
     values: (group.values || []).map((value) => ({
       key: nextKey(),
       label: value.label || '',
-      colorHex: value.colorHex || value.color_hex || presetHex(value.label),
+      colorHex: value.colorHex || value.color_hex || (kind === 'swatch' ? presetHex(value.label) : ''),
     })),
   };
 }
@@ -207,7 +220,18 @@ const VariantOptions = forwardRef(function VariantOptions({
   };
 
   const patchGroup = (key, patch) => {
-    setGroups((current) => current.map((group) => (group.key === key ? { ...group, ...patch } : group)));
+    setGroups((current) => current.map((group) => {
+      if (group.key !== key) return group;
+      const next = { ...group, ...patch };
+      if (Object.prototype.hasOwnProperty.call(patch, 'name') && looksLikeColorOption(patch.name) && next.kind !== 'swatch') {
+        next.kind = 'swatch';
+        next.values = withColorHexes(next.values);
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, 'kind') && patch.kind === 'swatch') {
+        next.values = withColorHexes(next.values);
+      }
+      return next;
+    }));
     if (!Object.prototype.hasOwnProperty.call(patch, 'name')) return;
     const previous = groups.find((group) => group.key === key)?.name.trim();
     const renamed = patch.name.trim();
@@ -306,7 +330,7 @@ const VariantOptions = forwardRef(function VariantOptions({
         </button>
       </div>
       <p className="text-sm text-gray-500 mb-4">
-        Name an option such as Size, Color, or Storage, then add its values. Each combination gets a SKU.
+        Name an option such as Size, Color, or Storage, then add its values. For Color, choose Shown as → Color and pick a swatch for each value so the store and app show it.
       </p>
 
       {groups.length === 0 ? (
@@ -332,18 +356,17 @@ const VariantOptions = forwardRef(function VariantOptions({
                   <label className="block text-xs font-medium text-gray-600 mb-1">Shown as</label>
                   <select
                     value={group.kind}
-                    onChange={(event) => patchGroup(group.key, {
-                      kind: event.target.value,
-                      values: group.values.map((value) => ({
-                        ...value,
-                        colorHex: value.colorHex || '#D5DDE8',
-                      })),
-                    })}
+                    onChange={(event) => patchGroup(group.key, { kind: event.target.value })}
                     className="input text-sm"
                   >
                     <option value="text">Text</option>
-                    <option value="swatch">Color swatch</option>
+                    <option value="swatch">Color</option>
                   </select>
+                  {group.kind === 'swatch' && (
+                    <p className="mt-1 text-[11px] text-gray-500">
+                      Pick a color for each value. The store and app show it as a swatch.
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-end">
                   <button
@@ -358,9 +381,13 @@ const VariantOptions = forwardRef(function VariantOptions({
 
               <div className="mt-3 flex flex-wrap gap-2">
                 {group.values.map((value) => (
-                  <span key={value.key} className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-2 py-1 text-sm">
+                  <span key={value.key} className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-2.5 py-1.5 text-sm">
                     {group.kind === 'swatch' && (
-                      <label className="relative h-5 w-5 overflow-hidden rounded-full border border-gray-200" style={{ background: value.colorHex }}>
+                      <label
+                        title={`Pick color for ${value.label}`}
+                        className="relative h-6 w-6 shrink-0 cursor-pointer overflow-hidden rounded-full border border-gray-300 shadow-sm"
+                        style={{ background: toColorInput(value.colorHex) }}
+                      >
                         <span className="sr-only">Color for {value.label}</span>
                         <input
                           type="color"
@@ -374,7 +401,12 @@ const VariantOptions = forwardRef(function VariantOptions({
                         />
                       </label>
                     )}
-                    {value.label}
+                    <span className="font-medium text-gray-800">{value.label}</span>
+                    {group.kind === 'swatch' && (
+                      <span className="font-mono text-[10px] uppercase text-gray-400">
+                        {toColorInput(value.colorHex)}
+                      </span>
+                    )}
                     <button
                       type="button"
                       aria-label={`Remove ${value.label}`}
