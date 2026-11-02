@@ -5,8 +5,8 @@ from django.contrib import admin
 from django.utils.html import format_html
 from .models import (
     Category, SubCategory, Product, ProductImage, ProductVariant, ProductSpecification,
-    ProductReview, StoreSettings, HomepageBanner, HomepageSection, HomepageSectionProduct,
-    HomepageBenefit,
+    ProductReview, ProductReviewImage, StoreSettings, HomepageBanner, HomepageSection,
+    HomepageSectionProduct, HomepageBenefit,
 )
 
 
@@ -148,12 +148,19 @@ class ProductVariantAdmin(admin.ModelAdmin):
     search_fields = ['product__name', 'sku', 'barcode']
 
 
+class ProductReviewImageInline(admin.TabularInline):
+    model = ProductReviewImage
+    extra = 0
+    fields = ['image', 'sort_order']
+
+
 @admin.register(ProductReview)
 class ProductReviewAdmin(admin.ModelAdmin):
     list_display = ['product', 'user', 'rating', 'created_at']
     list_filter = ['rating']
     search_fields = ['product__name', 'user__email', 'comment']
     raw_id_fields = ['product', 'user']
+    inlines = [ProductReviewImageInline]
 
 
 @admin.register(HomepageBanner)

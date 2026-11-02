@@ -8,11 +8,12 @@ from .models import (
 from .serializers import HomepageBannerSerializer, ProductListSerializer
 
 # Keys the admin panel manages as curated product rows.
+# Order matches seed: trending (4) → promos (5) → new-arrivals (6).
 CURATED_PRODUCT_SECTION_DEFAULTS = (
     {
         'key': 'trending',
         'title': 'Trending Products',
-        'display_order': 5,
+        'display_order': 4,
         'item_limit': 8,
         'view_all_label': 'View All',
         'view_all_url': '/products?featured=true',
@@ -48,6 +49,9 @@ def ensure_curated_product_sections():
                 'product_source': defaults['product_source'],
             },
         )
+        if section.display_order != defaults['display_order']:
+            section.display_order = defaults['display_order']
+            section.save(update_fields=['display_order'])
         sections.append(section)
 
     # Empty "custom list" trending is not useful — use Featured toggles instead.
@@ -111,6 +115,7 @@ def _products_for(section):
 
 
 def build_homepage(request):
+    ensure_curated_product_sections()
     banners = HomepageBanner.objects.filter(is_active=True)
     banner_data = HomepageBannerSerializer(banners, many=True, context={'request': request}).data
     heroes = [banner for banner in banner_data if banner['placement'] == 'hero']
@@ -126,7 +131,9 @@ def build_homepage(request):
     ]
 
     sections = []
-    for section in HomepageSection.objects.filter(is_enabled=True):
+    for section in HomepageSection.objects.filter(is_enabled=True).order_by(
+        'display_order', 'title'
+    ):
         payload = {
             'key': section.key,
             'type': section.section_type,

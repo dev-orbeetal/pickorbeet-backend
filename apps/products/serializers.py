@@ -6,7 +6,8 @@ from django.db.models import Avg, Count
 from rest_framework import serializers
 from .models import (
     Category, SubCategory, Product, ProductImage, ProductVariant, ProductSpecification,
-    ProductReview, ContactMessage, HomepageBanner, HomepageSection, HomepageSectionProduct,
+    ProductReview, ProductReviewImage, ContactMessage, HomepageBanner, HomepageSection,
+    HomepageSectionProduct,
 )
 
 
@@ -384,12 +385,21 @@ class ProductCreateUpdateSerializer(serializers.ModelSerializer):
         return product
 
 
+class ProductReviewImageSerializer(serializers.ModelSerializer):
+    image = RelativeImageField()
+
+    class Meta:
+        model = ProductReviewImage
+        fields = ['id', 'image', 'sort_order']
+
+
 class ProductReviewSerializer(serializers.ModelSerializer):
     author = serializers.SerializerMethodField()
+    images = ProductReviewImageSerializer(many=True, read_only=True)
 
     class Meta:
         model = ProductReview
-        fields = ['id', 'author', 'rating', 'comment', 'created_at', 'updated_at']
+        fields = ['id', 'author', 'rating', 'comment', 'images', 'created_at', 'updated_at']
 
     def get_author(self, obj):
         name = f'{obj.user.first_name} {obj.user.last_name}'.strip()
@@ -399,6 +409,7 @@ class ProductReviewSerializer(serializers.ModelSerializer):
 class ProductReviewWriteSerializer(serializers.Serializer):
     rating = serializers.IntegerField(min_value=1, max_value=5)
     comment = serializers.CharField(max_length=2000, trim_whitespace=True)
+    clear_images = serializers.BooleanField(required=False, default=False)
 
     def validate_comment(self, value):
         if not value:

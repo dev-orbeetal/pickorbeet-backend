@@ -75,3 +75,20 @@ class HomepageSectionAdminTests(ShopTestCase):
         homepage = build_homepage(request=None)
         trending = next(section for section in homepage['sections'] if section['key'] == 'trending')
         self.assertEqual([product['id'] for product in trending['products']], [str(self.beta.id)])
+
+    def test_ensure_repairs_inverted_trending_and_new_arrivals_order(self):
+        ensure_curated_product_sections()
+        HomepageSection.objects.filter(key='new-arrivals').update(display_order=3)
+        HomepageSection.objects.filter(key='trending').update(display_order=9)
+
+        ensure_curated_product_sections()
+        self.assertEqual(HomepageSection.objects.get(key='trending').display_order, 4)
+        self.assertEqual(HomepageSection.objects.get(key='new-arrivals').display_order, 6)
+
+        homepage = build_homepage(request=None)
+        product_keys = [
+            section['key']
+            for section in homepage['sections']
+            if section['key'] in {'trending', 'new-arrivals'}
+        ]
+        self.assertEqual(product_keys, ['trending', 'new-arrivals'])

@@ -433,6 +433,24 @@ class ProductReview(models.Model):
         return f'{self.product.name} ({self.rating})'
 
 
+class ProductReviewImage(models.Model):
+    """Photo attached to a shopper review (max 5 enforced in the API)."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    review = models.ForeignKey(ProductReview, on_delete=models.CASCADE, related_name='images')
+    image = models.ImageField(upload_to='reviews/')
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Product review image'
+        verbose_name_plural = 'Product review images'
+        ordering = ['sort_order', 'created_at']
+
+    def __str__(self):
+        return f'Review photo {self.sort_order} for {self.review_id}'
+
+
 def with_catalog_stats(queryset):
     """Attach average rating, review count, and specification rows without join inflation."""
     reviews = ProductReview.objects.filter(product_id=OuterRef('pk')).order_by()

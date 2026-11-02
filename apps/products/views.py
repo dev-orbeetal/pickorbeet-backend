@@ -17,7 +17,7 @@ from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from .models import (
     Category, SubCategory, Product, ProductImage, ProductVariant, ProductReview,
-    ContactMessage, HomepageBanner, with_catalog_stats,
+    ProductReviewImage, ContactMessage, HomepageBanner, with_catalog_stats,
 )
 from .serializers import (
     CategorySerializer, CategoryListSerializer, SubCategorySerializer,
@@ -34,6 +34,13 @@ from core.pagination import AdminPagination
 from .costing import StockError, apply_stock_operation, remove_units, transfer_stock
 from .homepage import curated_product_sections_queryset
 from .search import filter_product_search, search_names_catalog
+from .services import user_can_review_product
+
+REVIEW_IMAGE_MAX = 5
+REVIEW_IMAGE_MAX_BYTES = 5 * 1024 * 1024
+REVIEW_IMAGE_CONTENT_TYPES = {
+    'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif',
+}
 
 
 def public_categories():
@@ -230,8 +237,32 @@ class ProductDetailView(generics.RetrieveAPIView):
         )
 
 
+def _review_image_files(request):
+    files = request.FILES.getlist('images') or request.FILES.getlist('images[]')
+    if not files:
+        single = request.FILES.get('images') or request.FILES.get('image')
+        if single:
+            files = [single]
+    return list(files)
+
+
+def _validate_review_images(files):
+    if len(files) > REVIEW_IMAGE_MAX:
+        raise ValidationError({
+            'images': [f'You can attach up to {REVIEW_IMAGE_MAX} photos.'],
+        })
+    for upload in files:
+        content_type = (getattr(upload, 'content_type', None) or '').lower()
+        if content_type and content_type not in REVIEW_IMAGE_CONTENT_TYPES:
+            raise ValidationError({'images': ['Photos must be JPEG, PNG, WebP, or GIF.']})
+        size = getattr(upload, 'size', None)
+        if size is not None and size > REVIEW_IMAGE_MAX_BYTES:
+            raise ValidationError({'images': ['Each photo must be 5 MB or smaller.']})
+    return files
+
+
 class ProductReviewView(APIView):
-    """Public review list. Signed-in shoppers can leave one review and delete it."""
+    """Public review list with filters. Delivered buyers may leave one review (+ photos)."""
 
     def get_permissions(self):
         if self.request.method == 'GET':
@@ -243,30 +274,99 @@ class ProductReviewView(APIView):
 
     def get(self, request, slug):
         product = self.get_product(slug)
-        reviews = product.reviews.select_related('user')
-        stats = reviews.aggregate(average=Avg('rating'), count=Count('id'))
+        base = product.reviews.select_related('user').prefetch_related('images')
+        stats = base.aggregate(average=Avg('rating'), count=Count('id'))
+        breakdown_rows = (
+            base.values('rating')
+            .annotate(total=Count('id'))
+            .order_by('rating')
+        )
+        rating_breakdown = {str(star): 0 for star in range(1, 6)}
+        for row in breakdown_rows:
+            rating_breakdown[str(row['rating'])] = row['total']
+
+        qs = base
+        rating = (request.query_params.get('rating') or '').strip()
+        if rating:
+            try:
+                star = int(rating)
+            except ValueError:
+                star = None
+            if star in {1, 2, 3, 4, 5}:
+                qs = qs.filter(rating=star)
+
+        with_photos = (request.query_params.get('with_photos') or '').strip().lower()
+        if with_photos in {'1', 'true', 'yes'}:
+            qs = qs.filter(images__isnull=False).distinct()
+
+        sort = (request.query_params.get('sort') or 'newest').strip().lower()
+        if sort == 'highest':
+            qs = qs.order_by('-rating', '-created_at')
+        elif sort == 'lowest':
+            qs = qs.order_by('rating', '-created_at')
+        else:
+            qs = qs.order_by('-created_at')
+
         mine = None
+        can_review = False
         if request.user.is_authenticated:
-            mine = reviews.filter(user=request.user).first()
-        return Response({
+            mine = base.filter(user=request.user).first()
+            can_review = user_can_review_product(request.user, product)
+
+        paginator = AdminPagination()
+        page = paginator.paginate_queryset(qs, request, view=self)
+        results = ProductReviewSerializer(page, many=True, context={'request': request}).data
+        response = paginator.get_paginated_response(results)
+        body = response.data
+        filtered_count = body.get('count', len(results))
+        body.update({
             'average': None if stats['average'] is None else round(float(stats['average']), 1),
             'count': stats['count'] or 0,
-            'mine': ProductReviewSerializer(mine).data if mine else None,
-            'results': ProductReviewSerializer(reviews[:100], many=True).data,
+            'filtered_count': filtered_count,
+            'rating_breakdown': rating_breakdown,
+            'can_review': can_review,
+            'mine': (
+                ProductReviewSerializer(mine, context={'request': request}).data
+                if mine else None
+            ),
         })
+        return Response(body)
 
     def post(self, request, slug):
         product = self.get_product(slug)
+        if not user_can_review_product(request.user, product):
+            return Response(
+                {
+                    'error': 'You can review this product after an order with it is delivered.',
+                    'code': 'not_eligible',
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
         serializer = ProductReviewWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        files = _validate_review_images(_review_image_files(request))
+        clear_images = bool(data.pop('clear_images', False))
+
         review, created = ProductReview.objects.update_or_create(
             product=product,
             user=request.user,
-            defaults=serializer.validated_data,
+            defaults={'rating': data['rating'], 'comment': data['comment']},
         )
-        review = ProductReview.objects.select_related('user').get(pk=review.pk)
+        if files:
+            review.images.all().delete()
+            for index, upload in enumerate(files):
+                ProductReviewImage.objects.create(review=review, image=upload, sort_order=index)
+        elif clear_images:
+            review.images.all().delete()
+
+        review = (
+            ProductReview.objects.select_related('user')
+            .prefetch_related('images')
+            .get(pk=review.pk)
+        )
         return Response(
-            ProductReviewSerializer(review).data,
+            ProductReviewSerializer(review, context={'request': request}).data,
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
 
