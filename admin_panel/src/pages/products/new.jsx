@@ -62,8 +62,6 @@ export default function NewProductPage() {
     price: '',
     compare_price: '',
     cost_price: '',
-    stock_quantity: 0,
-    opening_stock_location: 'warehouse',
     dealer_available: false,
     low_stock_threshold: 10,
     weight: '',
@@ -259,14 +257,6 @@ export default function NewProductPage() {
       toast.error('Select the seller who provides this product');
       return;
     }
-    const openingUnits = hasVariants
-      ? (variantRef.current?.getSetup()?.rows || []).reduce((sum, row) => sum + (parseInt(row.stock_quantity, 10) || 0), 0)
-      : parseInt(formData.stock_quantity, 10) || 0;
-    const openingLocation = formData.opening_stock_location || 'warehouse';
-    if (openingUnits > 0 && openingLocation === 'warehouse' && !(Number(formData.cost_price) > 0)) {
-      toast.error('Enter the estimated buying price for warehouse purchases');
-      return;
-    }
 
     const specResult = cleanSpecifications(specifications);
     if (specResult.error) {
@@ -288,7 +278,7 @@ export default function NewProductPage() {
         price: parseFloat(formData.price),
         compare_price: formData.compare_price ? parseFloat(formData.compare_price) : null,
         cost_price: formData.cost_price ? parseFloat(formData.cost_price) : null,
-        stock_quantity: parseInt(formData.stock_quantity),
+        stock_quantity: 0,
         low_stock_threshold: parseInt(formData.low_stock_threshold),
         weight: formData.weight ? parseFloat(formData.weight) : null,
         subcategory: formData.subcategory || null,
@@ -582,84 +572,41 @@ export default function NewProductPage() {
                     step="0.01"
                     min="0"
                   />
-                  <p className="text-xs text-gray-500 mt-1">Estimated buying price for warehouse purchases</p>
+                  <p className="text-xs text-gray-500 mt-1">Optional estimate; actual cost updates from purchase receipts</p>
                 </div>
               </div>
             </div>
 
-            {/* Inventory — only show for products without variants */}
+            {/* Stock quantity comes from Finance purchases — only threshold + dealer flag here */}
             {!hasVariants && (
               <div className="card">
                 <h2 className="text-lg font-semibold mb-4">Stock & dealer availability</h2>
                 <div className="space-y-4">
-                  <div>
-                    <span className="block text-sm font-medium text-gray-700 mb-2">Opening stock location</span>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <label className={`border rounded-xl p-3 cursor-pointer ${formData.opening_stock_location === 'warehouse' ? 'border-primary-500 bg-primary-50' : 'border-gray-200'}`}>
-                        <input
-                          type="radio"
-                          name="opening_stock_location"
-                          value="warehouse"
-                          checked={formData.opening_stock_location === 'warehouse'}
-                          onChange={handleInputChange}
-                          className="mr-2"
-                        />
-                        <span className="font-medium text-sm">Warehouse purchase</span>
-                        <p className="text-xs text-gray-500 mt-1 pl-5">We bought these units. Requires estimated buying price.</p>
-                      </label>
-                      <label className={`border rounded-xl p-3 cursor-pointer ${formData.opening_stock_location === 'dealer' ? 'border-primary-500 bg-primary-50' : 'border-gray-200'}`}>
-                        <input
-                          type="radio"
-                          name="opening_stock_location"
-                          value="dealer"
-                          checked={formData.opening_stock_location === 'dealer'}
-                          onChange={handleInputChange}
-                          className="mr-2"
-                        />
-                        <span className="font-medium text-sm">Dealer stock for sale</span>
-                        <p className="text-xs text-gray-500 mt-1 pl-5">Not purchased into our warehouse — held by dealer for sale.</p>
-                      </label>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        {formData.opening_stock_location === 'dealer' ? 'Dealer quantity' : 'Purchased quantity'}
-                      </label>
-                      <input
-                        type="number"
-                        name="stock_quantity"
-                        value={formData.stock_quantity}
-                        onChange={handleInputChange}
-                        className="input"
-                        min="0"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Low Stock Threshold
-                      </label>
-                      <input
-                        type="number"
-                        name="low_stock_threshold"
-                        value={formData.low_stock_threshold}
-                        onChange={handleInputChange}
-                        className="input"
-                        min="0"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Alert when warehouse stock falls below this</p>
-                    </div>
-                  </div>
-                  {formData.opening_stock_location === 'warehouse' && (
-                    <p className="text-xs text-gray-500">
-                      Estimated buying price is set in Pricing above and recorded as a purchase into warehouse stock.
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                    <p className="text-sm text-gray-700">Warehouse stock starts at 0.</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Record product buying in Finance to add stock. Quantity is never set on this form.
                     </p>
-                  )}
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Low Stock Threshold
+                    </label>
+                    <input
+                      type="number"
+                      name="low_stock_threshold"
+                      value={formData.low_stock_threshold}
+                      onChange={handleInputChange}
+                      className="input"
+                      min="0"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Alert when warehouse stock falls below this</p>
+                  </div>
                   <label className="flex items-center justify-between cursor-pointer border border-gray-200 rounded-xl p-3">
                     <span>
                       <span className="block text-sm font-medium text-gray-700">Dealer availability</span>
                       <span className="block text-xs text-gray-500">
-                        Allow dealer fulfillment even when warehouse stock is empty.
+                        Allow dealer fulfillment even when warehouse stock is empty. Yes/no only — not a stock quantity.
                       </span>
                     </span>
                     <input
@@ -766,7 +713,7 @@ export default function NewProductPage() {
                   />
                 </label>
                 <label className="flex items-center justify-between cursor-pointer">
-                  <span className="text-gray-700">Featured</span>
+                  <span className="text-gray-700">Trending</span>
                   <input
                     type="checkbox"
                     name="is_featured"

@@ -118,9 +118,9 @@ export default function ProductsPage() {
     setTogglingKey(`${product.id}:featured`);
     try {
       await updateProduct({ id: product.id, is_featured: next }).unwrap();
-      toast.success(next ? 'Marked as featured' : 'Removed from featured');
+      toast.success(next ? 'Marked as trending' : 'Removed from trending');
     } catch (error) {
-      toast.error(error?.data?.detail || 'Could not update featured status');
+      toast.error(error?.data?.detail || 'Could not update trending status');
     } finally {
       setTogglingKey(null);
     }
@@ -226,7 +226,7 @@ export default function ProductsPage() {
                   </span>
                 </th>
                 <th className="text-center py-3 px-4 text-xs font-semibold text-gray-600 uppercase">
-                  Featured
+                  Trending
                 </th>
                 <th className="text-center py-3 px-4 text-xs font-semibold text-gray-600 uppercase">
                   Status
@@ -307,7 +307,7 @@ export default function ProductsPage() {
                               <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                                 {product.is_featured && (
                                   <span className="px-1.5 py-0.5 bg-primary-50 text-primary-700 rounded text-[10px] font-bold uppercase">
-                                    Featured
+                                    Trending
                                   </span>
                                 )}
                                 {hasVariants && (
@@ -359,9 +359,9 @@ export default function ProductsPage() {
                             checked={Boolean(product.is_featured)}
                             onToggle={() => handleFeatured(product)}
                             disabled={togglingKey === `${product.id}:featured`}
-                            ariaLabel={`Featured for ${product.name}`}
-                            onLabel="Featured"
-                            offLabel="Not Featured"
+                            ariaLabel={`Trending for ${product.name}`}
+                            onLabel="Trending"
+                            offLabel="Not Trending"
                           />
                         </td>
 

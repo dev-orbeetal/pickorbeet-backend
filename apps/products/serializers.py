@@ -98,38 +98,17 @@ class ProductVariantSerializer(serializers.ModelSerializer):
         return variant_options(obj)
 
     def create(self, validated_data):
-        from apps.products.costing import StockError, record_purchase
-
-        stock = int(validated_data.pop('stock_quantity', 0) or 0)
-        product = validated_data['product']
-        if stock > 0 and not (product.cost_price and product.cost_price > 0):
-            raise serializers.ValidationError({
-                'stock_quantity': (
-                    'Set a cost price on the product before adding opening stock. '
-                    'Later purchases are recorded from Finance purchase receipts.'
-                ),
-            })
+        # Stock is added only via Finance purchase receipts.
         validated_data['stock_quantity'] = 0
-        with transaction.atomic():
-            variant = super().create(validated_data)
-            if stock > 0:
-                try:
-                    record_purchase(
-                        product=product,
-                        variant=variant,
-                        quantity=stock,
-                        unit_cost=product.cost_price,
-                        user=self.context['request'].user,
-                        note='Opening variant stock',
-                    )
-                except StockError as exc:
-                    raise serializers.ValidationError({'stock_quantity': exc.message})
-                variant.refresh_from_db()
-            return variant
+        validated_data['warehouse_stock'] = 0
+        validated_data['dealer_stock'] = 0
+        return super().create(validated_data)
 
     def update(self, instance, validated_data):
         # Stock changes go through Inventory so every purchase has one voucher.
         validated_data.pop('stock_quantity', None)
+        validated_data.pop('warehouse_stock', None)
+        validated_data.pop('dealer_stock', None)
         return super().update(instance, validated_data)
 
 
@@ -303,20 +282,13 @@ class AdminProductDetailSerializer(ProductDetailSerializer):
 class ProductCreateUpdateSerializer(serializers.ModelSerializer):
     """Serializer for creating/updating products."""
     specifications = ProductSpecificationSerializer(many=True, required=False)
-    opening_stock_location = serializers.ChoiceField(
-        choices=['warehouse', 'dealer'],
-        required=False,
-        default='warehouse',
-        write_only=True,
-        help_text='warehouse = purchased stock; dealer = for-sale stock without a purchase voucher.',
-    )
 
     class Meta:
         model = Product
         fields = ['id', 'slug', 'name', 'sku', 'barcode', 'category', 'subcategory',
                   'description', 'short_description', 'price', 'compare_price',
                   'cost_price', 'size', 'color', 'material', 'stock_quantity',
-                  'opening_stock_location', 'dealer_available',
+                  'dealer_available',
                   'low_stock_threshold', 'is_active', 'is_featured',
                   'supply_type', 'supplied_by',
                   'is_official', 'warranty_period', 'specifications']
@@ -370,14 +342,8 @@ class ProductCreateUpdateSerializer(serializers.ModelSerializer):
                 })
             attrs['supplied_by'] = seller
         if self.instance is None:
-            stock = attrs.get('stock_quantity') or 0
-            cost = attrs.get('cost_price')
-            location = attrs.get('opening_stock_location') or 'warehouse'
-            if stock > 0 and location == 'warehouse' and (cost is None or cost <= 0):
-                raise serializers.ValidationError({
-                    'cost_price': 'Enter the estimated buying price for warehouse purchases.',
-                })
             # Products created in admin are published to the storefront immediately.
+            # Stock starts at 0 and is increased only via Finance purchase receipts.
             attrs['is_active'] = True
         return attrs
 
@@ -392,12 +358,9 @@ class ProductCreateUpdateSerializer(serializers.ModelSerializer):
             )
 
     def create(self, validated_data):
-        from apps.products.costing import StockError, receive_at_average, record_purchase
-
         rows = validated_data.pop('specifications', None)
-        stock = int(validated_data.pop('stock_quantity', 0) or 0)
-        opening_location = validated_data.pop('opening_stock_location', 'warehouse') or 'warehouse'
-        cost = validated_data.get('cost_price')
+        # Ignore any client-sent quantity; stock is detected from purchasing only.
+        validated_data.pop('stock_quantity', None)
         validated_data['stock_quantity'] = 0
         validated_data['warehouse_stock'] = 0
         validated_data['dealer_stock'] = 0
@@ -406,36 +369,14 @@ class ProductCreateUpdateSerializer(serializers.ModelSerializer):
             product = super().create(validated_data)
             if rows is not None:
                 self._replace_specifications(product, rows)
-            if stock > 0:
-                try:
-                    if opening_location == 'dealer':
-                        receive_at_average(
-                            product=product,
-                            quantity=stock,
-                            reason='adjustment',
-                            note='Opening dealer stock for sale',
-                            user=self.context['request'].user,
-                            location='dealer',
-                        )
-                    else:
-                        record_purchase(
-                            product=product,
-                            quantity=stock,
-                            unit_cost=cost,
-                            user=self.context['request'].user,
-                            note='Opening warehouse purchase',
-                            location='warehouse',
-                        )
-                except StockError as exc:
-                    field = 'stock_quantity' if opening_location == 'dealer' else 'cost_price'
-                    raise serializers.ValidationError({field: exc.message})
-                product.refresh_from_db()
             return product
 
     def update(self, instance, validated_data):
         # Stock and average cost are maintained by purchases, sales, and inventory adjustments.
         rows = validated_data.pop('specifications', None)
         validated_data.pop('stock_quantity', None)
+        validated_data.pop('warehouse_stock', None)
+        validated_data.pop('dealer_stock', None)
         validated_data.pop('cost_price', None)
         product = super().update(instance, validated_data)
         if rows is not None:

@@ -181,9 +181,9 @@ class Command(BaseCommand):
             ("hero", "hero", "Hero", "", 1, 5, "", "", "manual"),
             ("categories", "categories", "Categories", "", 2, 12, "", "", "manual"),
             ("benefits", "benefits", "Benefits", "", 3, 4, "", "", "manual"),
-            ("new-arrivals", "products", "New Arrivals", "", 4, 8, "View All", "/products", "latest"),
+            ("trending", "products", "Trending Products", "", 4, 8, "View All", "/products", "manual"),
             ("promos", "promos", "Promotions", "", 5, 2, "", "", "manual"),
-            ("trending", "products", "Trending Products", "", 6, 8, "View All", "/products", "manual"),
+            ("new-arrivals", "products", "New Arrivals", "", 6, 8, "View All", "/products", "latest"),
         ]
         for key, kind, title, subtitle, order, limit, label, url, source in sections:
             HomepageSection.objects.update_or_create(

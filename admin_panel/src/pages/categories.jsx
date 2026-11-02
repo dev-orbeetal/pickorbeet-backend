@@ -258,7 +258,7 @@ export default function CategoriesPage() {
               className="input pl-9 sm:w-64"
             />
           </div>
-          <button type="button" onClick={() => openCategoryModal(null)} className="btn bg-rose-700 text-white hover:bg-rose-800">
+          <button type="button" onClick={() => openCategoryModal(null)} className="btn btn-primary">
             <Plus className="mr-1 h-4 w-4" /> Add Category
           </button>
         </div>
@@ -287,7 +287,7 @@ export default function CategoriesPage() {
                   onDragOver={(event) => event.preventDefault()}
                   onDrop={() => dropCategories(category.id)}
                   onClick={() => setSelectedId(category.id)}
-                  className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-2 ${active ? 'border-rose-200 bg-rose-50' : 'border-transparent hover:bg-gray-50'}`}
+                  className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-2 ${active ? 'border-primary-200 bg-primary-50' : 'border-transparent hover:bg-gray-50'}`}
                 >
                   <GripVertical className="h-4 w-4 shrink-0 text-gray-300" />
                   <div className="min-w-0 flex-1">
@@ -295,12 +295,12 @@ export default function CategoriesPage() {
                     <p className="truncate text-xs text-gray-400">/{category.slug}</p>
                   </div>
                   <button type="button" onClick={(event) => { event.stopPropagation(); openCategoryModal(category); }} className="rounded px-2 py-1 text-xs text-gray-600 hover:bg-white">Edit</button>
-                  <button type="button" onClick={(event) => { event.stopPropagation(); removeCategory(category); }} className="rounded px-2 py-1 text-xs text-rose-600 hover:bg-rose-100">Delete</button>
+                  <button type="button" onClick={(event) => { event.stopPropagation(); removeCategory(category); }} className="rounded px-2 py-1 text-xs text-gray-600 hover:bg-white">Delete</button>
                 </div>
               );
             })}
           </div>
-          <p className="border-t border-gray-100 px-4 py-3 text-center text-xs text-sky-600">Drag and drop to reorder categories.</p>
+          <p className="border-t border-gray-100 px-4 py-3 text-center text-xs text-primary-600">Drag and drop to reorder categories.</p>
         </section>
 
         <section className="rounded-xl border border-gray-200 bg-white p-5">
@@ -314,14 +314,14 @@ export default function CategoriesPage() {
                   <p className="text-xs text-gray-400">/{selected.slug}</p>
                 </div>
                 <div className="flex gap-2">
-                  <button type="button" onClick={() => openCategoryModal(selected)} className="rounded-md bg-rose-700 px-3 py-1.5 text-xs font-medium text-white">Edit</button>
-                  <button type="button" onClick={() => removeCategory(selected)} className="rounded-md bg-rose-700 px-3 py-1.5 text-xs font-medium text-white">Delete</button>
+                  <button type="button" onClick={() => openCategoryModal(selected)} className="rounded-md bg-primary-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-700">Edit</button>
+                  <button type="button" onClick={() => removeCategory(selected)} className="rounded-md bg-primary-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-700">Delete</button>
                 </div>
               </div>
 
               <div className="mb-3 flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-gray-800">Subcategories ({subcategories.length})</h3>
-                <button type="button" onClick={() => openSubcategoryModal(null)} className="rounded-md bg-rose-700 px-3 py-1.5 text-xs font-medium text-white">
+                <button type="button" onClick={() => openSubcategoryModal(null)} className="rounded-md bg-primary-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-700">
                   <Plus className="mr-1 inline h-3.5 w-3.5" /> Add Subcategory
                 </button>
               </div>
@@ -350,11 +350,11 @@ export default function CategoriesPage() {
                       <p className="truncate text-xs text-gray-400">/{subcategory.slug}</p>
                     </div>
                     <button type="button" onClick={() => openSubcategoryModal(subcategory)} className="rounded px-2 py-1 text-xs text-gray-600 hover:bg-gray-100">Edit</button>
-                    <button type="button" onClick={() => removeSubcategory(subcategory)} className="rounded px-2 py-1 text-xs text-rose-600 hover:bg-rose-50">Delete</button>
+                    <button type="button" onClick={() => removeSubcategory(subcategory)} className="rounded px-2 py-1 text-xs text-gray-600 hover:bg-gray-100">Delete</button>
                   </div>
                 ))}
               </div>
-              <p className="mt-4 text-center text-xs text-sky-600">Drag and drop to reorder subcategories.</p>
+              <p className="mt-4 text-center text-xs text-primary-600">Drag and drop to reorder subcategories.</p>
             </>
           )}
         </section>
@@ -401,7 +401,7 @@ export default function CategoriesPage() {
             </div>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setModal(null)} className="btn btn-secondary">Cancel</button>
-              <button type="submit" className="btn bg-rose-700 text-white hover:bg-rose-800">{modal.id ? 'Update' : 'Create'}</button>
+              <button type="submit" className="btn btn-primary">{modal.id ? 'Update' : 'Create'}</button>
             </div>
           </form>
         </div>
@@ -428,7 +428,7 @@ export default function CategoriesPage() {
             </div>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setModal(null)} className="btn btn-secondary">Cancel</button>
-              <button type="submit" className="btn bg-rose-700 text-white hover:bg-rose-800">{modal.id ? 'Update' : 'Create'}</button>
+              <button type="submit" className="btn btn-primary">{modal.id ? 'Update' : 'Create'}</button>
             </div>
           </form>
         </div>

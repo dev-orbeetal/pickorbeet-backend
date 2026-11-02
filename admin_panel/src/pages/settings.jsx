@@ -774,12 +774,12 @@ function OfficialBadgeSettings({ formData, onChange }) {
       <div className="grid gap-6 md:grid-cols-[220px_minmax(0,1fr)]">
         <div className="relative h-44 overflow-hidden rounded-xl border border-gray-200 bg-[#F7F9FC]">
           <span className={`absolute ${corner.className} ${scale} ${corner.origin}`}>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/95 py-1 pl-1 pr-2.5 text-[11px] font-bold leading-none shadow-md" style={{ color }}>
-              <span className="flex h-4 w-4 items-center justify-center rounded-full text-white" style={{ backgroundColor: color }}>
-                <BadgeCheck className="h-3 w-3" aria-hidden="true" />
-              </span>
-              Official
-            </span>
+            <img
+              src="/images/badges/official.png"
+              alt="Official"
+              className="block h-7 w-auto select-none"
+              draggable={false}
+            />
           </span>
         </div>
         <div className="space-y-4">

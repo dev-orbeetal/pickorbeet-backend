@@ -207,7 +207,7 @@ function rowsFromProduct(variants, productImages) {
       sku: variant.sku || '',
       barcode: variant.barcode || '',
       price: variant.price ?? '',
-      stock: variant.stock_quantity ?? 0,
+      stock: variant.warehouse_stock ?? variant.stock_quantity ?? 0,
       lowStock: variant.low_stock_threshold ?? 10,
       isActive: variant.is_active !== false,
       selections: rowSelections(variant),
@@ -294,7 +294,8 @@ const VariantOptions = forwardRef(function VariantOptions({
             id: row.id,
             barcode: row.barcode,
             price: row.price === '' || row.price === null ? null : row.price,
-            stock_quantity: Number(row.stock) || 0,
+            // Stock is purchase-driven; backend ignores this and keeps warehouse totals.
+            stock_quantity: 0,
             low_stock_threshold: Number(row.lowStock) || 0,
             is_active: row.isActive,
             selections: row.selections,
@@ -621,16 +622,18 @@ const VariantOptions = forwardRef(function VariantOptions({
                     />
                   </label>
                   <label className="block text-xs font-medium text-gray-600">
-                    Stock
+                    Warehouse stock
                     <input
                       type="number"
                       value={row.stock}
                       min="0"
-                      onChange={(event) => setRows(rows.map((item) => (
-                        item.key === row.key ? { ...item, stock: event.target.value } : item
-                      )))}
-                      className="input mt-1 text-sm"
+                      readOnly
+                      disabled
+                      className="input mt-1 text-sm bg-gray-50"
                     />
+                    <span className="mt-1 block text-[11px] font-normal text-gray-500">
+                      From Finance purchases
+                    </span>
                   </label>
                   <label className="block text-xs font-medium text-gray-600">
                     Low stock alert

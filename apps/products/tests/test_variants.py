@@ -65,6 +65,9 @@ class VariantOptionTests(ShopTestCase):
         self.assertEqual(color['color_hex'], '#0B1F3A')
         self.assertEqual(body['variants'][0]['sku'], 'ORA-OEB-311-M-MIDNIGHT-128GB')
 
+        # Stock in the payload is ignored — new variants start at 0; purchases update stock later.
+        self.assertEqual(variant['stock_quantity'], 0)
+
         again = self.api.put(
             f'/api/v1/products/admin/products/{self.product.id}/variant-setup/',
             self.payload(variants=[{
@@ -77,7 +80,7 @@ class VariantOptionTests(ShopTestCase):
         self.assertEqual(again.status_code, 200, again.content)
         kept = again.json()['variants'][0]
         self.assertEqual(kept['sku'], 'ORA-OEB-311-M-MIDNIGHT-128GB')
-        self.assertEqual(kept['stock_quantity'], 9)
+        self.assertEqual(kept['stock_quantity'], 0)
 
     def test_duplicate_combination_is_rejected(self):
         row = self.payload()['variants'][0]

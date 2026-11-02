@@ -857,7 +857,7 @@ export default function EditProductPage() {
                   />
                 </label>
                 <label className="flex items-center justify-between cursor-pointer">
-                  <span className="text-gray-700">Featured</span>
+                  <span className="text-gray-700">Trending</span>
                   <input
                     type="checkbox"
                     name="is_featured"

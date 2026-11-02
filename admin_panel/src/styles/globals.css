@@ -15,7 +15,7 @@ body {
   }
   
   .btn-primary {
-    @apply bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-500;
+    @apply bg-primary-500 text-white hover:bg-primary-600 focus:ring-primary-400;
   }
   
   .btn-secondary {
@@ -47,7 +47,7 @@ body {
   }
   
   .sidebar-link.active {
-    @apply bg-primary-600 text-white;
+    @apply bg-primary-500 text-white;
   }
   
   .stat-card {

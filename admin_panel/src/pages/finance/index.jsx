@@ -1,6 +1,9 @@
 import { forwardRef, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Minus, Plus, Printer, Trash2, Upload, X } from 'lucide-react';
+import {
+  BarChart3, Calendar, Check, Minus, Package, Plus, Printer, Receipt,
+  RotateCcw, ShoppingBag, ShoppingCart, Trash2, Upload, Users, Wallet, X,
+} from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useReactToPrint } from 'react-to-print';
 import AdminLayout from '@/components/layout/AdminLayout';
@@ -585,51 +588,80 @@ export default function FinancePage() {
     }
   };
 
+  const orderIncomeRows = (income?.income || []).filter((row) => row.entry_type === 'order');
+  const shareIncomeRows = (income?.income || []).filter((row) => row.entry_type === 'manual');
+  const refundRows = income?.refunds || [];
+  const refundsTotal = refundRows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+
+  const primaryTabs = [
+    { id: 'income', label: 'Income', Icon: Wallet },
+    { id: 'expenses', label: 'Expenses', Icon: Receipt },
+    { id: 'profit', label: 'Product Profit', Icon: BarChart3 },
+    { id: 'products', label: 'Expenses by Product', Icon: Package },
+  ];
+  const incomeTabs = [
+    { id: 'product', label: 'Product Selling', Icon: ShoppingCart },
+    { id: 'share', label: 'Share Amount', Icon: Users },
+  ];
+
+  const pillClass = (active) => (
+    active
+      ? 'bg-primary-500 text-white shadow-sm'
+      : 'bg-[#EEF1F7] text-gray-700 hover:bg-[#E4E9F2]'
+  );
+
   return (
     <AdminLayout title="Finance">
-      <div className="flex flex-col gap-4 mb-6 lg:flex-row lg:items-end lg:justify-between">
+      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Finance</h1>
-          <p className="text-sm text-gray-500">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#E8EEFF] text-sidebar-bg">
+              <BarChart3 className="h-5 w-5" />
+            </span>
+            <h1 className="text-2xl font-bold text-gray-900">Finance</h1>
+          </div>
+          <p className="mt-2 text-sm text-gray-500">
             Record income and expenses, and review product profit.
             {' '}
-            <Link href="/finance/summary" className="text-primary-600 font-medium">
-              View financial summary &amp; transactions report
+            <Link href="/finance/summary" className="font-semibold text-primary-500 hover:text-primary-600">
+              View financial summary &amp; transactions report →
             </Link>
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <input
-            type="date"
-            value={dateRange.start_date}
-            onChange={(event) => setDateRange({ ...dateRange, start_date: event.target.value })}
-            className="input w-auto"
-            aria-label="From date"
-          />
+          <label className="relative inline-flex items-center">
+            <Calendar className="pointer-events-none absolute left-3 h-4 w-4 text-gray-400" />
+            <input
+              type="date"
+              value={dateRange.start_date}
+              onChange={(event) => setDateRange({ ...dateRange, start_date: event.target.value })}
+              className="input w-auto pl-9"
+              aria-label="From date"
+            />
+          </label>
           <span className="text-sm text-gray-400">to</span>
-          <input
-            type="date"
-            value={dateRange.end_date}
-            onChange={(event) => setDateRange({ ...dateRange, end_date: event.target.value })}
-            className="input w-auto"
-            aria-label="To date"
-          />
+          <label className="relative inline-flex items-center">
+            <Calendar className="pointer-events-none absolute left-3 h-4 w-4 text-gray-400" />
+            <input
+              type="date"
+              value={dateRange.end_date}
+              onChange={(event) => setDateRange({ ...dateRange, end_date: event.target.value })}
+              className="input w-auto pl-9"
+              aria-label="To date"
+            />
+          </label>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 mb-6">
-        {[
-          ['income', 'Income'],
-          ['expenses', 'Expenses'],
-          ['profit', 'Product Profit'],
-          ['products', 'Expenses by Product'],
-        ].map(([id, label]) => (
+      <div className="mb-3 flex flex-wrap gap-2">
+        {primaryTabs.map(({ id, label, Icon }) => (
           <button
             key={id}
             type="button"
             onClick={() => setTab(id)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium ${tab === id ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700'}`}
+            className={`inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold transition-colors ${pillClass(tab === id)}`}
           >
+            <Icon className="h-4 w-4" />
             {label}
           </button>
         ))}
@@ -637,82 +669,168 @@ export default function FinancePage() {
 
       {tab === 'income' && (
         incomeError ? <LoadError title="Could not load income" onRetry={refetchIncome} /> : (
-        <div className="space-y-6">
+        <div className="space-y-5">
           <div className="flex flex-wrap gap-2">
-            {[
-              ['product', 'Product Selling'],
-              ['share', 'Share Amount'],
-            ].map(([id, label]) => (
+            {incomeTabs.map(({ id, label, Icon }) => (
               <button
                 key={id}
                 type="button"
                 onClick={() => setIncomeSource(id)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium ${
-                  incomeSource === id ? 'bg-primary-600 text-white' : 'bg-white border border-gray-200 text-gray-700'
+                className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
+                  incomeSource === id
+                    ? 'bg-primary-500 text-white shadow-sm'
+                    : 'border border-[#D8DEEA] bg-white text-gray-700 hover:bg-[#F7F9FC]'
                 }`}
               >
+                <Icon className="h-4 w-4" />
                 {label}
               </button>
             ))}
           </div>
 
           {incomeSource === 'product' ? (
-            <section className="card overflow-hidden">
-              <div className="px-4 py-3 border-b">
-                <h2 className="font-semibold text-gray-900">Product Selling</h2>
-                <p className="text-xs text-gray-500 mt-1">
-                  Automatically synced from paid orders. Admins cannot add product-selling income manually.
-                </p>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      {['Order ID', 'Customer', 'Order date', 'Selling amount', 'Payment status'].map((heading) => (
-                        <th key={heading} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">{heading}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {incomeLoading ? (
-                      <tr><td colSpan="5" className="px-4 py-8 text-center text-gray-500">Loading product sales…</td></tr>
-                    ) : (income?.income || []).filter((row) => row.entry_type === 'order').length === 0 ? (
-                      <tr><td colSpan="5" className="px-4 py-8 text-center text-gray-500">No paid product orders in this range.</td></tr>
-                    ) : (income?.income || []).filter((row) => row.entry_type === 'order').map((row) => (
-                      <tr key={`order-${row.id}`}>
-                        <td className="px-4 py-3 text-sm font-medium text-primary-600">
-                          <Link href={`/orders/${row.order_id || row.id}`}>{row.order_number || row.reference}</Link>
-                        </td>
-                        <td className="px-4 py-3 text-sm">{row.customer_name || '—'}</td>
-                        <td className="px-4 py-3 text-sm">{row.order_date || row.date}</td>
-                        <td className="px-4 py-3 text-sm font-semibold text-green-700">{money(row.amount)}</td>
-                        <td className="px-4 py-3 text-sm">
-                          <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 capitalize">
-                            {row.payment_status || 'paid'}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {!incomeLoading && income ? (
-                <div className="px-4 py-3 border-t text-sm text-gray-600 flex flex-wrap gap-4">
-                  <span className="font-medium text-gray-900">
-                    Total product sales: {money(income.income_total)}
-                  </span>
-                  {Number(income.refunds_subtracted) > 0 ? (
-                    <span>Refunds subtracted: {money(income.refunds_subtracted)}</span>
-                  ) : null}
+            <>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-2xl border border-emerald-100 bg-emerald-50/80 p-4">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+                      <ShoppingCart className="h-5 w-5" />
+                    </span>
+                    <div>
+                      <p className="text-xs font-medium text-emerald-800/80">Total Product Sales</p>
+                      <p className="text-2xl font-bold text-emerald-700">{money(income?.income_total || 0)}</p>
+                    </div>
+                  </div>
                 </div>
-              ) : null}
-            </section>
+                <div className="rounded-2xl border border-sky-100 bg-sky-50/80 p-4">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-100 text-sky-700">
+                      <ShoppingBag className="h-5 w-5" />
+                    </span>
+                    <div>
+                      <p className="text-xs font-medium text-sky-800/80">Orders</p>
+                      <p className="text-2xl font-bold text-sidebar-bg">{orderIncomeRows.length}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-violet-100 bg-violet-50/80 p-4">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-100 text-violet-700">
+                      <RotateCcw className="h-5 w-5" />
+                    </span>
+                    <div>
+                      <p className="text-xs font-medium text-violet-800/80">Refunds (Approved)</p>
+                      <p className="text-2xl font-bold text-violet-700">{money(refundsTotal)}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <section className="overflow-hidden rounded-2xl border border-[#DCE4F2] bg-white shadow-sm">
+                <div className="border-b border-[#E8EEF8] px-5 py-4">
+                  <div className="flex items-center gap-2">
+                    <ShoppingCart className="h-4 w-4 text-sidebar-bg" />
+                    <h2 className="font-semibold text-gray-900">Product Selling</h2>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Automatically synced from paid orders. Admins cannot add product-selling income manually.
+                  </p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="bg-[#F3F7FD]">
+                        {['Order ID', 'Customer', 'Order date', 'Selling amount', 'Payment status'].map((heading) => (
+                          <th key={heading} className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">{heading}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#EEF2F8]">
+                      {incomeLoading ? (
+                        <tr><td colSpan="5" className="px-5 py-10 text-center text-sm text-gray-500">Loading product sales…</td></tr>
+                      ) : orderIncomeRows.length === 0 ? (
+                        <tr>
+                          <td colSpan="5" className="px-5 py-12 text-center">
+                            <Package className="mx-auto mb-2 h-8 w-8 text-gray-300" />
+                            <p className="text-sm text-gray-500">No paid product orders in this range.</p>
+                          </td>
+                        </tr>
+                      ) : orderIncomeRows.map((row) => (
+                        <tr key={`order-${row.id}`} className="hover:bg-[#F8FAFD]">
+                          <td className="px-5 py-3.5 text-sm font-semibold text-primary-600">
+                            <Link href={`/orders/${row.order_id || row.id}`}>{row.order_number || row.reference}</Link>
+                          </td>
+                          <td className="px-5 py-3.5 text-sm text-gray-800">{row.customer_name || '—'}</td>
+                          <td className="px-5 py-3.5 text-sm text-gray-600">{row.order_date || row.date}</td>
+                          <td className="px-5 py-3.5 text-sm font-bold text-emerald-600">{money(row.amount)}</td>
+                          <td className="px-5 py-3.5 text-sm">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold capitalize text-emerald-700">
+                              <Check className="h-3.5 w-3.5" />
+                              {row.payment_status || 'paid'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {!incomeLoading && income ? (
+                  <div className="border-t border-[#DCE4F2] bg-[#F3F7FD] px-5 py-3 text-sm font-semibold text-sidebar-bg">
+                    Total product sales: {money(income.income_total)}
+                  </div>
+                ) : null}
+              </section>
+
+              <section className="overflow-hidden rounded-2xl border border-[#DCE4F2] bg-white shadow-sm">
+                <div className="border-b border-[#E8EEF8] px-5 py-4">
+                  <div className="flex items-center gap-2">
+                    <RotateCcw className="h-4 w-4 text-violet-600" />
+                    <h2 className="font-semibold text-gray-900">Refunds</h2>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    A refund is subtracted only while its order is still counted as paid product sales.
+                  </p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="bg-[#F3F7FD]">
+                        {['Date', 'Order', 'Status', 'Amount', 'In net'].map((heading) => (
+                          <th key={heading} className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">{heading}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#EEF2F8]">
+                      {refundRows.length === 0 ? (
+                        <tr>
+                          <td colSpan="5" className="px-5 py-12 text-center">
+                            <Package className="mx-auto mb-2 h-8 w-8 text-gray-300" />
+                            <p className="text-sm text-gray-500">No approved refunds in this range.</p>
+                          </td>
+                        </tr>
+                      ) : refundRows.map((row) => (
+                        <tr key={row.id} className="hover:bg-[#F8FAFD]">
+                          <td className="px-5 py-3.5 text-sm text-gray-700">{row.date}</td>
+                          <td className="px-5 py-3.5 text-sm font-medium text-primary-600">{row.order_number}</td>
+                          <td className="px-5 py-3.5 text-sm capitalize text-gray-700">{row.status}</td>
+                          <td className="px-5 py-3.5 text-sm font-bold text-violet-700">{money(row.amount)}</td>
+                          <td className="px-5 py-3.5 text-sm text-gray-600">{row.subtracted ? 'Subtracted' : 'Already excluded'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </>
           ) : (
-            <section className="card overflow-hidden">
-              <div className="px-4 py-3 border-b flex items-center justify-between gap-3">
+            <section className="overflow-hidden rounded-2xl border border-[#DCE4F2] bg-white shadow-sm">
+              <div className="flex flex-col gap-3 border-b border-[#E8EEF8] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h2 className="font-semibold text-gray-900">Share Amount</h2>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <div className="flex items-center gap-2">
+                    <Users className="h-4 w-4 text-sidebar-bg" />
+                    <h2 className="font-semibold text-gray-900">Share Amount</h2>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
                     Manually record shareholder contributions from Orbeetal, Rakib, Tasdiq, Mayeen, or Nahiyan.
                   </p>
                 </div>
@@ -723,35 +841,40 @@ export default function FinancePage() {
                     disabled={selectedIncomeIds.length === 0}
                     className="btn btn-secondary"
                   >
-                    <Printer className="w-4 h-4 mr-1" />
+                    <Printer className="mr-1 h-4 w-4" />
                     Print selected{selectedIncomeIds.length ? ` (${selectedIncomeIds.length})` : ''}
                   </button>
                   <button type="button" onClick={openCreateIncome} className="btn btn-primary">
-                    <Plus className="w-4 h-4 mr-1" />
+                    <Plus className="mr-1 h-4 w-4" />
                     Add share amount
                   </button>
                 </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-3 w-10">
+                  <thead>
+                    <tr className="bg-[#F3F7FD]">
+                      <th className="px-5 py-3 w-10">
                         <span className="sr-only">Select</span>
                       </th>
                       {['Date', 'Shareholder', 'Description', 'Comments', 'Amount', 'Reference', ''].map((heading) => (
-                        <th key={heading || 'actions'} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">{heading}</th>
+                        <th key={heading || 'actions'} className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">{heading}</th>
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y">
+                  <tbody className="divide-y divide-[#EEF2F8]">
                     {incomeLoading ? (
-                      <tr><td colSpan="8" className="px-4 py-8 text-center text-gray-500">Loading share amounts…</td></tr>
-                    ) : (income?.income || []).filter((row) => row.entry_type === 'manual').length === 0 ? (
-                      <tr><td colSpan="8" className="px-4 py-8 text-center text-gray-500">No share amounts in this range.</td></tr>
-                    ) : (income?.income || []).filter((row) => row.entry_type === 'manual').map((row) => (
-                      <tr key={`manual-${row.id}`}>
-                        <td className="px-4 py-3">
+                      <tr><td colSpan="8" className="px-5 py-10 text-center text-sm text-gray-500">Loading share amounts…</td></tr>
+                    ) : shareIncomeRows.length === 0 ? (
+                      <tr>
+                        <td colSpan="8" className="px-5 py-12 text-center">
+                          <Package className="mx-auto mb-2 h-8 w-8 text-gray-300" />
+                          <p className="text-sm text-gray-500">No share amounts in this range.</p>
+                        </td>
+                      </tr>
+                    ) : shareIncomeRows.map((row) => (
+                      <tr key={`manual-${row.id}`} className="hover:bg-[#F8FAFD]">
+                        <td className="px-5 py-3.5">
                           <input
                             type="checkbox"
                             checked={selectedIncomeIds.includes(row.id)}
@@ -759,15 +882,15 @@ export default function FinancePage() {
                             aria-label={`Select ${row.reference}`}
                           />
                         </td>
-                        <td className="px-4 py-3 text-sm">{row.date}</td>
-                        <td className="px-4 py-3 text-sm font-medium">{row.share_partner_label || '—'}</td>
-                        <td className="px-4 py-3 text-sm max-w-xs truncate">{row.description || '—'}</td>
-                        <td className="px-4 py-3 text-sm max-w-xs truncate text-gray-600">{row.comments || '—'}</td>
-                        <td className="px-4 py-3 text-sm font-semibold text-green-700">{money(row.amount)}</td>
-                        <td className="px-4 py-3 text-sm font-mono text-xs text-gray-500">{row.reference}</td>
-                        <td className="px-4 py-3 text-right whitespace-nowrap">
-                          <button type="button" onClick={() => printIncomeVoucher(row)} className="text-sm text-gray-600 mr-3">Print</button>
-                          <button type="button" onClick={() => openEditIncome(row)} className="text-sm text-gray-600 mr-3">Edit</button>
+                        <td className="px-5 py-3.5 text-sm text-gray-700">{row.date}</td>
+                        <td className="px-5 py-3.5 text-sm font-medium text-gray-900">{row.share_partner_label || '—'}</td>
+                        <td className="max-w-xs truncate px-5 py-3.5 text-sm text-gray-700">{row.description || '—'}</td>
+                        <td className="max-w-xs truncate px-5 py-3.5 text-sm text-gray-600">{row.comments || '—'}</td>
+                        <td className="px-5 py-3.5 text-sm font-bold text-emerald-600">{money(row.amount)}</td>
+                        <td className="px-5 py-3.5 font-mono text-xs text-gray-500">{row.reference}</td>
+                        <td className="whitespace-nowrap px-5 py-3.5 text-right">
+                          <button type="button" onClick={() => printIncomeVoucher(row)} className="mr-3 text-sm text-gray-600">Print</button>
+                          <button type="button" onClick={() => openEditIncome(row)} className="mr-3 text-sm text-gray-600">Edit</button>
                           <button type="button" onClick={() => removeIncome(row)} className="text-sm text-red-600">Delete</button>
                         </td>
                       </tr>
@@ -776,59 +899,25 @@ export default function FinancePage() {
                 </table>
               </div>
               {!incomeLoading && income ? (
-                <div className="px-4 py-3 border-t text-sm text-gray-600">
-                  <span className="font-medium text-gray-900">
-                    Total share amount: {money(income.manual_income_total)}
-                  </span>
+                <div className="border-t border-[#DCE4F2] bg-[#F3F7FD] px-5 py-3 text-sm font-semibold text-sidebar-bg">
+                  Total share amount: {money(income.manual_income_total)}
                 </div>
               ) : null}
             </section>
           )}
-
-          {incomeSource === 'product' ? (
-            <section className="card overflow-hidden">
-              <div className="px-4 py-3 border-b">
-                <h2 className="font-semibold text-gray-900">Refunds</h2>
-                <p className="text-xs text-gray-500 mt-1">
-                  A refund is subtracted only while its order is still counted as paid product sales.
-                </p>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      {['Date', 'Order', 'Status', 'Amount', 'In net'].map((heading) => (
-                        <th key={heading} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">{heading}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {(income?.refunds || []).length === 0 ? (
-                      <tr><td colSpan="5" className="px-4 py-8 text-center text-gray-500">No approved refunds in this range.</td></tr>
-                    ) : income.refunds.map((row) => (
-                      <tr key={row.id}>
-                        <td className="px-4 py-3 text-sm">{row.date}</td>
-                        <td className="px-4 py-3 text-sm">{row.order_number}</td>
-                        <td className="px-4 py-3 text-sm capitalize">{row.status}</td>
-                        <td className="px-4 py-3 text-sm font-semibold">{money(row.amount)}</td>
-                        <td className="px-4 py-3 text-sm">{row.subtracted ? 'Subtracted' : 'Already excluded'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          ) : null}
         </div>
         )
       )}
 
       {tab === 'expenses' && (
         expensesError ? <LoadError title="Could not load expenses" onRetry={refetchExpenses} /> : (
-        <section className="card overflow-hidden">
-          <div className="px-4 py-3 border-b flex items-center justify-between gap-3">
+        <section className="overflow-hidden rounded-2xl border border-[#DCE4F2] bg-white shadow-sm">
+          <div className="flex items-center justify-between gap-3 border-b border-[#E8EEF8] px-5 py-4">
             <div>
-              <h2 className="font-semibold text-gray-900">Expenses</h2>
+              <div className="flex items-center gap-2">
+                <Receipt className="h-4 w-4 text-sidebar-bg" />
+                <h2 className="font-semibold text-gray-900">Expenses</h2>
+              </div>
               <p className="text-xs text-gray-500 mt-1">
                 Product Buying posts a purchase receipt and updates warehouse or dealer stock automatically. Packaging, Transportation, and Other costs stay finance-only.
               </p>

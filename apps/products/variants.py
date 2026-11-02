@@ -182,7 +182,7 @@ def _clean_rows(groups, rows):
             'id': variant_id,
             'selections': selections,
             'price': price,
-            'stock_quantity': _clean_count(row.get('stock_quantity'), 'stock'),
+            # stock_quantity is ignored — quantities come from purchase receipts only.
             'low_stock_threshold': _clean_count(row.get('low_stock_threshold', 10), 'low stock alert'),
             'is_active': bool(row.get('is_active', True)),
             'barcode': barcode,
@@ -277,7 +277,8 @@ def sync_variant_setup(product, groups, rows):
         ]
         size, color = legacy_fields(cleaned_groups, row['selections'])
         variant = owned.get(row['id']) if row['id'] else None
-        if variant is None:
+        is_new = variant is None
+        if is_new:
             sku = build_variant_sku(
                 product.sku,
                 [item['label'] for item in row['selections']],
@@ -289,7 +290,11 @@ def sync_variant_setup(product, groups, rows):
             raise SetupError(f'The barcode {barcode} is already used.')
         variant.barcode = barcode
         variant.price = row['price']
-        variant.stock_quantity = row['stock_quantity']
+        # Do not overwrite warehouse/dealer stock from the product form.
+        if is_new:
+            variant.stock_quantity = 0
+            variant.warehouse_stock = 0
+            variant.dealer_stock = 0
         variant.low_stock_threshold = row['low_stock_threshold']
         variant.is_active = row['is_active']
         variant.size = size

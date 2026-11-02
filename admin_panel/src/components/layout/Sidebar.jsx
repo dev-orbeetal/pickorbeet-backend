@@ -27,25 +27,25 @@ export default function Sidebar() {
   return (
     <aside className="fixed left-0 top-0 h-screen w-64 bg-sidebar-bg text-white flex flex-col z-50">
       <div className="p-6 border-b border-white/10">
-        <Link href="/dashboard" className="text-2xl font-bold text-primary-400">
+        <Link href="/dashboard" className="text-2xl font-bold text-primary-500">
           PickOrbeet
         </Link>
         <p className="text-xs text-gray-400 mt-1">Admin Panel</p>
       </div>
 
-      <nav className="flex-1 py-4 overflow-y-auto">
-        {groups.map((group) => (
-          <div key={group.label} className="mb-4">
-            <p className="px-6 pb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+      <nav className="flex-1 overflow-y-auto px-2 py-3">
+        {groups.map((group, index) => (
+          <div key={group.label} className={index === 0 ? 'mb-3' : 'mb-3 mt-4'}>
+            <p className="px-4 pb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-white/45">
               {group.label}
             </p>
-            <ul className="space-y-1">
+            <ul className="space-y-0.5">
               {group.items.map((item) => {
                 const Icon = ICONS[item.icon];
                 const isActive = router.pathname === item.href || router.pathname.startsWith(`${item.href}/`);
                 return (
                   <li key={item.href}>
-                    <Link href={item.href} className={`sidebar-link ${isActive ? 'active' : ''}`}>
+                    <Link href={item.href} className={`sidebar-link !mx-0 ${isActive ? 'active' : ''}`}>
                       {Icon && <Icon className="w-5 h-5 mr-3" />}
                       {item.label}
                     </Link>
