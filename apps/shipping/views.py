@@ -9,8 +9,9 @@ from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.db import IntegrityError
-from django.db.models import Q
+from django.db.models import Count, Q, Sum
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -20,10 +21,27 @@ from rest_framework.views import APIView
 from apps.accounts.permissions import IsStaffUser
 from apps.orders.models import Order
 from apps.orders.serializers import OrderDetailSerializer
+from core.pagination import AdminPagination
 
 from .models import Shipment
-from .serializers import BookShipmentSerializer
-from .services import ShipmentCooldown, ShipmentError, apply_courier_status, book_shipment, refresh_shipment
+from .serializers import (
+    AdminShipmentDetailSerializer,
+    AdminShipmentListSerializer,
+    BookShipmentSerializer,
+)
+from .services import (
+    FINAL_STATUSES,
+    STATUS_GROUP_ORDER,
+    ShipmentCooldown,
+    ShipmentError,
+    apply_courier_status,
+    book_shipment,
+    bulk_refresh_shipments,
+    refresh_shipment,
+    status_group,
+    statuses_for_group,
+)
+from .steadfast import SteadfastClient, SteadfastError, SteadfastNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +136,181 @@ def _parse_amount(value):
         return Decimal(str(value)).quantize(Decimal('0.01'))
     except (InvalidOperation, ValueError):
         return None
+
+
+def _shipment_queryset():
+    return Shipment.objects.select_related('order', 'booked_by').prefetch_related('events')
+
+
+def _filtered_shipments(request):
+    qs = _shipment_queryset()
+    status_value = (request.query_params.get('status') or '').strip()
+    status_group_value = (request.query_params.get('status_group') or '').strip()
+    search = (request.query_params.get('search') or '').strip()
+    booked_from = parse_date((request.query_params.get('booked_from') or '').strip())
+    booked_to = parse_date((request.query_params.get('booked_to') or '').strip())
+    open_only = (request.query_params.get('open') or '').strip().lower() in {'1', 'true', 'yes'}
+
+    if status_value:
+        qs = qs.filter(status=status_value)
+    if status_group_value:
+        qs = qs.filter(status__in=statuses_for_group(status_group_value) or [status_group_value])
+    if open_only:
+        qs = qs.exclude(status__in=FINAL_STATUSES)
+    if search:
+        qs = qs.filter(
+            Q(invoice__icontains=search)
+            | Q(tracking_code__icontains=search)
+            | Q(consignment_id__icontains=search)
+            | Q(recipient_phone__icontains=search)
+            | Q(recipient_name__icontains=search)
+            | Q(order__order_number__icontains=search)
+            | Q(order__shipping_phone__icontains=search)
+        )
+    if booked_from:
+        qs = qs.filter(booked_at__date__gte=booked_from)
+    if booked_to:
+        qs = qs.filter(booked_at__date__lte=booked_to)
+    return qs.order_by('-booked_at', '-created_at')
+
+
+class AdminShipmentListView(APIView):
+    """Staff: paginated local shipment list with filters."""
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def get(self, request):
+        qs = _filtered_shipments(request)
+        paginator = AdminPagination()
+        page = paginator.paginate_queryset(qs, request, view=self)
+        serializer = AdminShipmentListSerializer(page, many=True, context={'request': request})
+        return paginator.get_paginated_response(serializer.data)
+
+
+class AdminShipmentSummaryView(APIView):
+    """Staff: KPI counts by status group and open COD totals."""
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def get(self, request):
+        qs = _filtered_shipments(request)
+        # Group counts from the filtered set (ignore status filters so chips stay useful).
+        base = Shipment.objects.all()
+        booked_from = parse_date((request.query_params.get('booked_from') or '').strip())
+        booked_to = parse_date((request.query_params.get('booked_to') or '').strip())
+        if booked_from:
+            base = base.filter(booked_at__date__gte=booked_from)
+        if booked_to:
+            base = base.filter(booked_at__date__lte=booked_to)
+
+        raw_counts = {row['status']: row['c'] for row in base.values('status').annotate(c=Count('id'))}
+        by_group = {key: 0 for key in STATUS_GROUP_ORDER}
+        for raw_status, count in raw_counts.items():
+            group = status_group(raw_status)
+            by_group[group] = by_group.get(group, 0) + count
+
+        open_qs = base.exclude(status__in=FINAL_STATUSES)
+        open_agg = open_qs.aggregate(open_count=Count('id'), open_cod=Sum('cod_amount'))
+        return Response({
+            'total': sum(by_group.values()),
+            'by_status_group': by_group,
+            'open_count': open_agg['open_count'] or 0,
+            'open_cod_total': str(open_agg['open_cod'] or Decimal('0.00')),
+            'filtered_count': qs.count(),
+        })
+
+
+class AdminShipmentDetailView(APIView):
+    """Staff: shipment detail with local events; optional live Steadfast timeline."""
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def get(self, request, pk):
+        shipment = _shipment_queryset().filter(pk=pk).first()
+        if shipment is None:
+            return Response({'error': 'Shipment not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        live_trackings = None
+        want_live = (request.query_params.get('live') or '').strip().lower() in {'1', 'true', 'yes'}
+        if want_live and shipment.invoice:
+            client = SteadfastClient()
+            if client.is_configured:
+                try:
+                    live_trackings = client.trackings_by_invoice(shipment.invoice)
+                except SteadfastNotFoundError:
+                    live_trackings = []
+                except SteadfastError as exc:
+                    logger.info('Live tracking unavailable for %s: %s', shipment.invoice, exc)
+                    live_trackings = None
+
+        data = AdminShipmentDetailSerializer(
+            shipment,
+            context={'request': request, 'live_trackings': live_trackings},
+        ).data
+        return Response(data)
+
+
+class AdminShipmentRefreshView(APIView):
+    """Staff: force-refresh one shipment by id."""
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def post(self, request, pk):
+        shipment = _shipment_queryset().filter(pk=pk).first()
+        if shipment is None:
+            return Response({'error': 'Shipment not found'}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            shipment, _ = refresh_shipment(shipment, force=True, source='manual')
+        except ShipmentError as exc:
+            return _error(exc)
+        return Response(AdminShipmentDetailSerializer(shipment, context={'request': request}).data)
+
+
+class AdminShipmentBulkRefreshView(APIView):
+    """Staff: refresh up to N open (or explicitly listed) shipments."""
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def post(self, request):
+        ids = request.data.get('ids') if hasattr(request.data, 'get') else None
+        try:
+            limit = int(request.data.get('limit', 50))
+        except (TypeError, ValueError):
+            limit = 50
+        limit = max(1, min(limit, 100))
+        try:
+            pause = float(request.data.get('pause', 0.25))
+        except (TypeError, ValueError):
+            pause = 0.25
+        pause = max(0.0, min(pause, 2.0))
+
+        if ids:
+            qs = _shipment_queryset().filter(pk__in=ids)
+        else:
+            qs = (
+                _filtered_shipments(request)
+                .exclude(status__in=FINAL_STATUSES)
+                .exclude(consignment_id='', tracking_code='')
+                .order_by('last_checked_at')
+            )
+        try:
+            result = bulk_refresh_shipments(qs, limit=limit, pause=pause)
+        except ShipmentError as exc:
+            return _error(exc)
+        return Response(result)
+
+
+class AdminSteadfastBalanceView(APIView):
+    """Staff: live merchant balance from Steadfast."""
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def get(self, request):
+        client = SteadfastClient()
+        if not client.is_configured:
+            return Response({'configured': False, 'current_balance': None})
+        try:
+            balance = client.get_balance()
+        except SteadfastError as exc:
+            return Response(
+                {'configured': True, 'current_balance': None, 'error': str(exc.message)},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response({'configured': True, 'current_balance': balance})
 
 
 class SteadfastWebhookView(APIView):

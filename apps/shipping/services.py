@@ -342,3 +342,49 @@ def refresh_shipment(shipment, *, force=False, client=None, source='poll'):
         occurred_at=now,
         checked_at=now,
     )
+
+
+def statuses_for_group(group):
+    """All raw statuses that map into a status group (e.g. ``delivered``)."""
+    return [status for status, mapped in STATUS_GROUPS.items() if mapped == group]
+
+
+def bulk_refresh_shipments(queryset, *, client=None, limit=50, pause=0.25):
+    """Force-refresh up to ``limit`` shipments. Returns a summary dict."""
+    import time
+
+    client = client or SteadfastClient()
+    if not client.is_configured:
+        raise ShipmentError(
+            'courier_not_configured',
+            'Steadfast API keys are not configured.',
+            http_status=503,
+        )
+
+    shipments = list(queryset[:limit])
+    checked = changed = failed = 0
+    errors = []
+    for shipment in shipments:
+        try:
+            _, did_change = refresh_shipment(shipment, force=True, client=client, source='manual')
+            checked += 1
+            changed += int(did_change)
+        except ShipmentError as exc:
+            failed += 1
+            errors.append({
+                'id': str(shipment.pk),
+                'order_number': getattr(getattr(shipment, 'order', None), 'order_number', ''),
+                'code': exc.code,
+                'error': exc.message,
+            })
+            if exc.code in {'courier_not_configured', 'courier_auth_failed'}:
+                break
+        if pause:
+            time.sleep(pause)
+    return {
+        'requested': len(shipments),
+        'checked': checked,
+        'changed': changed,
+        'failed': failed,
+        'errors': errors[:20],
+    }

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Link from 'next/link';
 import { Copy, ExternalLink, RefreshCw, Truck } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -128,6 +129,11 @@ export default function SteadfastCard({ order, onBook, onRefresh, booking, refre
               <RefreshCw className={`w-4 h-4 mr-1.5 ${refreshing ? 'animate-spin' : ''}`} />
               {refreshing ? 'Checking…' : 'Refresh status'}
             </button>
+            {shipment.id && (
+              <Link href="/shipments/" className="btn btn-secondary text-sm">
+                View in Shipments
+              </Link>
+            )}
           </div>
           {shipment.events?.length > 0 && (
             <div className="pt-3 border-t space-y-3">

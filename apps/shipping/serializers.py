@@ -60,6 +60,56 @@ class AdminShipmentSerializer(ShipmentSerializer):
         ]
 
 
+class AdminShipmentOrderSummarySerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    order_number = serializers.CharField()
+    customer_name = serializers.CharField()
+    customer_phone = serializers.CharField()
+    order_status = serializers.CharField()
+    payment_status = serializers.CharField()
+    order_type = serializers.CharField()
+    total = serializers.DecimalField(max_digits=12, decimal_places=2)
+
+
+def _order_summary(order):
+    return {
+        'id': order.id,
+        'order_number': order.order_number,
+        'customer_name': order.customer_name,
+        'customer_phone': order.customer_phone,
+        'order_status': order.order_status,
+        'payment_status': order.payment_status,
+        'order_type': order.order_type,
+        'total': order.total,
+    }
+
+
+class AdminShipmentListSerializer(AdminShipmentSerializer):
+    """Row for the admin shipments table (no event timeline)."""
+
+    order = serializers.SerializerMethodField()
+
+    class Meta(AdminShipmentSerializer.Meta):
+        fields = [f for f in AdminShipmentSerializer.Meta.fields if f != 'events'] + ['order']
+
+    def get_order(self, obj):
+        return AdminShipmentOrderSummarySerializer(_order_summary(obj.order)).data
+
+
+class AdminShipmentDetailSerializer(AdminShipmentSerializer):
+    order = serializers.SerializerMethodField()
+    live_trackings = serializers.SerializerMethodField()
+
+    class Meta(AdminShipmentSerializer.Meta):
+        fields = AdminShipmentSerializer.Meta.fields + ['order', 'live_trackings']
+
+    def get_order(self, obj):
+        return AdminShipmentOrderSummarySerializer(_order_summary(obj.order)).data
+
+    def get_live_trackings(self, obj):
+        return self.context.get('live_trackings')
+
+
 def serialize_shipment(order, context=None):
     """Nested shipment for an order payload, or ``None`` before booking."""
     # The reverse one-to-one raises a DoesNotExist that is also an AttributeError.

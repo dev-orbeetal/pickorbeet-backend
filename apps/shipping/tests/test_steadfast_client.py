@@ -117,3 +117,23 @@ class SteadfastClientTests(SimpleTestCase):
         client, _ = self.client_with(FakeResponse(200, {'status': 200, 'message': 'ok'}))
         with self.assertRaises(SteadfastError):
             client.create_order(**ORDER)
+
+    def test_get_balance(self):
+        client, session = self.client_with(FakeResponse(200, {
+            'status': 200, 'current_balance': '1842.50',
+        }))
+        self.assertEqual(client.get_balance(), 1842.5)
+        self.assertEqual(session.calls[0]['url'], 'https://portal.packzy.com/api/v1/get_balance')
+
+    def test_get_balance_missing_field(self):
+        client, _ = self.client_with(FakeResponse(200, {'status': 200}))
+        with self.assertRaises(SteadfastError):
+            client.get_balance()
+
+    def test_trackings_by_invoice(self):
+        steps = [{'status': 'pending', 'message': 'At hub'}]
+        client, session = self.client_with(FakeResponse(200, {
+            'status': 200, 'trackings': steps,
+        }))
+        self.assertEqual(client.trackings_by_invoice('ORD-1'), steps)
+        self.assertTrue(session.calls[0]['url'].endswith('/trackings_by_invoice/ORD-1'))

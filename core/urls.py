@@ -29,7 +29,7 @@ urlpatterns = [
     # the panel does not edit.
     re_path(r'^admin/(?P<path>.*)$', serve_admin_panel, name='admin_panel'),
     re_path(
-        r'^(?P<page>login|dashboard|orders|products|categories|pos|coupons|inventory|barcode-labels|low-stock|reports|traffic|payments|staff|customers|contact|support|settings|finance)(?P<rest>/.*)?$',
+        r'^(?P<page>login|dashboard|orders|products|categories|pos|coupons|inventory|barcode-labels|low-stock|reports|traffic|payments|staff|customers|contact|support|settings|finance|homepage|shipments)(?P<rest>/.*)?$',
         redirect_panel_path,
     ),
     path('django-admin/', admin.site.urls),

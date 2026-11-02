@@ -128,6 +128,8 @@ export const baseApi = createApi({
     'Banners',
     'HomepageSections',
     'Traffic',
+    'Shipments',
+    'SteadfastBalance',
   ],
   endpoints: () => ({}),
 });

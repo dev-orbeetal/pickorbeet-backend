@@ -11,3 +11,4 @@ export * from './customersApi';
 export * from './contactApi';
 export * from './supportApi';
 export * from './trafficApi';
+export * from './shippingApi';
