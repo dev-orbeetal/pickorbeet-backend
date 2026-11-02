@@ -530,7 +530,11 @@ class AdminOrderListView(generics.ListAPIView):
     ordering_fields = ['created_at', 'total']
 
     def get_queryset(self):
-        return Order.objects.all().select_related('shipment').prefetch_related('items__product__images')
+        qs = Order.objects.all().select_related('shipment').prefetch_related('items__product__images')
+        without_shipment = (self.request.query_params.get('without_shipment') or '').strip().lower()
+        if without_shipment in {'1', 'true', 'yes'}:
+            qs = qs.filter(shipment__isnull=True)
+        return qs
 
 
 class AdminOrderDetailView(generics.RetrieveDestroyAPIView):

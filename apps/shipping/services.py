@@ -56,6 +56,8 @@ _STATUS_ALIASES = {
     'partially_delivered_approval_pending': 'partial_delivered_approval_pending',
     'on_hold': 'hold',
     'review': 'in_review',
+    # Portal-only labels (not returned by create_order).
+    'unassigned': 'unknown',
 }
 
 
@@ -250,6 +252,141 @@ def book_shipment(order, user=None, *, note='', client=None):
                 order,
                 'shipped',
                 note=f'Booked with Steadfast Courier. Tracking code {tracking_code}.',
+                changed_by=shipment.booked_by,
+            )
+
+    return shipment
+
+
+# -- import (portal-only parcels) ------------------------------------------------------
+
+def _lookup_courier_status(client, *, consignment_id='', tracking_code=''):
+    consignment_id = str(consignment_id or '').strip()
+    tracking_code = str(tracking_code or '').strip()
+    if not consignment_id and not tracking_code:
+        raise ShipmentError(
+            'missing_identifier',
+            'Provide a Steadfast consignment ID or tracking code.',
+        )
+    try:
+        if consignment_id:
+            raw_status = client.status_by_cid(consignment_id)
+        else:
+            raw_status = client.status_by_tracking_code(tracking_code)
+    except SteadfastError as exc:
+        raise _courier_failure(exc) from exc
+    status = normalize_status(raw_status)
+    return {
+        'consignment_id': consignment_id,
+        'tracking_code': tracking_code,
+        'status': status,
+        'status_group': status_group(status),
+        'raw_status': str(raw_status),
+    }
+
+
+def preview_import(*, consignment_id='', tracking_code='', client=None):
+    """Look up a Steadfast parcel without writing a local shipment."""
+    client = client or SteadfastClient()
+    if not client.is_configured:
+        raise ShipmentError(
+            'courier_not_configured',
+            'Steadfast API keys are not configured.',
+            http_status=503,
+        )
+    return _lookup_courier_status(client, consignment_id=consignment_id, tracking_code=tracking_code)
+
+
+def import_shipment(order, user=None, *, consignment_id='', tracking_code='', client=None):
+    """Attach an existing Steadfast consignment to a PickOrbeet order."""
+    client = client or SteadfastClient()
+    if not client.is_configured:
+        raise ShipmentError(
+            'courier_not_configured',
+            'Steadfast API keys are not configured.',
+            http_status=503,
+        )
+
+    consignment_id = str(consignment_id or '').strip()
+    tracking_code = str(tracking_code or '').strip()
+    preview = _lookup_courier_status(client, consignment_id=consignment_id, tracking_code=tracking_code)
+
+    with transaction.atomic():
+        order = Order.objects.select_for_update().get(pk=order.pk)
+        existing = Shipment.objects.filter(order=order).first()
+        if existing and (existing.consignment_id or existing.tracking_code):
+            raise ShipmentError('already_booked', 'This order already has a Steadfast shipment.', 409)
+        if order.order_type not in ('online', 'external'):
+            raise ShipmentError('not_bookable', 'Only online and external orders can be linked to a courier parcel.')
+        if order.order_status not in BOOKABLE_ORDER_STATUSES:
+            raise ShipmentError(
+                'not_bookable',
+                f'A {order.get_order_status_display().lower()} order cannot be linked to Steadfast.',
+            )
+
+        if consignment_id and Shipment.objects.filter(consignment_id=consignment_id).exists():
+            raise ShipmentError(
+                'already_imported',
+                'This consignment is already linked to another PickOrbeet order.',
+                409,
+            )
+        if tracking_code and Shipment.objects.filter(tracking_code__iexact=tracking_code).exists():
+            raise ShipmentError(
+                'already_imported',
+                'This tracking code is already linked to another PickOrbeet order.',
+                409,
+            )
+
+        recipient_phone = normalize_phone(order.shipping_phone)
+        recipient_name = (order.shipping_name or '').strip()[:100]
+        recipient_address = recipient_address_for(order)
+        if not recipient_name or not recipient_address:
+            raise ShipmentError('incomplete_address', 'The order needs a recipient name and address.')
+        cod_amount = cod_amount_for(order)
+        now = timezone.now()
+        tracking = tracking_code or ''
+
+        shipment = existing or Shipment(order=order)
+        shipment.courier = Shipment.COURIER_STEADFAST
+        shipment.invoice = order.order_number
+        shipment.consignment_id = consignment_id
+        shipment.tracking_code = tracking
+        shipment.tracking_url = tracking_url_for(tracking)
+        shipment.status = preview['status'] or 'unknown'
+        shipment.status_message = 'Imported from Steadfast portal.'
+        shipment.recipient_name = recipient_name
+        shipment.recipient_phone = recipient_phone
+        shipment.recipient_address = recipient_address
+        shipment.cod_amount = cod_amount
+        shipment.note = ''
+        shipment.booked_at = now
+        shipment.booked_by = user if user is not None and getattr(user, 'is_authenticated', False) else None
+        shipment.status_updated_at = now
+        shipment.last_checked_at = now
+        shipment.raw_response = {
+            'imported': True,
+            'delivery_status': preview.get('raw_status'),
+            'consignment_id': consignment_id,
+            'tracking_code': tracking,
+        }
+        shipment.save()
+
+        ShipmentEvent.objects.create(
+            shipment=shipment,
+            source='manual',
+            status=shipment.status,
+            message='Imported existing Steadfast consignment.',
+            payload=shipment.raw_response,
+            occurred_at=now,
+        )
+
+        if settings.STEADFAST_SYNC_ORDER_STATUS and order.order_status in {'pending', 'confirmed', 'processing'}:
+            change_order_status(
+                order,
+                'shipped',
+                note=(
+                    f'Linked Steadfast consignment {consignment_id or tracking}.'
+                ),
                 changed_by=shipment.booked_by,
             )
 

@@ -1,19 +1,22 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
-  ExternalLink, Eye, RefreshCw, Search, Truck, Wallet, X,
+  Download, ExternalLink, Eye, RefreshCw, Search, Truck, Wallet, X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '@/components/layout/AdminLayout';
 import LoadError from '@/components/ui/LoadError';
 import Pager from '@/components/ui/Pager';
 import { courierBadgeClass } from '@/components/orders/SteadfastCard';
+import { useGetOrdersQuery } from '@/store/api/ordersApi';
 import {
   useBulkRefreshShipmentsMutation,
   useGetShipmentSummaryQuery,
   useGetShipmentsQuery,
   useGetSteadfastBalanceQuery,
+  useImportShipmentMutation,
   useLazyGetShipmentQuery,
+  usePreviewShipmentImportMutation,
   useRefreshShipmentMutation,
 } from '@/store/api/shippingApi';
 
@@ -51,6 +54,14 @@ export default function ShipmentsPage() {
   const [detail, setDetail] = useState(null);
   const [liveSteps, setLiveSteps] = useState(null);
   const [loadingLive, setLoadingLive] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importForm, setImportForm] = useState({
+    consignment_id: '',
+    tracking_code: '',
+    orderSearch: '',
+    order_id: '',
+  });
+  const [importPreview, setImportPreview] = useState(null);
 
   const queryParams = useMemo(() => {
     const params = { page };
@@ -78,7 +89,20 @@ export default function ShipmentsPage() {
   } = useGetShipmentsQuery(queryParams);
   const [refreshShipment, { isLoading: refreshing }] = useRefreshShipmentMutation();
   const [bulkRefresh, { isLoading: bulkRefreshing }] = useBulkRefreshShipmentsMutation();
+  const [previewImport, { isLoading: previewing }] = usePreviewShipmentImportMutation();
+  const [importShipment, { isLoading: importing }] = useImportShipmentMutation();
   const [fetchDetail] = useLazyGetShipmentQuery();
+
+  const orderPickerParams = useMemo(() => {
+    const params = { without_shipment: 1, page_size: 20, page: 1 };
+    if (importForm.orderSearch.trim()) params.search = importForm.orderSearch.trim();
+    return params;
+  }, [importForm.orderSearch]);
+
+  const { data: linkableOrdersData } = useGetOrdersQuery(orderPickerParams, { skip: !importOpen });
+  const linkableOrders = Array.isArray(linkableOrdersData?.results)
+    ? linkableOrdersData.results
+    : (Array.isArray(linkableOrdersData) ? linkableOrdersData : []);
 
   const shipments = Array.isArray(shipmentsData?.results) ? shipmentsData.results : [];
   const byGroup = summary?.by_status_group || {};
@@ -150,6 +174,47 @@ export default function ShipmentsPage() {
     }
   };
 
+  const openImport = () => {
+    setImportOpen(true);
+    setImportPreview(null);
+    setImportForm({ consignment_id: '', tracking_code: '', orderSearch: '', order_id: '' });
+  };
+
+  const handlePreviewImport = async () => {
+    try {
+      const preview = await previewImport({
+        consignment_id: importForm.consignment_id.trim(),
+        tracking_code: importForm.tracking_code.trim(),
+      }).unwrap();
+      setImportPreview(preview);
+      toast.success('Parcel found on Steadfast');
+    } catch (error) {
+      setImportPreview(null);
+      toast.error(error?.data?.error || 'Could not look up that parcel');
+    }
+  };
+
+  const handleImport = async () => {
+    if (!importForm.order_id) {
+      toast.error('Select an order to link');
+      return;
+    }
+    try {
+      const shipment = await importShipment({
+        order_id: importForm.order_id,
+        consignment_id: importForm.consignment_id.trim(),
+        tracking_code: importForm.tracking_code.trim(),
+      }).unwrap();
+      toast.success('Shipment imported');
+      setImportOpen(false);
+      refetch();
+      refetchSummary();
+      openDetail(shipment);
+    } catch (error) {
+      toast.error(error?.data?.error || 'Import failed');
+    }
+  };
+
   return (
     <AdminLayout title="Shipments">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
@@ -159,18 +224,24 @@ export default function ShipmentsPage() {
             Shipments
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            Steadfast parcels booked through PickOrbeet — local status plus live balance.
+            Book new parcels from an order. Import portal-only Steadfast consignments here.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={handleBulkRefresh}
-          disabled={bulkRefreshing || !shipments.length}
-          className="btn btn-secondary"
-        >
-          <RefreshCw className={`w-4 h-4 mr-2 ${bulkRefreshing ? 'animate-spin' : ''}`} />
-          {bulkRefreshing ? 'Refreshing…' : 'Refresh open on page'}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={openImport} className="btn btn-primary">
+            <Download className="w-4 h-4 mr-2" />
+            Import from Steadfast
+          </button>
+          <button
+            type="button"
+            onClick={handleBulkRefresh}
+            disabled={bulkRefreshing || !shipments.length}
+            className="btn btn-secondary"
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${bulkRefreshing ? 'animate-spin' : ''}`} />
+            {bulkRefreshing ? 'Refreshing…' : 'Refresh open on page'}
+          </button>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 mb-6">
@@ -443,6 +514,120 @@ export default function ShipmentsPage() {
               )}
             </div>
           </aside>
+        </div>
+      )}
+
+      {importOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={() => setImportOpen(false)}>
+          <div
+            className="w-full max-w-lg bg-white rounded-2xl shadow-xl max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 border-b px-5 py-4">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Import from Steadfast</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Paste a consignment ID from the Steadfast portal and link it to a PickOrbeet order that has no shipment yet.
+                </p>
+              </div>
+              <button type="button" onClick={() => setImportOpen(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-sm">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
+                  Consignment ID
+                </label>
+                <input
+                  type="text"
+                  value={importForm.consignment_id}
+                  onChange={(e) => setImportForm((c) => ({ ...c, consignment_id: e.target.value }))}
+                  placeholder="e.g. 315320720"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
+                  Tracking code (optional)
+                </label>
+                <input
+                  type="text"
+                  value={importForm.tracking_code}
+                  onChange={(e) => setImportForm((c) => ({ ...c, tracking_code: e.target.value }))}
+                  placeholder="If you have it"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={handlePreviewImport}
+                disabled={previewing || (!importForm.consignment_id.trim() && !importForm.tracking_code.trim())}
+                className="btn btn-secondary w-full"
+              >
+                {previewing ? 'Looking up…' : 'Preview on Steadfast'}
+              </button>
+
+              {importPreview && (
+                <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 space-y-1">
+                  <p className="font-medium text-gray-900">
+                    Status:{' '}
+                    <span className={`badge border ${courierBadgeClass(importPreview.status_group)}`}>
+                      {importPreview.status}
+                    </span>
+                  </p>
+                  {importPreview.consignment_id && (
+                    <p className="text-gray-600">Consignment {importPreview.consignment_id}</p>
+                  )}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
+                  Link to order
+                </label>
+                <input
+                  type="search"
+                  value={importForm.orderSearch}
+                  onChange={(e) => setImportForm((c) => ({ ...c, orderSearch: e.target.value, order_id: '' }))}
+                  placeholder="Search order number or phone…"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 mb-2"
+                />
+                <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-xl divide-y">
+                  {!linkableOrders.length ? (
+                    <p className="px-3 py-3 text-gray-500">No unshipped orders match.</p>
+                  ) : (
+                    linkableOrders.map((order) => (
+                      <button
+                        key={order.id}
+                        type="button"
+                        onClick={() => setImportForm((c) => ({ ...c, order_id: order.id }))}
+                        className={`w-full text-left px-3 py-2.5 hover:bg-gray-50 ${
+                          importForm.order_id === order.id ? 'bg-primary-50' : ''
+                        }`}
+                      >
+                        <p className="font-medium text-gray-900">{order.order_number}</p>
+                        <p className="text-xs text-gray-500">
+                          {order.customer_name} · {order.order_status} · {money(order.total)}
+                        </p>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleImport}
+                disabled={importing || !importForm.order_id}
+                className="btn btn-primary w-full"
+              >
+                {importing ? 'Importing…' : 'Import and link'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </AdminLayout>

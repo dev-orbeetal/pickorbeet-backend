@@ -125,3 +125,21 @@ def serialize_shipment(order, context=None):
 
 class BookShipmentSerializer(serializers.Serializer):
     note = serializers.CharField(required=False, allow_blank=True, max_length=500)
+
+
+class ImportShipmentPreviewSerializer(serializers.Serializer):
+    consignment_id = serializers.CharField(required=False, allow_blank=True, max_length=50)
+    tracking_code = serializers.CharField(required=False, allow_blank=True, max_length=64)
+
+    def validate(self, attrs):
+        consignment_id = (attrs.get('consignment_id') or '').strip()
+        tracking_code = (attrs.get('tracking_code') or '').strip()
+        if not consignment_id and not tracking_code:
+            raise serializers.ValidationError('Provide a consignment ID or tracking code.')
+        attrs['consignment_id'] = consignment_id
+        attrs['tracking_code'] = tracking_code
+        return attrs
+
+
+class ImportShipmentSerializer(ImportShipmentPreviewSerializer):
+    order_id = serializers.UUIDField()

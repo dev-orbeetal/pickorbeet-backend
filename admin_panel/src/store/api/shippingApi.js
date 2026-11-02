@@ -49,6 +49,25 @@ export const shippingApi = baseApi.injectEndpoints({
       query: () => '/shipping/admin/steadfast/balance/',
       providesTags: ['SteadfastBalance'],
     }),
+    previewShipmentImport: builder.mutation({
+      query: (body) => ({
+        url: '/shipping/admin/shipments/import/preview/',
+        method: 'POST',
+        body,
+      }),
+    }),
+    importShipment: builder.mutation({
+      query: (body) => ({
+        url: '/shipping/admin/shipments/import/',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: [
+        { type: 'Shipments', id: 'LIST' },
+        { type: 'Shipments', id: 'SUMMARY' },
+        { type: 'Orders', id: 'LIST' },
+      ],
+    }),
   }),
 });
 
@@ -60,4 +79,6 @@ export const {
   useRefreshShipmentMutation,
   useBulkRefreshShipmentsMutation,
   useGetSteadfastBalanceQuery,
+  usePreviewShipmentImportMutation,
+  useImportShipmentMutation,
 } = shippingApi;

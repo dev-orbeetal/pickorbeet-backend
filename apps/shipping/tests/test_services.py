@@ -38,6 +38,8 @@ class HelperTests(SimpleTestCase):
         self.assertEqual(status_group('Partial Delivered'), 'partial_delivered')
         self.assertEqual(status_group('cancelled_approval_pending'), 'cancelled')
         self.assertEqual(status_group('in_review'), 'in_review')
+        self.assertEqual(normalize_status('unassigned'), 'unknown')
+        self.assertEqual(status_group('unassigned'), 'unknown')
         self.assertEqual(status_group('something_new'), 'unknown')
         self.assertEqual(normalize_status('Canceled'), 'cancelled')
 

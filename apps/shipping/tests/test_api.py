@@ -271,3 +271,103 @@ class AdminShipmentDashboardTests(ShopTestCase):
     def test_customers_cannot_access_admin_shipments(self):
         self.api.force_authenticate(self.customer)
         self.assertEqual(self.api.get('/api/v1/shipping/admin/shipments/').status_code, 403)
+
+
+@override_settings(STEADFAST_SYNC_ORDER_STATUS=True, STEADFAST_WEBHOOK_TOKEN='hook-secret')
+class AdminShipmentImportTests(ShopTestCase):
+    def setUp(self):
+        super().setUp()
+        self.staff = make_user(role='seller')
+        self.order = make_order(user=make_user())
+        self.api = APIClient()
+        self.api.force_authenticate(self.staff)
+
+    def test_preview_returns_normalized_status(self):
+        with mock.patch('apps.shipping.services.SteadfastClient', return_value=FakeClient(status='unassigned')):
+            response = self.api.post(
+                '/api/v1/shipping/admin/shipments/import/preview/',
+                {'consignment_id': '315320720'},
+                format='json',
+            )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body['consignment_id'], '315320720')
+        self.assertEqual(body['status'], 'unknown')
+        self.assertEqual(body['status_group'], 'unknown')
+
+    def test_import_creates_shipment_and_blocks_duplicate(self):
+        with mock.patch('apps.shipping.services.SteadfastClient', return_value=FakeClient(status='pending')):
+            created = self.api.post(
+                '/api/v1/shipping/admin/shipments/import/',
+                {
+                    'order_id': str(self.order.pk),
+                    'consignment_id': '315320720',
+                    'tracking_code': 'SFIMPORT1',
+                },
+                format='json',
+            )
+        self.assertEqual(created.status_code, 201)
+        body = created.json()
+        self.assertEqual(body['consignment_id'], '315320720')
+        self.assertEqual(body['tracking_code'], 'SFIMPORT1')
+        self.assertEqual(body['status'], 'pending')
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.order_status, 'shipped')
+
+        other = make_order(user=make_user())
+        with mock.patch('apps.shipping.services.SteadfastClient', return_value=FakeClient(status='pending')):
+            again = self.api.post(
+                '/api/v1/shipping/admin/shipments/import/',
+                {'order_id': str(other.pk), 'consignment_id': '315320720'},
+                format='json',
+            )
+        self.assertEqual(again.status_code, 409)
+        self.assertEqual(again.json()['code'], 'already_imported')
+
+    def test_import_rejected_when_order_already_has_shipment(self):
+        book_shipment(self.order, self.staff, client=FakeClient())
+        with mock.patch('apps.shipping.services.SteadfastClient', return_value=FakeClient(status='pending')):
+            response = self.api.post(
+                '/api/v1/shipping/admin/shipments/import/',
+                {'order_id': str(self.order.pk), 'consignment_id': '999888'},
+                format='json',
+            )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()['code'], 'already_booked')
+
+    def test_webhook_updates_imported_consignment(self):
+        with mock.patch('apps.shipping.services.SteadfastClient', return_value=FakeClient(status='pending')):
+            imported = self.api.post(
+                '/api/v1/shipping/admin/shipments/import/',
+                {'order_id': str(self.order.pk), 'consignment_id': '315320720'},
+                format='json',
+            )
+        self.assertEqual(imported.status_code, 201)
+        shipment_id = imported.json()['id']
+
+        hook = APIClient().post(
+            '/api/v1/shipping/steadfast/webhook/',
+            {
+                'notification_type': 'delivery_status',
+                'consignment_id': 315320720,
+                'invoice': self.order.order_number,
+                'status': 'delivered',
+                'tracking_message': 'Delivered.',
+                'updated_at': '2025-10-24 12:45:30',
+            },
+            format='json',
+            HTTP_AUTHORIZATION='Bearer hook-secret',
+            HTTP_IDEMPOTENCY_KEY='import-evt-1',
+        )
+        self.assertEqual(hook.status_code, 200)
+        shipment = Shipment.objects.get(pk=shipment_id)
+        self.assertEqual(shipment.status, 'delivered')
+
+    def test_orders_without_shipment_filter(self):
+        linked = make_order(user=make_user())
+        book_shipment(linked, self.staff, client=FakeClient(consignment_id=55, tracking_code='ZZZ'))
+        response = self.api.get('/api/v1/orders/admin/', {'without_shipment': 1})
+        self.assertEqual(response.status_code, 200)
+        ids = {row['id'] for row in response.json()['results']}
+        self.assertIn(str(self.order.pk), ids)
+        self.assertNotIn(str(linked.pk), ids)

@@ -28,6 +28,8 @@ from .serializers import (
     AdminShipmentDetailSerializer,
     AdminShipmentListSerializer,
     BookShipmentSerializer,
+    ImportShipmentPreviewSerializer,
+    ImportShipmentSerializer,
 )
 from .services import (
     FINAL_STATUSES,
@@ -37,6 +39,8 @@ from .services import (
     apply_courier_status,
     book_shipment,
     bulk_refresh_shipments,
+    import_shipment,
+    preview_import,
     refresh_shipment,
     status_group,
     statuses_for_group,
@@ -311,6 +315,47 @@ class AdminSteadfastBalanceView(APIView):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         return Response({'configured': True, 'current_balance': balance})
+
+
+class AdminShipmentImportPreviewView(APIView):
+    """Staff: look up a Steadfast parcel before linking it to an order."""
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def post(self, request):
+        serializer = ImportShipmentPreviewSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            preview = preview_import(**serializer.validated_data)
+        except ShipmentError as exc:
+            return _error(exc)
+        return Response(preview)
+
+
+class AdminShipmentImportView(APIView):
+    """Staff: import an existing Steadfast consignment onto a PickOrbeet order."""
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def post(self, request):
+        serializer = ImportShipmentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        order = Order.objects.filter(pk=data['order_id']).first()
+        if order is None:
+            return Response({'error': 'Order not found'}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            shipment = import_shipment(
+                order,
+                request.user,
+                consignment_id=data.get('consignment_id', ''),
+                tracking_code=data.get('tracking_code', ''),
+            )
+        except ShipmentError as exc:
+            return _error(exc)
+        shipment = _shipment_queryset().get(pk=shipment.pk)
+        return Response(
+            AdminShipmentDetailSerializer(shipment, context={'request': request}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class SteadfastWebhookView(APIView):
