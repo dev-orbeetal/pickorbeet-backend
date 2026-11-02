@@ -411,45 +411,50 @@ class VerifyEmailView(APIView):
         
         try:
             user = User.objects.get(email=email)
-            
-            # Find valid OTP for this user
-            otp_obj = EmailVerificationToken.objects.filter(
-                user=user,
-                otp_code=otp_code,
-                is_used=False
-            ).first()
-            
+            otp_code = str(otp_code).strip()
+
+            # Prefer an unused code; fall back to a just-used match so a client that
+            # timed out after a successful verify can still receive tokens.
+            otp_obj = (
+                EmailVerificationToken.objects.filter(
+                    user=user, otp_code=otp_code, is_used=False,
+                ).first()
+                or EmailVerificationToken.objects.filter(
+                    user=user, otp_code=otp_code, is_used=True,
+                ).order_by('-created_at').first()
+            )
+
             if not otp_obj:
                 return Response(
                     {'error': 'Invalid verification code.'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            
-            if not otp_obj.is_valid():
-                return Response(
-                    {'error': 'Verification code has expired. Please request a new one.'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Verify user
-            user.is_verified = True
-            user.save()
-            
-            # Mark OTP as used
-            otp_obj.is_used = True
-            otp_obj.save()
-            
-            # Send welcome email
-            try:
-                send_welcome_email(user)
-            except Exception:
-                pass
-            
-            # Generate JWT tokens for auto-login
+
+            already_verified = user.is_verified and otp_obj.is_used
+            if not already_verified:
+                if otp_obj.is_used or not otp_obj.is_valid():
+                    return Response(
+                        {'error': 'Verification code has expired. Please request a new one.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                user.is_verified = True
+                user.save(update_fields=['is_verified'])
+                otp_obj.is_used = True
+                otp_obj.save(update_fields=['is_used'])
+
+                try:
+                    send_welcome_email(user)
+                except Exception:
+                    pass
+
             refresh = RefreshToken.for_user(user)
-            
             return Response({
-                'message': 'Email verified successfully! Welcome to Pickorbeet!',
+                'message': (
+                    'Email already verified. You are signed in.'
+                    if already_verified
+                    else 'Email verified successfully! Welcome to Pickorbeet!'
+                ),
                 'access': str(refresh.access_token),
                 'refresh': str(refresh),
                 'user': {
@@ -459,9 +464,9 @@ class VerifyEmailView(APIView):
                     'last_name': user.last_name,
                     'role': user.role,
                     'is_verified': True,
-                }
+                },
             })
-            
+
         except User.DoesNotExist:
             return Response(
                 {'error': 'Invalid email address.'},

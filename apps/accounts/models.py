@@ -100,6 +100,56 @@ class User(AbstractBaseUser, PermissionsMixin):
         return self.role == 'super_admin'
 
 
+class BdDivision(models.Model):
+    """Bangladesh administrative division (catalog for address cascade)."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=100)
+    slug = models.SlugField(max_length=100, unique=True)
+    display_order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ['display_order', 'name']
+        verbose_name = 'BD Division'
+        verbose_name_plural = 'BD Divisions'
+
+    def __str__(self):
+        return self.name
+
+
+class BdDistrict(models.Model):
+    """District under a Bangladesh division."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    division = models.ForeignKey(BdDivision, on_delete=models.CASCADE, related_name='districts')
+    name = models.CharField(max_length=100)
+    slug = models.SlugField(max_length=100)
+
+    class Meta:
+        ordering = ['name']
+        unique_together = [('division', 'slug')]
+        verbose_name = 'BD District'
+        verbose_name_plural = 'BD Districts'
+
+    def __str__(self):
+        return f'{self.name} ({self.division.name})'
+
+
+class BdPostOffice(models.Model):
+    """Post office + postal code under a district."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    district = models.ForeignKey(BdDistrict, on_delete=models.CASCADE, related_name='post_offices')
+    name = models.CharField(max_length=150)
+    postal_code = models.CharField(max_length=20, db_index=True)
+
+    class Meta:
+        ordering = ['name', 'postal_code']
+        unique_together = [('district', 'name', 'postal_code')]
+        verbose_name = 'BD Post Office'
+        verbose_name_plural = 'BD Post Offices'
+
+    def __str__(self):
+        return f'{self.name} ({self.postal_code})'
+
+
 class Address(models.Model):
     """Address model for shipping and billing."""
     
@@ -118,8 +168,10 @@ class Address(models.Model):
     phone = models.CharField(max_length=20)
     address_line1 = models.CharField(max_length=255)
     address_line2 = models.CharField(max_length=255, blank=True, null=True)
+    division = models.CharField(max_length=100, blank=True, default='')
     city = models.CharField(max_length=100)
     district = models.CharField(max_length=100)
+    post_office = models.CharField(max_length=150, blank=True, default='')
     postal_code = models.CharField(max_length=20, blank=True, null=True)
     country = models.CharField(max_length=100, default='Bangladesh')
     
@@ -138,9 +190,12 @@ class Address(models.Model):
         return f"{self.full_name} - {self.address_line1}, {self.city}"
 
     def save(self, *args, **kwargs):
-        # Auto-detect if inside Dhaka
-        dhaka_areas = ['dhaka', 'mirpur', 'uttara', 'gulshan', 'banani', 'dhanmondi', 'mohammadpur']
-        self.is_inside_dhaka = (self.city or '').lower() in dhaka_areas or (self.district or '').lower() == 'dhaka'
+        from apps.accounts.bd_geo import is_inside_dhaka as detect_dhaka
+        self.is_inside_dhaka = detect_dhaka(
+            city=self.city,
+            district=self.district,
+            division=self.division,
+        )
         super().save(*args, **kwargs)
         if self.is_default and self.user_id:
             Address.objects.filter(user_id=self.user_id).exclude(pk=self.pk).update(is_default=False)

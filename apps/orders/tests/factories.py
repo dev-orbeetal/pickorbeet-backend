@@ -9,11 +9,37 @@ from itertools import count
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 
-from apps.accounts.models import User
+from apps.accounts.models import BdDistrict, BdDivision, BdPostOffice, User
 from apps.orders.models import Order, OrderItem, OrderStatusHistory
 from apps.products.models import Category, Product
 
 _seq = count(1)
+
+
+def ensure_bd_test_locations():
+    """Minimal Bangladesh catalog so address/checkout validation can pass in tests."""
+    locations = (
+        ('Dhaka', 'dhaka', 1, (('Dhaka', 'dhaka', (('Gulshan Model Town', '1212'), ('Dhaka GPO', '1000'))),)),
+        ('Chattogram', 'chattogram', 2, (('Chattogram', 'chattogram', (('Chattogram GPO', '4000'),)),)),
+        ('Sylhet', 'sylhet', 3, (('Sylhet', 'sylhet', (('Sylhet Sadar', '3100'),)),)),
+    )
+    for div_name, div_slug, order, districts in locations:
+        division, _ = BdDivision.objects.get_or_create(
+            slug=div_slug,
+            defaults={'name': div_name, 'display_order': order},
+        )
+        for dist_name, dist_slug, offices in districts:
+            district, _ = BdDistrict.objects.get_or_create(
+                division=division,
+                slug=dist_slug,
+                defaults={'name': dist_name},
+            )
+            for office_name, code in offices:
+                BdPostOffice.objects.get_or_create(
+                    district=district,
+                    name=office_name,
+                    postal_code=code,
+                )
 
 
 class ShopTestCase(TestCase):
@@ -35,6 +61,7 @@ class ShopTestCase(TestCase):
     def setUp(self):
         super().setUp()
         cache.clear()  # throttle counters live in the cache
+        ensure_bd_test_locations()
 
 
 def make_user(role='customer', **fields):
@@ -68,9 +95,11 @@ def make_order(user=None, products=None, status='pending', payment_status='pendi
         'shipping_phone': '+880 1712 345678',
         'shipping_address_line1': 'House 12, Road 4',
         'shipping_address_line2': 'Malibagh',
+        'shipping_division': 'Dhaka',
         'shipping_city': 'Dhaka',
         'shipping_district': 'Dhaka',
-        'shipping_postal_code': '1217',
+        'shipping_post_office': 'Gulshan Model Town',
+        'shipping_postal_code': '1212',
     }
     defaults.update(fields)
     products = products if products is not None else [make_product()]

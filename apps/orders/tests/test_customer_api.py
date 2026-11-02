@@ -24,8 +24,11 @@ class DeliveryEditTests(ShopTestCase):
         self.assertTrue(self.api.get(f'/api/v1/orders/my-orders/{self.order.pk}/').json()['can_edit_delivery'])
         response = self.api.patch(self.url(), {
             'shipping_address_line1': 'Holding 7, College Road',
+            'shipping_division': 'Chattogram',
             'shipping_city': 'Chattogram',
             'shipping_district': 'Chattogram',
+            'shipping_post_office': 'Chattogram GPO',
+            'shipping_postal_code': '4000',
             'shipping_phone': '+880 1812-345678',
         }, format='json')
         self.assertEqual(response.status_code, 200, response.content)
@@ -50,8 +53,13 @@ class DeliveryEditTests(ShopTestCase):
     def test_paid_order_cannot_change_zone(self):
         self.order.payment_status = 'paid'
         self.order.save()
-        blocked = self.api.patch(self.url(), {'shipping_city': 'Sylhet', 'shipping_district': 'Sylhet'},
-                                 format='json')
+        blocked = self.api.patch(self.url(), {
+            'shipping_division': 'Sylhet',
+            'shipping_city': 'Sylhet',
+            'shipping_district': 'Sylhet',
+            'shipping_post_office': 'Sylhet Sadar',
+            'shipping_postal_code': '3100',
+        }, format='json')
         self.assertEqual(blocked.status_code, 400)
         allowed = self.api.patch(self.url(), {'shipping_address_line2': 'Shantinagar'}, format='json')
         self.assertEqual(allowed.status_code, 200)
@@ -77,8 +85,10 @@ class CheckoutSelectionTests(ShopTestCase):
         self.line_b = CartItem.objects.create(cart=cart, product=self.powerbank, quantity=1)
         self.address = {
             'shipping_name': 'Rakibul Hasan', 'shipping_phone': '01712345678',
-            'shipping_address_line1': 'House 12, Road 4', 'shipping_city': 'Dhaka',
-            'shipping_district': 'Dhaka', 'shipping_postal_code': '1217',
+            'shipping_address_line1': 'House 12, Road 4',
+            'shipping_division': 'Dhaka', 'shipping_city': 'Gulshan',
+            'shipping_district': 'Dhaka', 'shipping_post_office': 'Gulshan Model Town',
+            'shipping_postal_code': '1212',
         }
 
     def test_cart_lines_expose_pricing_and_stock(self):

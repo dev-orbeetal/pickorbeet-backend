@@ -281,8 +281,10 @@ class CheckoutView(APIView):
                 shipping_phone=data['shipping_phone'],
                 shipping_address_line1=data['shipping_address_line1'],
                 shipping_address_line2=data.get('shipping_address_line2', ''),
+                shipping_division=data.get('shipping_division', ''),
                 shipping_city=data['shipping_city'],
                 shipping_district=data['shipping_district'],
+                shipping_post_office=data.get('shipping_post_office', ''),
                 shipping_postal_code=data.get('shipping_postal_code', ''),
                 subtotal=subtotal,
                 discount=discount_amount,
@@ -298,8 +300,10 @@ class CheckoutView(APIView):
                 order.billing_phone = data.get('billing_phone')
                 order.billing_address_line1 = data.get('billing_address_line1')
                 order.billing_address_line2 = data.get('billing_address_line2')
+                order.billing_division = data.get('billing_division', '')
                 order.billing_city = data.get('billing_city')
                 order.billing_district = data.get('billing_district')
+                order.billing_post_office = data.get('billing_post_office', '')
                 order.billing_postal_code = data.get('billing_postal_code')
             
             order.save()
@@ -453,7 +457,7 @@ class CustomerOrderDeliveryView(APIView):
         order = Order.objects.filter(pk=pk, user=request.user).first()
         if order is None:
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
-        serializer = DeliveryUpdateSerializer(data=request.data)
+        serializer = DeliveryUpdateSerializer(data=request.data, context={'order': order})
         serializer.is_valid(raise_exception=True)
         try:
             update_delivery_details(order, serializer.validated_data, changed_by=request.user)
@@ -641,8 +645,10 @@ class ExternalOrderView(APIView):
                 shipping_phone=data['customer_phone'],
                 shipping_address_line1=data['shipping_address_line1'],
                 shipping_address_line2=data.get('shipping_address_line2') or '',
+                shipping_division=data.get('shipping_division') or '',
                 shipping_city=data['shipping_city'],
                 shipping_district=data['shipping_district'],
+                shipping_post_office=data.get('shipping_post_office') or '',
                 shipping_postal_code=data.get('shipping_postal_code') or '',
                 subtotal=subtotal,
                 discount=data.get('discount') or 0,
@@ -706,7 +712,9 @@ class ExternalOrderUpdateView(APIView):
         except Order.DoesNotExist:
             return Response({'detail': 'Order not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-        serializer = ExternalOrderUpdateSerializer(data=request.data, partial=True)
+        serializer = ExternalOrderUpdateSerializer(
+            data=request.data, partial=True, context={'order': order},
+        )
         serializer.is_valid(raise_exception=True)
         try:
             order = update_external_order(

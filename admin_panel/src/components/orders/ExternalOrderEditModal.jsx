@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, Search, Trash2, X, Package } from 'lucide-react';
 import toast from 'react-hot-toast';
+import BdAddressFields from '@/components/BdAddressFields';
 import { useGetInventoryItemsQuery } from '@/store/api/productsApi';
 import { useUpdateExternalOrderMutation } from '@/store/api/ordersApi';
 import { getMediaUrl } from '@/lib/utils';
@@ -24,8 +25,10 @@ export default function ExternalOrderEditModal({ order, open, onClose }) {
       customer_email: order.customer_email || order.guest_email || '',
       shipping_address_line1: order.shipping_address_line1 || '',
       shipping_address_line2: order.shipping_address_line2 || '',
+      shipping_division: order.shipping_division || '',
       shipping_city: order.shipping_city || '',
       shipping_district: order.shipping_district || '',
+      shipping_post_office: order.shipping_post_office || '',
       shipping_postal_code: order.shipping_postal_code || '',
       stock_location: '',
       delivery_charge: String(order.delivery_charge ?? 0),
@@ -113,8 +116,14 @@ export default function ExternalOrderEditModal({ order, open, onClose }) {
       toast.error('Customer name and phone are required');
       return;
     }
-    if (!form.shipping_address_line1.trim() || !form.shipping_city.trim() || !form.shipping_district.trim()) {
-      toast.error('Enter a full delivery address');
+    if (
+      !form.shipping_address_line1.trim()
+      || !form.shipping_division.trim()
+      || !form.shipping_district.trim()
+      || !form.shipping_post_office.trim()
+      || !form.shipping_city.trim()
+    ) {
+      toast.error('Enter a full delivery address (division, district, post office, city)');
       return;
     }
     if (form.items.length === 0) {
@@ -129,8 +138,10 @@ export default function ExternalOrderEditModal({ order, open, onClose }) {
         customer_email: form.customer_email || '',
         shipping_address_line1: form.shipping_address_line1.trim(),
         shipping_address_line2: form.shipping_address_line2 || '',
+        shipping_division: form.shipping_division.trim(),
         shipping_city: form.shipping_city.trim(),
         shipping_district: form.shipping_district.trim(),
+        shipping_post_office: form.shipping_post_office.trim(),
         shipping_postal_code: form.shipping_postal_code || '',
         stock_location: '',
         delivery_charge: form.delivery_charge || 0,
@@ -182,12 +193,24 @@ export default function ExternalOrderEditModal({ order, open, onClose }) {
             <Field label="Address line 2" className="sm:col-span-2">
               <input className="input" value={form.shipping_address_line2} onChange={(e) => setForm({ ...form, shipping_address_line2: e.target.value })} />
             </Field>
-            <Field label="City" required>
-              <input className="input" required value={form.shipping_city} onChange={(e) => setForm({ ...form, shipping_city: e.target.value })} />
-            </Field>
-            <Field label="District" required>
-              <input className="input" required value={form.shipping_district} onChange={(e) => setForm({ ...form, shipping_district: e.target.value })} />
-            </Field>
+            <BdAddressFields
+              Field={Field}
+              value={{
+                division: form.shipping_division,
+                district: form.shipping_district,
+                post_office: form.shipping_post_office,
+                postal_code: form.shipping_postal_code,
+                city: form.shipping_city,
+              }}
+              onChange={(next) => setForm({
+                ...form,
+                shipping_division: next.division || '',
+                shipping_district: next.district || '',
+                shipping_post_office: next.post_office || '',
+                shipping_postal_code: next.postal_code || '',
+                shipping_city: next.city || '',
+              })}
+            />
             <Field label="Delivery charge">
               <input type="number" min="0" step="0.01" className="input" value={form.delivery_charge} onChange={(e) => setForm({ ...form, delivery_charge: e.target.value })} />
             </Field>

@@ -119,8 +119,10 @@ class OrderEmailTests(ShopTestCase):
         CartItem.objects.create(cart=cart, product=product, quantity=1)
         response = api.post('/api/v1/orders/checkout/', {
             'shipping_name': 'Rakibul Hasan', 'shipping_phone': '01712345678',
-            'shipping_address_line1': 'House 12, Road 4', 'shipping_city': 'Dhaka',
-            'shipping_district': 'Dhaka', 'shipping_postal_code': '1217',
+            'shipping_address_line1': 'House 12, Road 4',
+            'shipping_division': 'Dhaka', 'shipping_city': 'Gulshan',
+            'shipping_district': 'Dhaka', 'shipping_post_office': 'Gulshan Model Town',
+            'shipping_postal_code': '1212',
         }, format='json')
         self.assertEqual(response.status_code, 201, response.content)
         self.assertEqual(len(mail.outbox), 1)

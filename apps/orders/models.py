@@ -265,8 +265,10 @@ class Order(models.Model):
     shipping_phone = models.CharField(max_length=20)
     shipping_address_line1 = models.CharField(max_length=255)
     shipping_address_line2 = models.CharField(max_length=255, blank=True, null=True)
+    shipping_division = models.CharField(max_length=100, blank=True, default='')
     shipping_city = models.CharField(max_length=100)
     shipping_district = models.CharField(max_length=100)
+    shipping_post_office = models.CharField(max_length=150, blank=True, default='')
     shipping_postal_code = models.CharField(max_length=20, blank=True, null=True)
     shipping_country = models.CharField(max_length=100, default='Bangladesh')
     is_inside_dhaka = models.BooleanField(default=False)
@@ -276,8 +278,10 @@ class Order(models.Model):
     billing_phone = models.CharField(max_length=20, blank=True, null=True)
     billing_address_line1 = models.CharField(max_length=255, blank=True, null=True)
     billing_address_line2 = models.CharField(max_length=255, blank=True, null=True)
+    billing_division = models.CharField(max_length=100, blank=True, default='')
     billing_city = models.CharField(max_length=100, blank=True, null=True)
     billing_district = models.CharField(max_length=100, blank=True, null=True)
+    billing_post_office = models.CharField(max_length=150, blank=True, default='')
     billing_postal_code = models.CharField(max_length=20, blank=True, null=True)
     
     # Pricing
@@ -334,10 +338,11 @@ class Order(models.Model):
         return self.order_number
 
     def save(self, *args, **kwargs):
-        dhaka_areas = ['dhaka', 'mirpur', 'uttara', 'gulshan', 'banani', 'dhanmondi', 'mohammadpur']
-        self.is_inside_dhaka = (
-            (self.shipping_city or '').lower() in dhaka_areas
-            or (self.shipping_district or '').lower() == 'dhaka'
+        from apps.accounts.bd_geo import is_inside_dhaka as detect_dhaka
+        self.is_inside_dhaka = detect_dhaka(
+            city=self.shipping_city,
+            district=self.shipping_district,
+            division=self.shipping_division,
         )
 
         # In-shop is always pickup. External orders keep the admin-set delivery charge

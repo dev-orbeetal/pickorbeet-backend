@@ -24,12 +24,12 @@ class ExternalOrderUpdateError(Exception):
 # Statuses where stock should be deducted
 STOCK_DEDUCTED_STATUSES = {'confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered'}
 
-# Same areas Order.save() treats as inside Dhaka.
-DHAKA_AREAS = {'dhaka', 'mirpur', 'uttara', 'gulshan', 'banani', 'dhanmondi', 'mohammadpur'}
+from apps.accounts.bd_geo import DHAKA_AREAS, is_inside_dhaka  # noqa: F401 — re-exported for callers
 
 DELIVERY_FIELDS = [
     'shipping_name', 'shipping_phone', 'shipping_address_line1', 'shipping_address_line2',
-    'shipping_city', 'shipping_district', 'shipping_postal_code',
+    'shipping_division', 'shipping_city', 'shipping_district', 'shipping_post_office',
+    'shipping_postal_code',
 ]
 
 
@@ -37,10 +37,6 @@ class DeliveryUpdateError(Exception):
     def __init__(self, message):
         super().__init__(message)
         self.message = message
-
-
-def is_inside_dhaka(city, district):
-    return (city or '').strip().lower() in DHAKA_AREAS or (district or '').strip().lower() == 'dhaka'
 
 
 def can_edit_delivery(order):
@@ -59,7 +55,8 @@ def update_delivery_details(order, changes, changed_by=None):
             raise DeliveryUpdateError('Delivery details can no longer be changed for this order.')
         city = changes.get('shipping_city', order.shipping_city)
         district = changes.get('shipping_district', order.shipping_district)
-        inside = is_inside_dhaka(city, district)
+        division = changes.get('shipping_division', order.shipping_division)
+        inside = is_inside_dhaka(city=city, district=district, division=division)
         if order.payment_status == 'paid' and inside != order.is_inside_dhaka:
             raise DeliveryUpdateError(
                 'This order is already paid, so the delivery area cannot change. Please contact support.'
@@ -282,7 +279,8 @@ def update_external_order(order, data, user=None):
             locked.guest_email = data.get('customer_email') or ''
         for field in (
             'shipping_address_line1', 'shipping_address_line2',
-            'shipping_city', 'shipping_district', 'shipping_postal_code',
+            'shipping_division', 'shipping_city', 'shipping_district',
+            'shipping_post_office', 'shipping_postal_code',
         ):
             if field in data and data[field] is not None:
                 setattr(locked, field, data[field] or '')

@@ -40,6 +40,7 @@ urlpatterns = [
     
     # API Endpoints
     path('api/v1/auth/', include('apps.accounts.urls')),
+    path('api/v1/geo/', include('apps.accounts.geo_urls')),
     path('api/v1/products/', include('apps.products.urls')),
     path('api/v1/orders/', include('apps.orders.urls')),
     path('api/v1/payments/', include('apps.payments.urls')),

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '@/components/layout/AdminLayout';
+import BdAddressFields from '@/components/BdAddressFields';
 import { useGetInventoryItemsQuery } from '@/store/api/productsApi';
 import { useCreateExternalOrderMutation } from '@/store/api/ordersApi';
 import { getMediaUrl } from '@/lib/utils';
@@ -16,8 +17,10 @@ const emptyCustomer = {
   customer_email: '',
   shipping_address_line1: '',
   shipping_address_line2: '',
-  shipping_city: 'Dhaka',
+  shipping_division: 'Dhaka',
+  shipping_city: '',
   shipping_district: 'Dhaka',
+  shipping_post_office: '',
   shipping_postal_code: '',
 };
 
@@ -110,8 +113,14 @@ export default function NewOrderPage() {
       toast.error('Customer name and phone are required');
       return;
     }
-    if (!customer.shipping_address_line1.trim() || !customer.shipping_city.trim() || !customer.shipping_district.trim()) {
-      toast.error('Enter a full delivery address');
+    if (
+      !customer.shipping_address_line1.trim()
+      || !customer.shipping_division.trim()
+      || !customer.shipping_district.trim()
+      || !customer.shipping_post_office.trim()
+      || !customer.shipping_city.trim()
+    ) {
+      toast.error('Enter a full delivery address (division, district, post office, city)');
       return;
     }
     if (lines.length === 0) {
@@ -215,22 +224,24 @@ export default function NewOrderPage() {
                   onChange={(e) => setCustomer({ ...customer, shipping_address_line2: e.target.value })}
                 />
               </Field>
-              <Field label="City" required>
-                <input
-                  className="input"
-                  required
-                  value={customer.shipping_city}
-                  onChange={(e) => setCustomer({ ...customer, shipping_city: e.target.value })}
-                />
-              </Field>
-              <Field label="District" required>
-                <input
-                  className="input"
-                  required
-                  value={customer.shipping_district}
-                  onChange={(e) => setCustomer({ ...customer, shipping_district: e.target.value })}
-                />
-              </Field>
+              <BdAddressFields
+                Field={Field}
+                value={{
+                  division: customer.shipping_division,
+                  district: customer.shipping_district,
+                  post_office: customer.shipping_post_office,
+                  postal_code: customer.shipping_postal_code,
+                  city: customer.shipping_city,
+                }}
+                onChange={(next) => setCustomer({
+                  ...customer,
+                  shipping_division: next.division || '',
+                  shipping_district: next.district || '',
+                  shipping_post_office: next.post_office || '',
+                  shipping_postal_code: next.postal_code || '',
+                  shipping_city: next.city || '',
+                })}
+              />
             </div>
           </section>
 

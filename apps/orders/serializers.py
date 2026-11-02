@@ -353,11 +353,13 @@ class OrderDetailSerializer(serializers.ModelSerializer):
                   'guest_email', 'guest_phone', 'guest_name',
                   'order_type', 'order_status', 'payment_status',
                   'shipping_name', 'shipping_phone', 'shipping_address_line1',
-                  'shipping_address_line2', 'shipping_city', 'shipping_district',
-                  'shipping_postal_code', 'shipping_country', 'is_inside_dhaka',
+                  'shipping_address_line2', 'shipping_division', 'shipping_city',
+                  'shipping_district', 'shipping_post_office', 'shipping_postal_code',
+                  'shipping_country', 'is_inside_dhaka',
                   'billing_name', 'billing_phone', 'billing_address_line1',
-                  'billing_address_line2', 'billing_city', 'billing_district',
-                  'billing_postal_code', 'subtotal', 'delivery_charge',
+                  'billing_address_line2', 'billing_division', 'billing_city',
+                  'billing_district', 'billing_post_office', 'billing_postal_code',
+                  'subtotal', 'delivery_charge',
                   'discount', 'total', 'coupon_code', 'payment_method', 'transaction_id',
                   'processed_by', 'processed_by_name', 'notes', 'stock_location',
                   'item_count', 'items', 'status_history', 'shipment', 'can_edit_delivery',
@@ -382,8 +384,10 @@ class CheckoutSerializer(serializers.Serializer):
     shipping_phone = serializers.CharField(max_length=20)
     shipping_address_line1 = serializers.CharField(max_length=255)
     shipping_address_line2 = serializers.CharField(required=False, allow_blank=True)
+    shipping_division = serializers.CharField(max_length=100)
     shipping_city = serializers.CharField(max_length=100)
     shipping_district = serializers.CharField(max_length=100)
+    shipping_post_office = serializers.CharField(max_length=150, required=False, allow_blank=True)
     shipping_postal_code = serializers.CharField(required=False, allow_blank=True)
     
     # Billing address (optional)
@@ -392,8 +396,10 @@ class CheckoutSerializer(serializers.Serializer):
     billing_phone = serializers.CharField(required=False, allow_blank=True)
     billing_address_line1 = serializers.CharField(required=False, allow_blank=True)
     billing_address_line2 = serializers.CharField(required=False, allow_blank=True)
+    billing_division = serializers.CharField(required=False, allow_blank=True)
     billing_city = serializers.CharField(required=False, allow_blank=True)
     billing_district = serializers.CharField(required=False, allow_blank=True)
+    billing_post_office = serializers.CharField(required=False, allow_blank=True)
     billing_postal_code = serializers.CharField(required=False, allow_blank=True)
     
     # Coupon
@@ -411,6 +417,15 @@ class CheckoutSerializer(serializers.Serializer):
     item_ids = serializers.ListField(child=serializers.UUIDField(), required=False, allow_empty=False,
                                      max_length=100)
 
+    def validate(self, attrs):
+        from apps.accounts.bd_geo import validate_bd_location
+        validate_bd_location(attrs, require_cascade=True, prefix='shipping_')
+        if attrs.get('use_different_billing') and (
+            attrs.get('billing_division') or attrs.get('billing_district')
+        ):
+            validate_bd_location(attrs, require_cascade=True, prefix='billing_')
+        return attrs
+
 
 class DeliveryUpdateSerializer(serializers.Serializer):
     """Fields a customer may change on a pending order (send only what changes)."""
@@ -418,8 +433,10 @@ class DeliveryUpdateSerializer(serializers.Serializer):
     shipping_phone = serializers.CharField(max_length=20, required=False)
     shipping_address_line1 = serializers.CharField(max_length=255, required=False)
     shipping_address_line2 = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    shipping_division = serializers.CharField(max_length=100, required=False, allow_blank=True)
     shipping_city = serializers.CharField(max_length=100, required=False)
     shipping_district = serializers.CharField(max_length=100, required=False)
+    shipping_post_office = serializers.CharField(max_length=150, required=False, allow_blank=True)
     shipping_postal_code = serializers.CharField(max_length=20, required=False, allow_blank=True)
 
     def validate_shipping_phone(self, value):
@@ -431,6 +448,22 @@ class DeliveryUpdateSerializer(serializers.Serializer):
     def validate(self, attrs):
         if not attrs:
             raise serializers.ValidationError('Send at least one delivery field to change.')
+        geo_keys = {
+            'shipping_division', 'shipping_district', 'shipping_post_office', 'shipping_postal_code',
+        }
+        if geo_keys & set(attrs):
+            from apps.accounts.bd_geo import validate_bd_location
+            order = self.context.get('order')
+            merged = {}
+            for field in geo_keys:
+                if field in attrs:
+                    merged[field] = attrs[field]
+                elif order is not None:
+                    merged[field] = getattr(order, field) or ''
+                else:
+                    merged[field] = ''
+            validate_bd_location(merged, require_cascade=True, prefix='shipping_')
+            attrs.update(merged)
         return attrs
 
 
@@ -449,8 +482,10 @@ class ExternalOrderSerializer(serializers.Serializer):
     customer_email = serializers.EmailField(required=False, allow_blank=True)
     shipping_address_line1 = serializers.CharField(max_length=255)
     shipping_address_line2 = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    shipping_division = serializers.CharField(max_length=100)
     shipping_city = serializers.CharField(max_length=100)
     shipping_district = serializers.CharField(max_length=100)
+    shipping_post_office = serializers.CharField(max_length=150, required=False, allow_blank=True)
     shipping_postal_code = serializers.CharField(max_length=20, required=False, allow_blank=True)
     items = ExternalOrderItemSerializer(many=True)
     # Optional legacy field. Blank means deduct from available stock normally
@@ -483,6 +518,11 @@ class ExternalOrderSerializer(serializers.Serializer):
             raise serializers.ValidationError('Create the order first, then cancel or refund it.')
         return value
 
+    def validate(self, attrs):
+        from apps.accounts.bd_geo import validate_bd_location
+        validate_bd_location(attrs, require_cascade=True, prefix='shipping_')
+        return attrs
+
 
 class ExternalOrderUpdateSerializer(serializers.Serializer):
     """Edit fields on an existing admin-created external order."""
@@ -491,8 +531,10 @@ class ExternalOrderUpdateSerializer(serializers.Serializer):
     customer_email = serializers.EmailField(required=False, allow_blank=True)
     shipping_address_line1 = serializers.CharField(max_length=255, required=False)
     shipping_address_line2 = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    shipping_division = serializers.CharField(max_length=100, required=False, allow_blank=True)
     shipping_city = serializers.CharField(max_length=100, required=False)
     shipping_district = serializers.CharField(max_length=100, required=False)
+    shipping_post_office = serializers.CharField(max_length=150, required=False, allow_blank=True)
     shipping_postal_code = serializers.CharField(max_length=20, required=False, allow_blank=True)
     items = ExternalOrderItemSerializer(many=True, required=False)
     stock_location = serializers.ChoiceField(
@@ -524,6 +566,22 @@ class ExternalOrderUpdateSerializer(serializers.Serializer):
     def validate(self, attrs):
         if not attrs:
             raise serializers.ValidationError('Send at least one field to update.')
+        geo_keys = {
+            'shipping_division', 'shipping_district', 'shipping_post_office', 'shipping_postal_code',
+        }
+        if geo_keys & set(attrs):
+            from apps.accounts.bd_geo import validate_bd_location
+            order = self.context.get('order')
+            merged = {}
+            for field in geo_keys:
+                if field in attrs:
+                    merged[field] = attrs[field]
+                elif order is not None:
+                    merged[field] = getattr(order, field) or ''
+                else:
+                    merged[field] = ''
+            validate_bd_location(merged, require_cascade=True, prefix='shipping_')
+            attrs.update(merged)
         return attrs
 
 

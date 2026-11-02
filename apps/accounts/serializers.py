@@ -7,7 +7,7 @@ from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
-from .models import Address
+from .models import Address, BdDistrict, BdDivision, BdPostOffice
 
 MAX_AVATAR_BYTES = 2 * 1024 * 1024
 _BD_MOBILE = re.compile(r'^01[3-9]\d{8}$')
@@ -187,15 +187,47 @@ class StaffUserSerializer(serializers.ModelSerializer):
         return instance
 
 
+class BdDivisionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BdDivision
+        fields = ['id', 'name', 'slug']
+
+
+class BdDistrictSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BdDistrict
+        fields = ['id', 'name', 'slug', 'division']
+
+
+class BdPostOfficeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BdPostOffice
+        fields = ['id', 'name', 'postal_code', 'district']
+
+
 class AddressSerializer(serializers.ModelSerializer):
     """Serializer for Address model."""
 
     class Meta:
         model = Address
         fields = ['id', 'user', 'address_type', 'label', 'full_name', 'phone',
-                  'address_line1', 'address_line2', 'city', 'district',
-                  'postal_code', 'country', 'is_default', 'is_inside_dhaka']
+                  'address_line1', 'address_line2', 'division', 'city', 'district',
+                  'post_office', 'postal_code', 'country', 'is_default', 'is_inside_dhaka']
         read_only_fields = ['id', 'user', 'is_inside_dhaka']
+
+    def validate(self, attrs):
+        from apps.accounts.bd_geo import validate_bd_location
+        merged = {}
+        for field in ('division', 'district', 'post_office', 'postal_code'):
+            if field in attrs:
+                merged[field] = attrs[field]
+            elif self.instance is not None:
+                merged[field] = getattr(self.instance, field) or ''
+            else:
+                merged[field] = ''
+        validate_bd_location(merged, require_cascade=True)
+        attrs.update(merged)
+        return attrs
 
 
 class ChangePasswordSerializer(serializers.Serializer):
