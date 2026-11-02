@@ -359,8 +359,8 @@ class OrderDetailSerializer(serializers.ModelSerializer):
                   'billing_address_line2', 'billing_city', 'billing_district',
                   'billing_postal_code', 'subtotal', 'delivery_charge',
                   'discount', 'total', 'coupon_code', 'payment_method', 'transaction_id',
-                  'processed_by', 'processed_by_name', 'notes', 'item_count',
-                  'items', 'status_history', 'shipment', 'can_edit_delivery',
+                  'processed_by', 'processed_by_name', 'notes', 'stock_location',
+                  'item_count', 'items', 'status_history', 'shipment', 'can_edit_delivery',
                   'created_at', 'updated_at', 'confirmed_at', 'shipped_at', 'delivered_at']
 
     def get_shipment(self, obj):
@@ -434,22 +434,97 @@ class DeliveryUpdateSerializer(serializers.Serializer):
         return attrs
 
 
-class InShopOrderItemSerializer(serializers.Serializer):
-    """Serializer for in-shop order items."""
+class ExternalOrderItemSerializer(serializers.Serializer):
+    """Line for an admin-created external order. Unit price may differ from catalog."""
     product_id = serializers.UUIDField()
     variant_id = serializers.UUIDField(required=False, allow_null=True)
     quantity = serializers.IntegerField(min_value=1)
+    unit_price = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=0)
 
 
-class InShopOrderSerializer(serializers.Serializer):
-    """Serializer for creating in-shop orders (POS)."""
-    customer_name = serializers.CharField(max_length=200, required=False)
-    customer_phone = serializers.CharField(max_length=20, required=False, allow_blank=True)
+class ExternalOrderSerializer(serializers.Serializer):
+    """Admin order from Facebook, phone, or other offline channels."""
+    customer_name = serializers.CharField(max_length=200)
+    customer_phone = serializers.CharField(max_length=20)
     customer_email = serializers.EmailField(required=False, allow_blank=True)
-    items = InShopOrderItemSerializer(many=True)
-    discount = serializers.DecimalField(max_digits=10, decimal_places=2, default=0)
-    payment_method = serializers.ChoiceField(choices=['cash', 'card', 'mobile_banking'])
+    shipping_address_line1 = serializers.CharField(max_length=255)
+    shipping_address_line2 = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    shipping_city = serializers.CharField(max_length=100)
+    shipping_district = serializers.CharField(max_length=100)
+    shipping_postal_code = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    items = ExternalOrderItemSerializer(many=True)
+    # Optional legacy field. Blank means deduct from available stock normally
+    # (warehouse first, then dealer) with no admin warehouse/dealer picker.
+    stock_location = serializers.ChoiceField(
+        choices=['warehouse', 'dealer', ''],
+        required=False,
+        allow_blank=True,
+        default='',
+    )
+    delivery_charge = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=0, default=0)
+    discount = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=0, default=0)
+    payment_method = serializers.ChoiceField(
+        choices=['cash', 'card', 'mobile_banking', 'cod', 'other'],
+        required=False,
+        allow_blank=True,
+        default='',
+    )
+    order_status = serializers.ChoiceField(choices=Order.ORDER_STATUS_CHOICES, default='confirmed')
+    payment_status = serializers.ChoiceField(choices=Order.PAYMENT_STATUS_CHOICES, default='pending')
     notes = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_items(self, items):
+        if not items:
+            raise serializers.ValidationError('Add at least one product.')
+        return items
+
+    def validate_order_status(self, value):
+        if value in ('cancelled', 'refunded'):
+            raise serializers.ValidationError('Create the order first, then cancel or refund it.')
+        return value
+
+
+class ExternalOrderUpdateSerializer(serializers.Serializer):
+    """Edit fields on an existing admin-created external order."""
+    customer_name = serializers.CharField(max_length=200, required=False)
+    customer_phone = serializers.CharField(max_length=20, required=False)
+    customer_email = serializers.EmailField(required=False, allow_blank=True)
+    shipping_address_line1 = serializers.CharField(max_length=255, required=False)
+    shipping_address_line2 = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    shipping_city = serializers.CharField(max_length=100, required=False)
+    shipping_district = serializers.CharField(max_length=100, required=False)
+    shipping_postal_code = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    items = ExternalOrderItemSerializer(many=True, required=False)
+    stock_location = serializers.ChoiceField(
+        choices=['warehouse', 'dealer', ''],
+        required=False,
+        allow_blank=True,
+    )
+    delivery_charge = serializers.DecimalField(
+        max_digits=10, decimal_places=2, min_value=0, required=False,
+    )
+    discount = serializers.DecimalField(
+        max_digits=10, decimal_places=2, min_value=0, required=False,
+    )
+    payment_method = serializers.ChoiceField(
+        choices=['cash', 'card', 'mobile_banking', 'cod', 'other'],
+        required=False,
+        allow_blank=True,
+    )
+    payment_status = serializers.ChoiceField(
+        choices=Order.PAYMENT_STATUS_CHOICES, required=False,
+    )
+    notes = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_items(self, items):
+        if items is not None and not items:
+            raise serializers.ValidationError('Add at least one product.')
+        return items
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError('Send at least one field to update.')
+        return attrs
 
 
 class OrderStatusUpdateSerializer(serializers.Serializer):

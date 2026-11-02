@@ -115,7 +115,7 @@ export default function PaymentsPage() {
   return (
     <AdminLayout title="Payments">
       <p className="mb-4 text-sm text-gray-500">
-        Each row is an order&apos;s payment record, including cash and in-shop sales. Totals below count this page.
+        Each row is an order&apos;s payment record, including cash and external sales. Totals below count this page.
       </p>
       {paymentsError && <div className="mb-6"><LoadError title="Could not load payments" onRetry={refetch} /></div>}
       {/* Stats Cards */}

@@ -23,12 +23,29 @@ class RelativeImageField(serializers.ImageField):
 
 
 class ProductImageSerializer(serializers.ModelSerializer):
-    """Serializer for product images."""
+    """Serializer for product images. variant=null means shared across all variants."""
     image = RelativeImageField()
+    variant = serializers.PrimaryKeyRelatedField(
+        queryset=ProductVariant.objects.all(),
+        required=False,
+        allow_null=True,
+    )
 
     class Meta:
         model = ProductImage
-        fields = ['id', 'image', 'alt_text', 'is_primary', 'display_order']
+        fields = ['id', 'image', 'alt_text', 'is_primary', 'display_order', 'variant']
+
+    def validate_variant(self, variant):
+        if variant is None:
+            return variant
+        product = None
+        if self.instance is not None:
+            product = self.instance.product
+        elif self.context.get('product') is not None:
+            product = self.context['product']
+        if product is not None and variant.product_id != product.id:
+            raise serializers.ValidationError('Variant must belong to this product.')
+        return variant
 
 
 class ProductSpecificationSerializer(serializers.ModelSerializer):
@@ -71,8 +88,10 @@ class ProductVariantSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductVariant
         fields = ['id', 'sku', 'barcode', 'size', 'color', 'price',
-                  'stock_quantity', 'low_stock_threshold', 'is_active', 'effective_price',
+                  'stock_quantity', 'warehouse_stock', 'dealer_stock',
+                  'low_stock_threshold', 'is_active', 'effective_price',
                   'options']
+        read_only_fields = ['warehouse_stock', 'dealer_stock']
 
     def get_options(self, obj):
         from apps.products.variants import variant_options
@@ -87,7 +106,7 @@ class ProductVariantSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({
                 'stock_quantity': (
                     'Set a cost price on the product before adding opening stock. '
-                    'Later purchases are recorded from Inventory.'
+                    'Later purchases are recorded from Finance purchase receipts.'
                 ),
             })
         validated_data['stock_quantity'] = 0
@@ -231,15 +250,39 @@ class ProductDetailSerializer(serializers.ModelSerializer):
 class AdminProductListSerializer(ProductListSerializer):
     """Admin list payload. Adds internal supply fields the public list omits."""
     supplied_by_name = serializers.SerializerMethodField()
+    warehouse_stock = serializers.SerializerMethodField()
+    dealer_stock = serializers.SerializerMethodField()
 
     class Meta(ProductListSerializer.Meta):
         fields = ProductListSerializer.Meta.fields + [
             'supply_type', 'supplied_by', 'supplied_by_name',
+            'warehouse_stock', 'dealer_stock', 'dealer_available',
         ]
 
     def get_supplied_by_name(self, obj):
         seller = getattr(obj, 'supplied_by', None)
         return seller.full_name if seller else None
+
+    def _variant_stock_totals(self, obj):
+        variants = list(obj.variants.all()) if hasattr(obj, 'variants') else []
+        if not variants:
+            return None
+        return {
+            'warehouse': sum(int(v.warehouse_stock or 0) for v in variants),
+            'dealer': sum(int(v.dealer_stock or 0) for v in variants),
+        }
+
+    def get_warehouse_stock(self, obj):
+        totals = self._variant_stock_totals(obj)
+        if totals is not None:
+            return totals['warehouse']
+        return int(obj.warehouse_stock or 0)
+
+    def get_dealer_stock(self, obj):
+        totals = self._variant_stock_totals(obj)
+        if totals is not None:
+            return totals['dealer']
+        return int(obj.dealer_stock or 0)
 
 
 class AdminProductDetailSerializer(ProductDetailSerializer):
@@ -249,7 +292,7 @@ class AdminProductDetailSerializer(ProductDetailSerializer):
     class Meta(ProductDetailSerializer.Meta):
         fields = ProductDetailSerializer.Meta.fields + [
             'supply_type', 'supplied_by', 'supplied_by_name', 'cost_price',
-            'low_stock_threshold',
+            'low_stock_threshold', 'warehouse_stock', 'dealer_stock', 'dealer_available',
         ]
 
     def get_supplied_by_name(self, obj):
@@ -260,12 +303,20 @@ class AdminProductDetailSerializer(ProductDetailSerializer):
 class ProductCreateUpdateSerializer(serializers.ModelSerializer):
     """Serializer for creating/updating products."""
     specifications = ProductSpecificationSerializer(many=True, required=False)
+    opening_stock_location = serializers.ChoiceField(
+        choices=['warehouse', 'dealer'],
+        required=False,
+        default='warehouse',
+        write_only=True,
+        help_text='warehouse = purchased stock; dealer = for-sale stock without a purchase voucher.',
+    )
 
     class Meta:
         model = Product
         fields = ['id', 'slug', 'name', 'sku', 'barcode', 'category', 'subcategory',
                   'description', 'short_description', 'price', 'compare_price',
                   'cost_price', 'size', 'color', 'material', 'stock_quantity',
+                  'opening_stock_location', 'dealer_available',
                   'low_stock_threshold', 'is_active', 'is_featured',
                   'supply_type', 'supplied_by',
                   'is_official', 'warranty_period', 'specifications']
@@ -321,10 +372,13 @@ class ProductCreateUpdateSerializer(serializers.ModelSerializer):
         if self.instance is None:
             stock = attrs.get('stock_quantity') or 0
             cost = attrs.get('cost_price')
-            if stock > 0 and (cost is None or cost <= 0):
+            location = attrs.get('opening_stock_location') or 'warehouse'
+            if stock > 0 and location == 'warehouse' and (cost is None or cost <= 0):
                 raise serializers.ValidationError({
-                    'cost_price': 'Enter a cost price to record opening stock as a purchase.',
+                    'cost_price': 'Enter the estimated buying price for warehouse purchases.',
                 })
+            # Products created in admin are published to the storefront immediately.
+            attrs['is_active'] = True
         return attrs
 
     def _replace_specifications(self, product, rows):
@@ -338,27 +392,43 @@ class ProductCreateUpdateSerializer(serializers.ModelSerializer):
             )
 
     def create(self, validated_data):
-        from apps.products.costing import StockError, record_purchase
+        from apps.products.costing import StockError, receive_at_average, record_purchase
 
         rows = validated_data.pop('specifications', None)
         stock = int(validated_data.pop('stock_quantity', 0) or 0)
+        opening_location = validated_data.pop('opening_stock_location', 'warehouse') or 'warehouse'
         cost = validated_data.get('cost_price')
         validated_data['stock_quantity'] = 0
+        validated_data['warehouse_stock'] = 0
+        validated_data['dealer_stock'] = 0
+        validated_data['is_active'] = True
         with transaction.atomic():
             product = super().create(validated_data)
             if rows is not None:
                 self._replace_specifications(product, rows)
             if stock > 0:
                 try:
-                    record_purchase(
-                        product=product,
-                        quantity=stock,
-                        unit_cost=cost,
-                        user=self.context['request'].user,
-                        note='Opening stock',
-                    )
+                    if opening_location == 'dealer':
+                        receive_at_average(
+                            product=product,
+                            quantity=stock,
+                            reason='adjustment',
+                            note='Opening dealer stock for sale',
+                            user=self.context['request'].user,
+                            location='dealer',
+                        )
+                    else:
+                        record_purchase(
+                            product=product,
+                            quantity=stock,
+                            unit_cost=cost,
+                            user=self.context['request'].user,
+                            note='Opening warehouse purchase',
+                            location='warehouse',
+                        )
                 except StockError as exc:
-                    raise serializers.ValidationError({'cost_price': exc.message})
+                    field = 'stock_quantity' if opening_location == 'dealer' else 'cost_price'
+                    raise serializers.ValidationError({field: exc.message})
                 product.refresh_from_db()
             return product
 
@@ -408,6 +478,11 @@ class ProductStockUpdateSerializer(serializers.Serializer):
     """Serializer for stock updates."""
     quantity = serializers.IntegerField()
     operation = serializers.ChoiceField(choices=['add', 'subtract', 'set'])
+    location = serializers.ChoiceField(
+        choices=['warehouse', 'dealer'],
+        required=False,
+        default='warehouse',
+    )
     reason = serializers.ChoiceField(
         choices=['purchase', 'return', 'damaged', 'lost', 'adjustment'],
         required=False,
@@ -429,6 +504,19 @@ class ProductStockUpdateSerializer(serializers.Serializer):
         if value < 0:
             raise serializers.ValidationError("Quantity cannot be negative.")
         return value
+
+
+class StockTransferSerializer(serializers.Serializer):
+    """Move units between warehouse and dealer."""
+    quantity = serializers.IntegerField(min_value=1)
+    from_location = serializers.ChoiceField(choices=['warehouse', 'dealer'])
+    to_location = serializers.ChoiceField(choices=['warehouse', 'dealer'])
+    note = serializers.CharField(required=False, allow_blank=True, default='')
+
+    def validate(self, attrs):
+        if attrs['from_location'] == attrs['to_location']:
+            raise serializers.ValidationError('Choose two different locations for a transfer.')
+        return attrs
 
 
 class HomepageBannerSerializer(serializers.ModelSerializer):

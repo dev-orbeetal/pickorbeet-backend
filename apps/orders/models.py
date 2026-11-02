@@ -207,11 +207,17 @@ def generate_tracking_number():
 
 
 class Order(models.Model):
-    """Order model for both online and in-shop orders."""
+    """Order model for online storefront and admin-created external sales."""
     
     ORDER_TYPE_CHOICES = [
         ('online', 'Online Order'),
-        ('in_shop', 'In-Shop Order'),
+        ('in_shop', 'In-Shop Order'),  # Legacy; POS removed. Kept for existing rows.
+        ('external', 'External / Admin Order'),
+    ]
+
+    STOCK_LOCATION_CHOICES = [
+        ('warehouse', 'Warehouse'),
+        ('dealer', 'Dealer'),
     ]
     
     ORDER_STATUS_CHOICES = [
@@ -305,6 +311,13 @@ class Order(models.Model):
     
     notes = models.TextField(blank=True, null=True)
     stock_reduced = models.BooleanField(default=False, help_text='Whether stock has been deducted for this order')
+    stock_location = models.CharField(
+        max_length=20,
+        choices=STOCK_LOCATION_CHOICES,
+        blank=True,
+        default='',
+        help_text='Preferred stock source for deduction. Blank uses warehouse first, then dealer.',
+    )
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -321,14 +334,18 @@ class Order(models.Model):
         return self.order_number
 
     def save(self, *args, **kwargs):
-        # Auto-calculate delivery charge based on location
-        if not self.delivery_charge:
-            dhaka_areas = ['dhaka', 'mirpur', 'uttara', 'gulshan', 'banani', 'dhanmondi', 'mohammadpur']
-            self.is_inside_dhaka = self.shipping_city.lower() in dhaka_areas or self.shipping_district.lower() == 'dhaka'
-            
-            if self.order_type == 'in_shop':
-                self.delivery_charge = 0
-            elif self.is_inside_dhaka:
+        dhaka_areas = ['dhaka', 'mirpur', 'uttara', 'gulshan', 'banani', 'dhanmondi', 'mohammadpur']
+        self.is_inside_dhaka = (
+            (self.shipping_city or '').lower() in dhaka_areas
+            or (self.shipping_district or '').lower() == 'dhaka'
+        )
+
+        # In-shop is always pickup. External orders keep the admin-set delivery charge
+        # (including zero). Online orders without a charge get the zone default.
+        if self.order_type == 'in_shop':
+            self.delivery_charge = 0
+        elif self.order_type != 'external' and not self.delivery_charge:
+            if self.is_inside_dhaka:
                 self.delivery_charge = settings.DELIVERY_CHARGE_INSIDE_DHAKA
             else:
                 self.delivery_charge = settings.DELIVERY_CHARGE_OUTSIDE_DHAKA

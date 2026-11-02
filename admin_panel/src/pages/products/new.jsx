@@ -18,6 +18,21 @@ import JsBarcode from 'jsbarcode';
 import SpecificationFields, { cleanSpecifications } from '@/components/products/SpecificationFields';
 import VariantOptions from '@/components/products/VariantOptions';
 
+function variantSelections(variant) {
+  if (Array.isArray(variant?.options) && variant.options.length) {
+    return variant.options.map((option) => ({ name: option.name, label: option.label }));
+  }
+  const selections = [];
+  if (variant?.size) selections.push({ name: 'Size', label: variant.size });
+  if (variant?.color) selections.push({ name: 'Color', label: variant.color });
+  return selections;
+}
+
+function selectionsMatch(left, right) {
+  if (!left?.length || !right?.length || left.length !== right.length) return false;
+  return left.every((item) => right.some((other) => other.name === item.name && other.label === item.label));
+}
+
 export default function NewProductPage() {
   const router = useRouter();
   const barcodeRef = useRef(null);
@@ -48,6 +63,8 @@ export default function NewProductPage() {
     compare_price: '',
     cost_price: '',
     stock_quantity: 0,
+    opening_stock_location: 'warehouse',
+    dealer_available: false,
     low_stock_threshold: 10,
     weight: '',
     is_active: true,
@@ -245,8 +262,9 @@ export default function NewProductPage() {
     const openingUnits = hasVariants
       ? (variantRef.current?.getSetup()?.rows || []).reduce((sum, row) => sum + (parseInt(row.stock_quantity, 10) || 0), 0)
       : parseInt(formData.stock_quantity, 10) || 0;
-    if (openingUnits > 0 && !(Number(formData.cost_price) > 0)) {
-      toast.error('Enter a cost price to record opening stock as a purchase');
+    const openingLocation = formData.opening_stock_location || 'warehouse';
+    if (openingUnits > 0 && openingLocation === 'warehouse' && !(Number(formData.cost_price) > 0)) {
+      toast.error('Enter the estimated buying price for warehouse purchases');
       return;
     }
 
@@ -282,7 +300,7 @@ export default function NewProductPage() {
       const response = await createProduct(productData).unwrap();
       const productId = response.id;
 
-      // Upload images if any
+      // Shared gallery images (not tied to a variant)
       let imageErrors = 0;
       if (images.length > 0) {
         for (const img of images) {
@@ -301,7 +319,23 @@ export default function NewProductPage() {
       let variantErrors = 0;
       if (setup?.payload) {
         try {
-          await syncVariantSetup({ productId, ...setup.payload }).unwrap();
+          const saved = await syncVariantSetup({ productId, ...setup.payload }).unwrap();
+          for (const pending of setup.pendingImages || []) {
+            const match = (saved.variants || []).find((variant) => (
+              selectionsMatch(pending.selections, variantSelections(variant))
+            ));
+            if (!match) continue;
+            const imageData = new FormData();
+            imageData.append('image', pending.file);
+            imageData.append('is_primary', 'false');
+            imageData.append('variant', match.id);
+            try {
+              await uploadProductImage({ productId, imageData }).unwrap();
+            } catch (imgError) {
+              imageErrors++;
+              console.error('Variant image upload error:', imgError);
+            }
+          }
         } catch (varError) {
           variantErrors++;
           console.error('Variant setup error:', varError);
@@ -548,7 +582,7 @@ export default function NewProductPage() {
                     step="0.01"
                     min="0"
                   />
-                  <p className="text-xs text-gray-500 mt-1">For profit calculation</p>
+                  <p className="text-xs text-gray-500 mt-1">Estimated buying price for warehouse purchases</p>
                 </div>
               </div>
             </div>
@@ -556,36 +590,86 @@ export default function NewProductPage() {
             {/* Inventory — only show for products without variants */}
             {!hasVariants && (
               <div className="card">
-                <h2 className="text-lg font-semibold mb-4">Inventory</h2>
-                <div className="grid grid-cols-2 gap-4">
+                <h2 className="text-lg font-semibold mb-4">Stock & dealer availability</h2>
+                <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Stock Quantity
-                    </label>
-                    <input
-                      type="number"
-                      name="stock_quantity"
-                      value={formData.stock_quantity}
-                      onChange={handleInputChange}
-                      className="input"
-                      min="0"
-                    />
+                    <span className="block text-sm font-medium text-gray-700 mb-2">Opening stock location</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <label className={`border rounded-xl p-3 cursor-pointer ${formData.opening_stock_location === 'warehouse' ? 'border-primary-500 bg-primary-50' : 'border-gray-200'}`}>
+                        <input
+                          type="radio"
+                          name="opening_stock_location"
+                          value="warehouse"
+                          checked={formData.opening_stock_location === 'warehouse'}
+                          onChange={handleInputChange}
+                          className="mr-2"
+                        />
+                        <span className="font-medium text-sm">Warehouse purchase</span>
+                        <p className="text-xs text-gray-500 mt-1 pl-5">We bought these units. Requires estimated buying price.</p>
+                      </label>
+                      <label className={`border rounded-xl p-3 cursor-pointer ${formData.opening_stock_location === 'dealer' ? 'border-primary-500 bg-primary-50' : 'border-gray-200'}`}>
+                        <input
+                          type="radio"
+                          name="opening_stock_location"
+                          value="dealer"
+                          checked={formData.opening_stock_location === 'dealer'}
+                          onChange={handleInputChange}
+                          className="mr-2"
+                        />
+                        <span className="font-medium text-sm">Dealer stock for sale</span>
+                        <p className="text-xs text-gray-500 mt-1 pl-5">Not purchased into our warehouse — held by dealer for sale.</p>
+                      </label>
+                    </div>
                   </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Low Stock Threshold
-                    </label>
-                    <input
-                      type="number"
-                      name="low_stock_threshold"
-                      value={formData.low_stock_threshold}
-                      onChange={handleInputChange}
-                      className="input"
-                      min="0"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Alert when stock falls below this</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        {formData.opening_stock_location === 'dealer' ? 'Dealer quantity' : 'Purchased quantity'}
+                      </label>
+                      <input
+                        type="number"
+                        name="stock_quantity"
+                        value={formData.stock_quantity}
+                        onChange={handleInputChange}
+                        className="input"
+                        min="0"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Low Stock Threshold
+                      </label>
+                      <input
+                        type="number"
+                        name="low_stock_threshold"
+                        value={formData.low_stock_threshold}
+                        onChange={handleInputChange}
+                        className="input"
+                        min="0"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Alert when warehouse stock falls below this</p>
+                    </div>
                   </div>
+                  {formData.opening_stock_location === 'warehouse' && (
+                    <p className="text-xs text-gray-500">
+                      Estimated buying price is set in Pricing above and recorded as a purchase into warehouse stock.
+                    </p>
+                  )}
+                  <label className="flex items-center justify-between cursor-pointer border border-gray-200 rounded-xl p-3">
+                    <span>
+                      <span className="block text-sm font-medium text-gray-700">Dealer availability</span>
+                      <span className="block text-xs text-gray-500">
+                        Allow dealer fulfillment even when warehouse stock is empty.
+                      </span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      name="dealer_available"
+                      checked={formData.dealer_available}
+                      onChange={handleInputChange}
+                      className="toggle"
+                    />
+                  </label>
                 </div>
               </div>
             )}
@@ -601,7 +685,10 @@ export default function NewProductPage() {
 
             {/* Images */}
             <div className="card">
-              <h2 className="text-lg font-semibold mb-4">Product Images</h2>
+              <h2 className="text-lg font-semibold mb-4">Shared Product Images</h2>
+              <p className="text-sm text-gray-500 mb-4">
+                These show for every variant. Add per-variant photos on each combination above.
+              </p>
 
               <div className="border-2 border-dashed rounded-xl p-8 text-center bg-gray-50">
                 <input
@@ -688,6 +775,21 @@ export default function NewProductPage() {
                     className="toggle"
                   />
                 </label>
+                {hasVariants && (
+                  <label className="flex items-center justify-between cursor-pointer">
+                    <span>
+                      <span className="block text-gray-700">Dealer availability</span>
+                      <span className="block text-xs text-gray-500">Independent of warehouse stock</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      name="dealer_available"
+                      checked={formData.dealer_available}
+                      onChange={handleInputChange}
+                      className="toggle"
+                    />
+                  </label>
+                )}
               </div>
             </div>
 
@@ -818,7 +920,7 @@ export default function NewProductPage() {
                 <li>• Barcodes are auto-generated</li>
                 <li>• Each product & variant gets unique barcode</li>
                 <li>• Customers can scan to view product info</li>
-                <li>• Use POS scanner for quick checkout</li>
+                <li>• Use External Orders for Facebook or phone sales</li>
                 <li>• Print barcodes for physical labels</li>
               </ul>
             </div>

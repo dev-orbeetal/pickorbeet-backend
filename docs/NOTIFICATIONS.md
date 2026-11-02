@@ -2,7 +2,7 @@
 
 The inbox is the source of truth. The WebSocket and Firebase Cloud Messaging only deliver a row that is already saved. A missed push or a dropped socket still shows up the next time the app, website, or admin panel opens the inbox.
 
-Guests who check out without an account do not get a device or a socket. Staff still get a "new order" row. In-shop POS orders are not announced.
+Guests who check out without an account do not get a device or a socket. Staff still get a "new order" row. External admin orders are not announced from this path.
 
 ## What you need on the server
 

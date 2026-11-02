@@ -4,7 +4,6 @@ export const MENU_GROUPS = [
     items: [
       { href: '/dashboard', label: 'Dashboard', icon: 'LayoutDashboard', roles: ['seller', 'accountant', 'super_admin'] },
       { href: '/orders', label: 'Orders', icon: 'ShoppingCart', roles: ['seller', 'accountant', 'super_admin'] },
-      { href: '/pos', label: 'POS / In-Shop', icon: 'ShoppingBag', roles: ['seller', 'super_admin'] },
     ],
   },
   {
@@ -13,7 +12,6 @@ export const MENU_GROUPS = [
       { href: '/products', label: 'Products', icon: 'Package', roles: ['seller', 'accountant', 'super_admin'] },
       { href: '/categories', label: 'Categories', icon: 'Tag', roles: ['seller', 'super_admin'] },
       { href: '/coupons', label: 'Coupons', icon: 'Ticket', roles: ['seller', 'super_admin'] },
-      { href: '/inventory', label: 'Inventory', icon: 'Warehouse', roles: ['seller', 'accountant', 'super_admin'] },
     ],
   },
   {
@@ -44,6 +42,10 @@ export const MENU_GROUPS = [
 
 const PAGE_ACCESS = MENU_GROUPS.flatMap((group) => group.items).concat([
   { href: '/low-stock', roles: ['seller', 'accountant', 'super_admin'] },
+  // Legacy inventory URL redirects to Products; keep role access for bookmarks.
+  { href: '/inventory', roles: ['seller', 'accountant', 'super_admin'] },
+  // Legacy external-orders URL redirects to Orders → Add Order.
+  { href: '/external-orders', roles: ['seller', 'super_admin'] },
 ]);
 
 export function rolesForPath(pathname) {

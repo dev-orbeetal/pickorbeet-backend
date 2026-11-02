@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { Search, Eye, Trash2 } from 'lucide-react';
+import { Search, Eye, Trash2, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '@/components/layout/AdminLayout';
 import LoadError from '@/components/ui/LoadError';
@@ -87,6 +87,19 @@ export default function OrdersPage() {
 
   return (
     <AdminLayout title="Orders">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <div>
+          <h1 className="text-2xl font-semibold text-gray-900">Orders</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Online storefront orders and orders created from the admin panel.
+          </p>
+        </div>
+        <Link href="/orders/new" className="btn btn-primary">
+          <Plus className="w-4 h-4 mr-2" />
+          Add Order
+        </Link>
+      </div>
+
       {/* Filters */}
       <div className="card p-4 mb-6">
         <div className="flex flex-wrap gap-4">
@@ -138,7 +151,7 @@ export default function OrdersPage() {
           >
             <option value="">All Types</option>
             <option value="online">Online</option>
-            <option value="in_shop">In-Shop</option>
+            <option value="external">External</option>
           </select>
         </div>
       </div>
@@ -192,7 +205,13 @@ export default function OrdersPage() {
                     </td>
                     <td className="py-4 px-4 text-gray-600">{order.customer_name}</td>
                     <td className="py-4 px-4">
-                      <span className={`badge ${order.order_type === 'online' ? 'badge-info' : 'badge-success'}`}>
+                      <span className={`badge ${
+                        order.order_type === 'online'
+                          ? 'badge-info'
+                          : order.order_type === 'external'
+                            ? 'badge-warning'
+                            : 'badge-success'
+                      }`}>
                         {statusLabel(order.order_type)}
                       </span>
                     </td>

@@ -12,11 +12,15 @@ const LABELS = {
   completed: 'Completed',
   online: 'Online',
   in_shop: 'In-shop',
+  external: 'External',
   cash: 'Cash',
   card: 'Card',
   cod: 'Cash on delivery',
+  other: 'Other',
   sslcommerz: 'SSLCommerz',
   mobile_banking: 'Mobile banking',
+  warehouse: 'Warehouse',
+  dealer: 'Dealer',
 };
 
 export function statusLabel(value) {

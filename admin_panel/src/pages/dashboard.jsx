@@ -83,7 +83,7 @@ export default function DashboardPage() {
       value: stats.low_stock_products || 0,
       icon: AlertTriangle,
       color: 'bg-red-500',
-      href: '/inventory?stock=low_stock',
+      href: '/low-stock',
       note: 'At or below the alert level',
     },
   ] : [];
@@ -249,8 +249,8 @@ export default function DashboardPage() {
           <div className="mt-6 pt-6 border-t">
             <h3 className="text-sm font-medium text-gray-900 mb-3">Quick Actions</h3>
             <div className="space-y-2">
-              <Link href="/pos" className="block w-full btn btn-primary text-center">
-                New In-Shop Order
+              <Link href="/orders/new" className="block w-full btn btn-primary text-center">
+                Add Order
               </Link>
               <Link href="/products/new" className="block w-full btn btn-secondary text-center">
                 Add Product

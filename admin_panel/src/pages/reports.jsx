@@ -323,7 +323,7 @@ export default function ReportsPage() {
                 <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-3">Sales Summary</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
                   <StatCard icon={ShoppingCart} label="Total Sales" value={salesData.summary?.total_sales || 0} color="blue"
-                    sub={`Online: ${salesData.summary?.online_orders || 0} · In-shop: ${salesData.summary?.in_shop_orders || 0}`} />
+                    sub={`Online: ${salesData.summary?.online_orders || 0} · External: ${salesData.summary?.external_orders || 0}`} />
                   <StatCard icon={ShoppingCart} label="Total Orders" value={salesData.summary?.orders_excluding_cancelled || 0} color="indigo"
                     sub="Excludes cancelled" />
                   <StatCard icon={Package} label="Completed" value={salesData.summary?.completed_orders || 0} color="green" sub="Delivered" />

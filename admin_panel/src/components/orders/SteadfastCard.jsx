@@ -33,7 +33,8 @@ export default function SteadfastCard({ order, onBook, onRefresh, booking, refre
   const [note, setNote] = useState('');
   const shipment = order.shipment;
   const booked = Boolean(shipment?.consignment_id || shipment?.tracking_code);
-  const canBook = !booked && order.order_type === 'online' && BOOKABLE.includes(order.order_status);
+  const courierOrder = order.order_type === 'online' || order.order_type === 'external';
+  const canBook = !booked && courierOrder && BOOKABLE.includes(order.order_status);
 
   const copyCode = async () => {
     if (!shipment?.tracking_code) return;
@@ -165,8 +166,8 @@ export default function SteadfastCard({ order, onBook, onRefresh, booking, refre
         </div>
       ) : (
         <p className="text-sm text-gray-500">
-          {order.order_type !== 'online'
-            ? 'In-shop orders are not sent by courier.'
+          {!courierOrder
+            ? 'Only online and external orders can be sent by courier.'
             : 'This order cannot be booked with Steadfast.'}
         </p>
       )}

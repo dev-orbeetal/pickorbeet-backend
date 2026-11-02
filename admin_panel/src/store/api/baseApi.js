@@ -118,6 +118,7 @@ export const baseApi = createApi({
     'Expenses',
     'Income',
     'Finance',
+    'Transactions',
     'Inventory',
     'Coupons',
     'Contact',

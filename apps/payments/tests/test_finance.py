@@ -1,14 +1,24 @@
+import json
 from datetime import date
 from decimal import Decimal
+from io import BytesIO
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, transaction
+from PIL import Image
 from rest_framework.test import APIClient
 
 from apps.orders.services import change_order_status, record_online_payment
 from apps.orders.tests.factories import ShopTestCase, make_order, make_product, make_user
-from apps.payments.models import Expense, Payment, Refund
+from apps.payments.models import Expense, ManualIncome, Payment, Refund
 from apps.products.models import Category
 from apps.reports.models import StockMovement
+
+
+def _png_proof(name='proof.png'):
+    buffer = BytesIO()
+    Image.new('RGB', (16, 16), 'blue').save(buffer, format='PNG')
+    return SimpleUploadedFile(name, buffer.getvalue(), content_type='image/png')
 
 
 class FinanceApiTests(ShopTestCase):
@@ -251,14 +261,24 @@ class FinanceApiTests(ShopTestCase):
         self.assertEqual(summary['actual']['current_revenue'], '0.00')
         self.assertEqual(summary['actual']['cost_of_goods_sold'], '0.00')
 
-    def test_in_shop_sale_uses_the_same_cost_snapshot(self):
+    def test_external_sale_uses_the_same_cost_snapshot(self):
         self._clear_stock()
         self._purchase(4, '25.00')
         seller = APIClient()
         seller.force_authenticate(self.seller)
-        response = seller.post('/api/v1/orders/admin/in-shop/', {
-            'items': [{'product_id': str(self.product.id), 'quantity': 2}],
+        response = seller.post('/api/v1/orders/admin/external/', {
+            'customer_name': 'Walk-in Buyer',
+            'customer_phone': '+8801700000000',
+            'shipping_address_line1': 'Shop counter',
+            'shipping_city': 'Dhaka',
+            'shipping_district': 'Dhaka',
+            'items': [{'product_id': str(self.product.id), 'quantity': 2, 'unit_price': '500.00'}],
+            'stock_location': 'warehouse',
+            'delivery_charge': '0',
+            'discount': '0',
             'payment_method': 'cash',
+            'order_status': 'delivered',
+            'payment_status': 'paid',
         }, format='json')
         self.assertEqual(response.status_code, 201, response.content)
         self.product.refresh_from_db()
@@ -268,6 +288,22 @@ class FinanceApiTests(ShopTestCase):
         self.assertEqual(summary['actual']['current_revenue'], '1000.00')
         self.assertEqual(summary['actual']['cost_of_goods_sold'], '50.00')
         self.assertEqual(summary['actual']['realized_gross_profit'], '950.00')
+
+        product_rows = [
+            entry for entry in self.api.get('/api/v1/payments/admin/finance/products/').json()
+            if entry['product_id'] == str(self.product.id)
+        ]
+        channels = {entry['sale_channel']: entry for entry in product_rows}
+        self.assertIn('storefront', channels)
+        self.assertIn('admin', channels)
+        self.assertEqual(channels['storefront']['quantity_purchased'], 4)
+        self.assertEqual(channels['storefront']['quantity_sold'], 0)
+        self.assertEqual(channels['storefront']['total_purchase_cost'], '100.00')
+        self.assertEqual(channels['admin']['quantity_sold'], 2)
+        self.assertEqual(channels['admin']['total_sales_revenue'], '1000.00')
+        self.assertEqual(channels['admin']['cost_of_goods_sold'], '50.00')
+        self.assertEqual(channels['admin']['realized_profit'], '950.00')
+        self.assertIsNone(channels['admin']['quantity_purchased'])
 
     def test_failed_payment_does_not_record_revenue_or_cost(self):
         self._clear_stock()
@@ -388,14 +424,321 @@ class FinanceApiTests(ShopTestCase):
         self.assertNotIn('cost_total', order_body['items'][0])
         self.assertNotIn('cost_applied', order_body['items'][0])
 
+    def test_record_opening_cost_from_finance_values_existing_stock(self):
+        self.product.stock_quantity = 5
+        self.product.warehouse_stock = 5
+        self.product.dealer_stock = 0
+        self.product.cost_price = None
+        self.product.inventory_cost_value = Decimal('0.00')
+        self.product.opening_cost_value = Decimal('0.00')
+        self.product.opening_quantity = 0
+        self.product.save()
+
+        rows = self.api.get('/api/v1/payments/admin/finance/products/').json()
+        row = next(entry for entry in rows if entry['product_id'] == str(self.product.id))
+        self.assertTrue(row['needs_purchase_cost'])
+
+        recorded = self.api.post(
+            f'/api/v1/payments/admin/finance/products/{self.product.id}/record-cost/',
+            {'unit_cost': '40.00'},
+            format='json',
+        )
+        self.assertEqual(recorded.status_code, 200, recorded.content)
+        self.assertEqual(recorded.json()['units_recorded'], 5)
+
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock_quantity, 5)
+        self.assertEqual(self.product.opening_quantity, 5)
+        self.assertEqual(self.product.opening_cost_value, Decimal('200.00'))
+        self.assertEqual(self.product.inventory_cost_value, Decimal('200.00'))
+        self.assertEqual(self.product.cost_price, Decimal('40.00'))
+
+        summary = self.api.get('/api/v1/payments/admin/finance/summary/').json()
+        self.assertEqual(summary['actual']['opening_stock_cost'], '200.00')
+        self.assertEqual(summary['actual']['total_product_purchase_cost'], '200.00')
+
+        rows = self.api.get('/api/v1/payments/admin/finance/products/').json()
+        row = next(entry for entry in rows if entry['product_id'] == str(self.product.id))
+        self.assertFalse(row['needs_purchase_cost'])
+        self.assertEqual(row['quantity_purchased'], 5)
+        self.assertEqual(row['total_purchase_cost'], '200.00')
+
     def _clear_stock(self):
         self.product.stock_quantity = 0
+        self.product.warehouse_stock = 0
+        self.product.dealer_stock = 0
         self.product.cost_price = None
         self.product.inventory_cost_value = Decimal('0.00')
         self.product.opening_cost_value = Decimal('0.00')
         self.product.opening_quantity = 0
         self.product.shrinkage_cost = Decimal('0.00')
         self.product.save()
+
+    def test_manual_income_and_product_buying_feed_summary_and_transactions(self):
+        self._clear_stock()
+        blocked_plain = self.api.post('/api/v1/payments/admin/expenses/', {
+            'expense_date': date.today().isoformat(),
+            'category': 'product_buying',
+            'description': 'Bulk tea',
+            'amount': '200.00',
+            'payee': 'Local Dealer',
+        }, format='json')
+        self.assertEqual(blocked_plain.status_code, 400, blocked_plain.content)
+
+        missing_dealer = self.api.post('/api/v1/payments/admin/purchase-receipts/', {
+            'purchase_date': date.today().isoformat(),
+            'payee': '',
+            'stock_location': 'warehouse',
+            'line_inputs': [{
+                'product': str(self.product.id),
+                'quantity': 4,
+                'unit_cost': '50.00',
+            }],
+        }, format='json')
+        self.assertEqual(missing_dealer.status_code, 400, missing_dealer.content)
+
+        buying = self.api.post('/api/v1/payments/admin/purchase-receipts/', {
+            'purchase_date': date.today().isoformat(),
+            'payee': 'Local Dealer',
+            'comments': 'Paid in cash',
+            'invoice_number': 'INV-9',
+            'stock_location': 'warehouse',
+            'payment_method': 'cash',
+            'line_inputs': [{
+                'product': str(self.product.id),
+                'quantity': 4,
+                'unit_cost': '50.00',
+            }],
+        }, format='json')
+        self.assertEqual(buying.status_code, 201, buying.content)
+        self.assertEqual(buying.json()['grand_total'], '200.00')
+        self.assertEqual(buying.json()['voucher_number'], Expense.objects.get(
+            purchase_receipt_id=buying.json()['id']
+        ).voucher_number)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.warehouse_stock, 4)
+        self.assertEqual(self.product.stock_quantity, 4)
+        self.assertEqual(self.product.inventory_cost_value, Decimal('200.00'))
+
+        share = self.api.post('/api/v1/payments/admin/manual-income/', {
+            'income_date': date.today().isoformat(),
+            'category': 'share',
+            'share_partner': 'rakib',
+            'amount': '150.00',
+            'comments': 'Monthly share',
+        }, format='json')
+        self.assertEqual(share.status_code, 201, share.content)
+        self.assertTrue(share.json()['voucher_number'].startswith(f"IV-{date.today().strftime('%Y%m%d')}-"))
+        self.assertIn('Rakib', share.json()['description'])
+
+        second_share = self.api.post('/api/v1/payments/admin/manual-income/', {
+            'income_date': date.today().isoformat(),
+            'category': 'share',
+            'share_partner': 'orbeetal',
+            'description': 'Capital contribution',
+            'amount': '75.00',
+        }, format='json')
+        self.assertEqual(second_share.status_code, 201, second_share.content)
+
+        # Creating again must allocate a new voucher — no duplicates on refresh.
+        again = self.api.post('/api/v1/payments/admin/manual-income/', {
+            'income_date': date.today().isoformat(),
+            'category': 'share',
+            'share_partner': 'mayeen',
+            'description': 'Additional share',
+            'amount': '25.00',
+        }, format='json')
+        self.assertEqual(again.status_code, 201, again.content)
+        self.assertNotEqual(again.json()['voucher_number'], second_share.json()['voucher_number'])
+        self.assertEqual(ManualIncome.objects.count(), 3)
+
+        # Generic "Others" income is no longer accepted.
+        blocked = self.api.post('/api/v1/payments/admin/manual-income/', {
+            'income_date': date.today().isoformat(),
+            'category': 'others',
+            'description': 'Sponsorship',
+            'amount': '10.00',
+        }, format='json')
+        self.assertEqual(blocked.status_code, 400, blocked.content)
+
+        income = self.api.get('/api/v1/payments/admin/income/').json()
+        manual_rows = [row for row in income['income'] if row['entry_type'] == 'manual']
+        self.assertEqual(len(manual_rows), 3)
+        self.assertEqual(income['manual_income_total'], 250.0)
+        self.assertTrue(all(row['category'] == 'share' for row in manual_rows))
+
+        summary = self.api.get('/api/v1/payments/admin/finance/summary/').json()
+        self.assertEqual(summary['actual']['manual_income_total'], '250.00')
+        self.assertEqual(summary['actual']['purchase_vouchers_total'], '200.00')
+        self.assertEqual(summary['actual']['additional_expenses'], '0.00')
+
+        transactions = self.api.get('/api/v1/payments/admin/finance/transactions/').json()
+        types = {row['type'] for row in transactions['transactions']}
+        self.assertEqual(types, {'income', 'expense'})
+        refs = {row['reference'] for row in transactions['transactions']}
+        self.assertIn(buying.json()['voucher_number'], refs)
+        self.assertIn(share.json()['voucher_number'], refs)
+        self.assertEqual(len(refs), len(transactions['transactions']))
+
+        # Refreshing the list must not invent extra rows.
+        refresh = self.api.get('/api/v1/payments/admin/finance/transactions/').json()
+        self.assertEqual(refresh['count'], transactions['count'])
+        self.assertEqual(
+            [row['id'] for row in refresh['transactions']],
+            [row['id'] for row in transactions['transactions']],
+        )
+
+    def test_product_buying_receipt_updates_stock_and_reverses_on_cancel(self):
+        self._clear_stock()
+        second = make_product(
+            name='Ceramic Mug', category=self.category, price='120.00', stock=0,
+        )
+        created = self.api.post('/api/v1/payments/admin/purchase-receipts/', {
+            'purchase_date': date.today().isoformat(),
+            'payee': 'City Wholesale',
+            'stock_location': 'warehouse',
+            'line_inputs': [
+                {
+                    'product': str(self.product.id),
+                    'quantity': 10,
+                    'unit_cost': '100.00',
+                    'discount_type': 'percent',
+                    'discount_value': '10',
+                },
+                {
+                    'product': str(second.id),
+                    'quantity': 2,
+                    'unit_cost': '50.00',
+                    'discount_type': 'fixed',
+                    'discount_value': '20.00',
+                },
+            ],
+        }, format='json')
+        self.assertEqual(created.status_code, 201, created.content)
+        body = created.json()
+        self.assertEqual(body['total_quantity'], 12)
+        self.assertEqual(body['subtotal'], '1100.00')
+        self.assertEqual(body['total_discount'], '120.00')
+        self.assertEqual(body['additional_discount'], '0.00')
+        self.assertEqual(body['grand_total'], '980.00')
+        self.assertEqual(body['stock_location'], 'warehouse')
+        self.assertEqual(len(body['lines']), 2)
+
+        self.product.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(self.product.warehouse_stock, 10)
+        self.assertEqual(self.product.dealer_stock, 0)
+        self.assertEqual(self.product.inventory_cost_value, Decimal('900.00'))
+        self.assertEqual(second.warehouse_stock, 2)
+        self.assertEqual(second.dealer_stock, 0)
+        self.assertEqual(second.inventory_cost_value, Decimal('80.00'))
+
+        expense = Expense.objects.get(purchase_receipt_id=body['id'])
+        self.assertEqual(expense.category, 'product_buying')
+        self.assertEqual(expense.amount, Decimal('980.00'))
+        self.assertTrue(expense.is_stock_linked)
+
+        edited = self.api.patch(f"/api/v1/payments/admin/purchase-receipts/{body['id']}/", {
+            'purchase_date': date.today().isoformat(),
+            'payee': 'City Wholesale',
+            'stock_location': 'warehouse',
+            'line_inputs': [{
+                'product': str(self.product.id),
+                'quantity': 5,
+                'unit_cost': '80.00',
+            }],
+        }, format='json')
+        self.assertEqual(edited.status_code, 200, edited.content)
+        self.product.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(self.product.warehouse_stock, 5)
+        self.assertEqual(self.product.dealer_stock, 0)
+        self.assertEqual(self.product.inventory_cost_value, Decimal('400.00'))
+        self.assertEqual(second.warehouse_stock, 0)
+        self.assertEqual(second.dealer_stock, 0)
+        self.assertEqual(second.inventory_cost_value, Decimal('0.00'))
+        expense.refresh_from_db()
+        self.assertEqual(expense.amount, Decimal('400.00'))
+        self.assertEqual(expense.quantity, 5)
+
+        cancelled = self.api.delete(f"/api/v1/payments/admin/expenses/{expense.id}/")
+        self.assertEqual(cancelled.status_code, 204, cancelled.content)
+        self.assertFalse(Expense.objects.filter(pk=expense.id).exists())
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock_quantity, 0)
+        self.assertEqual(self.product.inventory_cost_value, Decimal('0.00'))
+        from apps.payments.models import PurchaseReceipt
+        receipt = PurchaseReceipt.objects.get(pk=body['id'])
+        self.assertEqual(receipt.status, PurchaseReceipt.STATUS_CANCELLED)
+
+    def test_purchase_receipt_additional_discount_reduces_expense_and_stock_cost(self):
+        self._clear_stock()
+        created = self.api.post('/api/v1/payments/admin/purchase-receipts/', {
+            'purchase_date': date.today().isoformat(),
+            'payee': 'Wholesale Mart',
+            'stock_location': 'warehouse',
+            'additional_discount_type': 'fixed',
+            'additional_discount_value': '50.00',
+            'line_inputs': [{
+                'product': str(self.product.id),
+                'quantity': 10,
+                'unit_cost': '100.00',
+            }],
+        }, format='json')
+        self.assertEqual(created.status_code, 201, created.content)
+        body = created.json()
+        self.assertEqual(body['subtotal'], '1000.00')
+        self.assertEqual(body['total_discount'], '0.00')
+        self.assertEqual(body['additional_discount'], '50.00')
+        self.assertEqual(body['grand_total'], '950.00')
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.warehouse_stock, 10)
+        self.assertEqual(self.product.inventory_cost_value, Decimal('950.00'))
+        expense = Expense.objects.get(purchase_receipt_id=body['id'])
+        self.assertEqual(expense.amount, Decimal('950.00'))
+
+    def test_expense_and_income_accept_payment_proof_uploads(self):
+        packaging = self.api.post('/api/v1/payments/admin/expenses/', {
+            'expense_date': date.today().isoformat(),
+            'category': 'packaging',
+            'description': 'Boxes',
+            'amount': '25.00',
+            'payment_proof': _png_proof('expense-proof.png'),
+        }, format='multipart')
+        self.assertEqual(packaging.status_code, 201, packaging.content)
+        expense = Expense.objects.get(pk=packaging.json()['id'])
+        self.assertTrue(expense.payment_proof.name)
+        self.assertTrue(packaging.json()['payment_proof'])
+
+        income = self.api.post('/api/v1/payments/admin/manual-income/', {
+            'income_date': date.today().isoformat(),
+            'category': 'share',
+            'share_partner': 'rakib',
+            'description': 'Share with proof',
+            'amount': '40.00',
+            'payment_proof': _png_proof('income-proof.png'),
+        }, format='multipart')
+        self.assertEqual(income.status_code, 201, income.content)
+        row = ManualIncome.objects.get(pk=income.json()['id'])
+        self.assertTrue(row.payment_proof.name)
+        self.assertTrue(income.json()['payment_proof'])
+
+        self._clear_stock()
+        receipt = self.api.post('/api/v1/payments/admin/purchase-receipts/', {
+            'purchase_date': date.today().isoformat(),
+            'payee': 'Local Dealer',
+            'stock_location': 'warehouse',
+            'line_inputs': json.dumps([{
+                'product': str(self.product.id),
+                'quantity': 2,
+                'unit_cost': '50.00',
+            }]),
+            'payment_proof': _png_proof('receipt-proof.png'),
+        }, format='multipart')
+        self.assertEqual(receipt.status_code, 201, receipt.content)
+        linked = Expense.objects.get(purchase_receipt_id=receipt.json()['id'])
+        self.assertTrue(linked.payment_proof.name)
+        self.assertTrue(receipt.json()['payment_proof'])
 
     def _stock_url(self):
         return f'/api/v1/products/admin/products/{self.product.id}/stock/'

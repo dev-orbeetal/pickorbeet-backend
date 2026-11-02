@@ -2,15 +2,24 @@
 Order domain services shared by API views, the Django admin and the courier sync.
 """
 import json
+from decimal import Decimal
 
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
 from django.utils import timezone
 
-from apps.products.costing import issue_units, restore_units
+from apps.products.costing import StockError, issue_units, restore_units
+from apps.products.models import Product, ProductVariant
+from apps.products.variants import variant_options
 
-from .models import Order, OrderStatusHistory
+from .models import Order, OrderItem, OrderStatusHistory
+
+
+class ExternalOrderUpdateError(Exception):
+    def __init__(self, message):
+        super().__init__(message)
+        self.message = message
 
 # Statuses where stock should be deducted
 STOCK_DEDUCTED_STATUSES = {'confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered'}
@@ -95,22 +104,41 @@ def find_variant(item):
 
 
 def reduce_stock(order, user=None):
-    """Reduce stock for all items in the order and snapshot their cost once."""
+    """Reduce stock for all items in the order and snapshot their cost once.
+
+    Dealer fulfillment: when ``stock_location`` is dealer and the product is
+    marked ``dealer_available``, the order can proceed even if recorded dealer
+    stock is zero (dealer sources outside warehouse books). In that case no
+    quantity is deducted.
+    """
     if order.stock_reduced:
         return
-    prefix = 'In-shop order' if order.order_type == 'in_shop' else 'Order'
+    if order.order_type == 'in_shop':
+        prefix = 'In-shop order'
+    elif order.order_type == 'external':
+        prefix = 'External order'
+    else:
+        prefix = 'Order'
+    location = (order.stock_location or '').strip() or None
     for item in order.items.select_related('product', 'variant').all():
         if item.product_id is None:
             continue
         variant = find_variant(item)
-        unit_cost, cost_total = issue_units(
-            product=item.product,
-            variant=variant,
-            quantity=item.quantity,
-            order=order,
-            note=f'{prefix} #{order.order_number}',
-            user=user,
-        )
+        try:
+            unit_cost, cost_total = issue_units(
+                product=item.product,
+                variant=variant,
+                quantity=item.quantity,
+                order=order,
+                note=f'{prefix} #{order.order_number}',
+                user=user,
+                location=location,
+            )
+        except StockError:
+            if location == 'dealer' and item.product.dealer_available:
+                unit_cost, cost_total = Decimal('0.00'), Decimal('0.00')
+            else:
+                raise
         item.unit_cost = unit_cost
         item.cost_total = cost_total
         item.cost_applied = True
@@ -145,6 +173,148 @@ def restore_stock(order, user=None):
             item.cost_applied = False
             item.save(update_fields=['cost_applied'])
     order.stock_reduced = False
+
+
+def _resolve_external_lines(items_data):
+    """Validate product/variant lines and return (prepared_rows, subtotal)."""
+    prepared = []
+    subtotal = Decimal('0.00')
+    for item_data in items_data:
+        try:
+            product = Product.objects.get(id=item_data['product_id'])
+        except Product.DoesNotExist as exc:
+            raise ExternalOrderUpdateError(
+                f"Product {item_data['product_id']} was not found."
+            ) from exc
+        variant = None
+        if item_data.get('variant_id'):
+            try:
+                variant = ProductVariant.objects.get(
+                    id=item_data['variant_id'], product=product,
+                )
+            except ProductVariant.DoesNotExist as exc:
+                raise ExternalOrderUpdateError(
+                    'Variant does not belong to the selected product.'
+                ) from exc
+        elif product.variants.exists():
+            raise ExternalOrderUpdateError(f'Select a variant for {product.name}.')
+        quantity = int(item_data['quantity'])
+        unit_price = Decimal(item_data['unit_price'])
+        subtotal += unit_price * quantity
+        prepared.append({
+            'product': product,
+            'variant': variant,
+            'quantity': quantity,
+            'unit_price': unit_price,
+        })
+    if not prepared:
+        raise ExternalOrderUpdateError('Add at least one product.')
+    return prepared, subtotal
+
+
+def _replace_external_items(order, prepared_rows):
+    order.items.all().delete()
+    for item in prepared_rows:
+        OrderItem.objects.create(
+            order=order,
+            product=item['product'],
+            variant=item['variant'],
+            product_name=item['product'].name,
+            product_sku=(
+                item['variant'].sku if item['variant'] and item['variant'].sku
+                else item['product'].sku
+            ),
+            size=item['variant'].size if item['variant'] else item['product'].size,
+            color=item['variant'].color if item['variant'] else item['product'].color,
+            options=variant_options(item['variant']) if item['variant'] else [],
+            quantity=item['quantity'],
+            unit_price=item['unit_price'],
+            compare_price=item['product'].compare_price,
+        )
+
+
+def update_external_order(order, data, user=None):
+    """Edit an admin-created external order (customer, address, charges, lines)."""
+    if order.order_type != 'external':
+        raise ExternalOrderUpdateError('Only external / admin orders can be edited this way.')
+    if order.order_status in ('cancelled', 'refunded'):
+        raise ExternalOrderUpdateError(
+            'Cancelled or refunded orders cannot be edited. Reopen the order first.'
+        )
+
+    with transaction.atomic():
+        locked = Order.objects.select_for_update().get(pk=order.pk)
+        if locked.order_type != 'external':
+            raise ExternalOrderUpdateError('Only external / admin orders can be edited this way.')
+
+        items_data = data.get('items', None)
+        new_location = data.get('stock_location', None)
+        location_changed = (
+            new_location is not None
+            and (new_location or '') != (locked.stock_location or '')
+        )
+        rewrite_items = items_data is not None
+        needs_stock_refresh = False
+
+        if rewrite_items or location_changed:
+            shipment = getattr(locked, 'shipment', None)
+            if shipment is not None and shipment.consignment_id and rewrite_items:
+                raise ExternalOrderUpdateError(
+                    'Items cannot change after the parcel is booked with Steadfast.'
+                )
+            if locked.stock_reduced:
+                restore_stock(locked, user=user)
+                locked.save(update_fields=['stock_reduced'])
+            needs_stock_refresh = locked.order_status in STOCK_DEDUCTED_STATUSES
+
+        if rewrite_items:
+            prepared, subtotal = _resolve_external_lines(items_data)
+            _replace_external_items(locked, prepared)
+            locked.subtotal = subtotal
+
+        if 'customer_name' in data and data['customer_name'] is not None:
+            locked.guest_name = data['customer_name']
+            locked.shipping_name = data['customer_name']
+        if 'customer_phone' in data and data['customer_phone'] is not None:
+            locked.guest_phone = data['customer_phone']
+            locked.shipping_phone = data['customer_phone']
+        if 'customer_email' in data:
+            locked.guest_email = data.get('customer_email') or ''
+        for field in (
+            'shipping_address_line1', 'shipping_address_line2',
+            'shipping_city', 'shipping_district', 'shipping_postal_code',
+        ):
+            if field in data and data[field] is not None:
+                setattr(locked, field, data[field] or '')
+        if 'delivery_charge' in data and data['delivery_charge'] is not None:
+            locked.delivery_charge = data['delivery_charge']
+        if 'discount' in data and data['discount'] is not None:
+            locked.discount = data['discount']
+        if 'payment_method' in data:
+            locked.payment_method = data.get('payment_method') or ''
+        if 'payment_status' in data and data['payment_status']:
+            locked.payment_status = data['payment_status']
+        if 'notes' in data:
+            locked.notes = data.get('notes') or ''
+        if new_location is not None:
+            locked.stock_location = new_location or ''
+
+        locked.save()
+
+        if needs_stock_refresh:
+            try:
+                reduce_stock(locked, user=user)
+            except StockError as exc:
+                raise ExternalOrderUpdateError(exc.message) from exc
+            locked.save(update_fields=['stock_reduced'])
+
+        OrderStatusHistory.objects.create(
+            order=locked,
+            status=locked.order_status,
+            note='External order updated by admin',
+            changed_by=user,
+        )
+        return locked
 
 
 def change_order_status(order, new_status, note='', changed_by=None):

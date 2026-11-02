@@ -35,9 +35,9 @@ export const ordersApi = baseApi.injectEndpoints({
       ],
     }),
 
-    createInShopOrder: builder.mutation({
+    createExternalOrder: builder.mutation({
       query: (data) => ({
-        url: '/orders/admin/in-shop/',
+        url: '/orders/admin/external/',
         method: 'POST',
         body: data,
       }),
@@ -47,6 +47,21 @@ export const ordersApi = baseApi.injectEndpoints({
         'Finance',
         'Inventory',
         { type: 'Products', id: 'LIST' },
+      ],
+    }),
+
+    updateExternalOrder: builder.mutation({
+      query: ({ id, ...body }) => ({
+        url: `/orders/admin/${id}/external/`,
+        method: 'PATCH',
+        body,
+      }),
+      invalidatesTags: (result, error, { id }) => [
+        { type: 'Orders', id },
+        { type: 'Orders', id: 'LIST' },
+        'Dashboard',
+        'Finance',
+        'Inventory',
       ],
     }),
 
@@ -125,7 +140,8 @@ export const {
   useLazyGetOrdersQuery,
   useGetOrderQuery,
   useUpdateOrderStatusMutation,
-  useCreateInShopOrderMutation,
+  useCreateExternalOrderMutation,
+  useUpdateExternalOrderMutation,
   useDeleteOrderMutation,
   useBookShipmentMutation,
   useRefreshShipmentMutation,

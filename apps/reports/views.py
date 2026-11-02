@@ -416,7 +416,7 @@ class SalesReportView(APIView):
         pending_orders = ranged_orders.filter(order_status__in=pending_statuses).count()
         
         online_orders = orders.filter(order_type='online').count()
-        in_shop_orders = orders.filter(order_type='in_shop').count()
+        external_orders = orders.filter(order_type='external').count()
         
         avg_order_value = orders.aggregate(avg=Avg('total'))['avg'] or 0
         
@@ -464,7 +464,7 @@ class SalesReportView(APIView):
                 'total_items_sold': summary['total_items'] or 0,
                 'average_order_value': float(avg_order_value),
                 'online_orders': online_orders,
-                'in_shop_orders': in_shop_orders,
+                'external_orders': external_orders,
             },
             'daily_sales': list(daily_sales),
             'top_products': [
@@ -691,7 +691,8 @@ class GenerateDailySalesReportView(APIView):
         )
         
         online_orders = orders.filter(order_type='online')
-        in_shop_orders = orders.filter(order_type='in_shop')
+        # Field name is historical; counts external admin sales (and any legacy in-shop).
+        offline_orders = orders.filter(order_type__in=['external', 'in_shop'])
         
         totals = orders.aggregate(
             gross_revenue=Sum('total'),
@@ -701,10 +702,10 @@ class GenerateDailySalesReportView(APIView):
         )
         
         # Payment breakdown
-        cash = in_shop_orders.filter(payment_method='cash').aggregate(
+        cash = offline_orders.filter(payment_method='cash').aggregate(
             total=Sum('total')
         )['total'] or 0
-        card = in_shop_orders.filter(payment_method='card').aggregate(
+        card = offline_orders.filter(payment_method='card').aggregate(
             total=Sum('total')
         )['total'] or 0
         online = online_orders.aggregate(total=Sum('total'))['total'] or 0
@@ -714,7 +715,7 @@ class GenerateDailySalesReportView(APIView):
             defaults={
                 'total_orders': orders.count(),
                 'online_orders': online_orders.count(),
-                'in_shop_orders': in_shop_orders.count(),
+                'in_shop_orders': offline_orders.count(),
                 'gross_revenue': totals['gross_revenue'] or 0,
                 'delivery_charges': totals['delivery_charges'] or 0,
                 'discounts': totals['discounts'] or 0,

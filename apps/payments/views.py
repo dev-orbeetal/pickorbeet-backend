@@ -5,6 +5,7 @@ from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from django.conf import settings
 from django.db.models import Count, Sum
 from django.utils import timezone
@@ -12,11 +13,12 @@ from django.shortcuts import redirect
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 import uuid
-from .models import Expense, Payment, Refund
+from .models import Expense, ManualIncome, Payment, PurchaseReceipt, Refund
 from .serializers import (
     PaymentSerializer, OrderPaymentSerializer, InitiatePaymentSerializer,
     PaymentCallbackSerializer, RefundSerializer, CreateRefundSerializer,
-    ProcessRefundSerializer, ExpenseSerializer
+    ProcessRefundSerializer, ExpenseSerializer, ManualIncomeSerializer,
+    PurchaseReceiptSerializer,
 )
 from apps.orders.models import Order
 from apps.orders.services import change_order_status, record_online_payment
@@ -357,14 +359,27 @@ def _bounded(queryset, field, start_date, end_date):
     return queryset
 
 
+def _expense_queryset():
+    return (
+        Expense.objects.select_related(
+            'product', 'created_by', 'purchase_receipt',
+        )
+        .prefetch_related(
+            'purchase_receipt__lines__product',
+            'purchase_receipt__lines__variant',
+        )
+    )
+
+
 class ExpenseListCreateView(generics.ListCreateAPIView):
     """Accountant: list and record expenses. Not copied from sales."""
     serializer_class = ExpenseSerializer
     permission_classes = [IsAuthenticated, IsAccountant]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
     pagination_class = None
 
     def get_queryset(self):
-        queryset = Expense.objects.select_related('product', 'created_by')
+        queryset = _expense_queryset()
         params = self.request.query_params
         queryset = _bounded(queryset, 'expense_date', params.get('start_date'), params.get('end_date'))
         product_id = params.get('product')
@@ -377,16 +392,72 @@ class ExpenseDetailView(generics.RetrieveUpdateDestroyAPIView):
     """Accountant: review, correct, or remove one expense voucher."""
     serializer_class = ExpenseSerializer
     permission_classes = [IsAuthenticated, IsAccountant]
-    queryset = Expense.objects.select_related('product', 'created_by')
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
+
+    def get_queryset(self):
+        return _expense_queryset()
 
     def destroy(self, request, *args, **kwargs):
+        from apps.products.costing import StockError
+        from .purchases import cancel_purchase_receipt
+
         expense = self.get_object()
+        if expense.purchase_receipt_id:
+            try:
+                cancel_purchase_receipt(expense.purchase_receipt, user=request.user)
+            except StockError as exc:
+                return Response({'detail': exc.message}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(status=status.HTTP_204_NO_CONTENT)
         if expense.stock_movement_id:
             return Response(
                 {'detail': 'Purchase vouchers are created from stock purchases and cannot be deleted.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return super().destroy(request, *args, **kwargs)
+
+
+class PurchaseReceiptListCreateView(generics.ListCreateAPIView):
+    """Accountant: multi-product Product Buying receipts with inventory updates."""
+    serializer_class = PurchaseReceiptSerializer
+    permission_classes = [IsAuthenticated, IsAccountant]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
+    pagination_class = None
+
+    def get_queryset(self):
+        queryset = (
+            PurchaseReceipt.objects.select_related('expense', 'created_by')
+            .prefetch_related('lines__product', 'lines__variant')
+        )
+        params = self.request.query_params
+        queryset = _bounded(queryset, 'purchase_date', params.get('start_date'), params.get('end_date'))
+        status_value = params.get('status')
+        if status_value:
+            queryset = queryset.filter(status=status_value)
+        return queryset
+
+
+class PurchaseReceiptDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """Accountant: view, edit, or cancel a purchase receipt (reverses stock)."""
+    serializer_class = PurchaseReceiptSerializer
+    permission_classes = [IsAuthenticated, IsAccountant]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
+
+    def get_queryset(self):
+        return (
+            PurchaseReceipt.objects.select_related('expense', 'created_by')
+            .prefetch_related('lines__product', 'lines__variant')
+        )
+
+    def destroy(self, request, *args, **kwargs):
+        from apps.products.costing import StockError
+        from .purchases import cancel_purchase_receipt
+
+        receipt = self.get_object()
+        try:
+            cancel_purchase_receipt(receipt, user=request.user)
+        except StockError as exc:
+            return Response({'detail': exc.message}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class FinanceSummaryView(APIView):
@@ -405,6 +476,32 @@ class ProductFinanceView(APIView):
     def get(self, request):
         from .finance import product_finance
         return Response(product_finance())
+
+
+class RecordProductCostView(APIView):
+    """Record purchase/opening cost for stock that already exists without a voucher."""
+    permission_classes = [IsAuthenticated, IsAccountant]
+
+    def post(self, request, product_id):
+        from apps.products.costing import StockError, record_opening_cost
+        from apps.products.models import Product
+
+        try:
+            product = Product.objects.get(pk=product_id)
+        except Product.DoesNotExist:
+            return Response({'detail': 'Product not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            result = record_opening_cost(
+                product=product,
+                unit_cost=request.data.get('unit_cost'),
+                user=request.user,
+                note=request.data.get('note') or '',
+            )
+        except (StockError, TypeError, ValueError) as exc:
+            message = getattr(exc, 'message', None) or str(exc) or 'Could not record purchase cost.'
+            return Response({'detail': message}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(result)
 
 
 class ExpenseByProductView(APIView):
@@ -434,7 +531,11 @@ class ExpenseByProductView(APIView):
 
 
 class AdminIncomeView(APIView):
-    """Paid orders as income lines. A completed payment is used once and is not added again as the order total."""
+    """Paid orders as income lines, plus manually recorded income.
+
+    A completed payment is used once and is not added again as the order total.
+    Manual income is listed separately and never duplicates an order payment.
+    """
     permission_classes = [IsAuthenticated, IsAccountant]
 
     def get(self, request):
@@ -464,12 +565,57 @@ class AdminIncomeView(APIView):
             income_total += amount
             lines.append({
                 'id': str(order.id),
+                'entry_type': 'order',
                 'date': _iso_date(dated),
+                'order_date': _iso_date(order.created_at),
                 'source': source,
+                'category': 'product_selling',
+                'category_label': 'Product Selling',
                 'reference': reference,
+                'order_id': str(order.id),
+                'order_number': reference,
                 'customer_name': order.customer_name,
+                'payment_status': order.payment_status,
+                'description': f'Order {reference}',
+                'share_partner': '',
+                'share_partner_label': '',
+                'comments': '',
                 'amount': float(amount),
             })
+
+        manuals = _bounded(
+            ManualIncome.objects.select_related('created_by'),
+            'income_date',
+            start_date,
+            end_date,
+        )
+        manual_total = 0
+        for entry in manuals.order_by('-income_date', '-created_at'):
+            amount = float(entry.amount)
+            manual_total += amount
+            lines.append({
+                'id': str(entry.id),
+                'entry_type': 'manual',
+                'date': entry.income_date.isoformat(),
+                'source': 'manual',
+                'category': 'share' if entry.category == ManualIncome.CATEGORY_SHARE else entry.category,
+                'category_label': 'Share Amount' if entry.category == ManualIncome.CATEGORY_SHARE else entry.get_category_display(),
+                'reference': entry.voucher_number,
+                'order_id': '',
+                'order_number': '',
+                'customer_name': entry.get_share_partner_display() if entry.share_partner else '',
+                'payment_status': '',
+                'description': entry.description,
+                'share_partner': entry.share_partner,
+                'share_partner_label': entry.get_share_partner_display() if entry.share_partner else '',
+                'comments': entry.comments,
+                'amount': amount,
+                'voucher_number': entry.voucher_number,
+                'payment_proof': entry.payment_proof.url if entry.payment_proof else None,
+                'created_by_name': entry.created_by.full_name if entry.created_by_id else None,
+            })
+
+        lines.sort(key=lambda row: (row['date'], row['reference']), reverse=True)
 
         refunds = Refund.objects.filter(
             status__in=['approved', 'processed']
@@ -499,7 +645,101 @@ class AdminIncomeView(APIView):
         return Response({
             'income': lines,
             'income_total': float(income_total),
+            'manual_income_total': float(manual_total),
             'refunds': refund_lines,
             'refunds_subtracted': float(subtracted),
-            'net_income': float(income_total - subtracted),
+            'net_income': float(income_total + manual_total - subtracted),
+        })
+
+
+class ManualIncomeListCreateView(generics.ListCreateAPIView):
+    """Accountant: list and record manual income entries."""
+    serializer_class = ManualIncomeSerializer
+    permission_classes = [IsAuthenticated, IsAccountant]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
+    pagination_class = None
+
+    def get_queryset(self):
+        queryset = ManualIncome.objects.select_related('created_by')
+        params = self.request.query_params
+        return _bounded(queryset, 'income_date', params.get('start_date'), params.get('end_date'))
+
+
+class ManualIncomeDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """Accountant: review, correct, or remove one manual income entry."""
+    serializer_class = ManualIncomeSerializer
+    permission_classes = [IsAuthenticated, IsAccountant]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
+    queryset = ManualIncome.objects.select_related('created_by')
+
+
+class LatestTransactionsView(APIView):
+    """Merged income and expense lines for the Latest Transactions panel."""
+    permission_classes = [IsAuthenticated, IsAccountant]
+
+    def get(self, request):
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        try:
+            limit = min(max(int(request.query_params.get('limit', 40)), 1), 200)
+        except (TypeError, ValueError):
+            limit = 40
+
+        transactions = []
+
+        expenses = _bounded(
+            Expense.objects.select_related('product', 'created_by'),
+            'expense_date',
+            start_date,
+            end_date,
+        )
+        for expense in expenses:
+            transactions.append({
+                'id': f'expense-{expense.id}',
+                'type': 'expense',
+                'date': expense.expense_date.isoformat(),
+                'category': expense.category,
+                'category_label': expense.get_category_display(),
+                'description': expense.description,
+                'amount': float(expense.amount),
+                'reference': expense.voucher_number,
+                'payee': expense.payee or '',
+                'share_partner': '',
+                'share_partner_label': '',
+                'product_name': expense.product.name if expense.product_id else '',
+                'comments': expense.comments or '',
+                'created_at': expense.created_at.isoformat(),
+            })
+
+        manuals = _bounded(
+            ManualIncome.objects.select_related('created_by'),
+            'income_date',
+            start_date,
+            end_date,
+        )
+        for entry in manuals:
+            transactions.append({
+                'id': f'manual-income-{entry.id}',
+                'type': 'income',
+                'date': entry.income_date.isoformat(),
+                'category': entry.category,
+                'category_label': entry.get_category_display(),
+                'description': entry.description,
+                'amount': float(entry.amount),
+                'reference': entry.voucher_number,
+                'payee': '',
+                'share_partner': entry.share_partner,
+                'share_partner_label': entry.get_share_partner_display() if entry.share_partner else '',
+                'product_name': '',
+                'comments': entry.comments or '',
+                'created_at': entry.created_at.isoformat(),
+            })
+
+        transactions.sort(
+            key=lambda row: (row['date'], row['created_at']),
+            reverse=True,
+        )
+        return Response({
+            'transactions': transactions[:limit],
+            'count': len(transactions),
         })

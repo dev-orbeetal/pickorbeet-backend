@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/router';
 import {
   Save, ArrowLeft, Upload, RefreshCw,
@@ -11,6 +12,7 @@ import {
   useGetProductQuery,
   useUpdateProductMutation,
   useUploadProductImageMutation,
+  useUpdateProductImageMutation,
   useDeleteProductImageMutation,
   useSyncVariantSetupMutation,
   useGetStoreSettingsQuery,
@@ -20,6 +22,26 @@ import JsBarcode from 'jsbarcode';
 import { getMediaUrl, routeId } from '@/lib/utils';
 import SpecificationFields, { cleanSpecifications } from '@/components/products/SpecificationFields';
 import VariantOptions from '@/components/products/VariantOptions';
+
+function variantSelections(variant) {
+  if (Array.isArray(variant?.options) && variant.options.length) {
+    return variant.options.map((option) => ({ name: option.name, label: option.label }));
+  }
+  const selections = [];
+  if (variant?.size) selections.push({ name: 'Size', label: variant.size });
+  if (variant?.color) selections.push({ name: 'Color', label: variant.color });
+  return selections;
+}
+
+function selectionsMatch(left, right) {
+  if (!left?.length || !right?.length || left.length !== right.length) return false;
+  return left.every((item) => right.some((other) => other.name === item.name && other.label === item.label));
+}
+
+function variantLabel(variant) {
+  const labels = variantSelections(variant).map((item) => item.label);
+  return labels.length ? labels.join(' / ') : (variant.sku || 'Variant');
+}
 
 export default function EditProductPage() {
   const router = useRouter();
@@ -36,9 +58,11 @@ export default function EditProductPage() {
   const { data: sellers = [] } = useGetSellersQuery();
   const [updateProduct] = useUpdateProductMutation();
   const [uploadProductImage] = useUploadProductImageMutation();
+  const [updateProductImage] = useUpdateProductImageMutation();
   const [deleteProductImage] = useDeleteProductImageMutation();
   const [syncVariantSetup] = useSyncVariantSetupMutation();
   const [variantSnapshot, setVariantSnapshot] = useState(null);
+  const [allProductImages, setAllProductImages] = useState([]);
 
   const categories = Array.isArray(categoriesData?.results || categoriesData)
     ? (categoriesData?.results || categoriesData)
@@ -55,6 +79,9 @@ export default function EditProductPage() {
     compare_price: '',
     cost_price: '',
     stock_quantity: 0,
+    warehouse_stock: 0,
+    dealer_stock: 0,
+    dealer_available: false,
     low_stock_threshold: 10,
     weight: '',
     is_active: true,
@@ -84,6 +111,9 @@ export default function EditProductPage() {
         compare_price: product.compare_price || '',
         cost_price: product.cost_price || '',
         stock_quantity: product.stock_quantity || 0,
+        warehouse_stock: product.warehouse_stock || 0,
+        dealer_stock: product.dealer_stock || 0,
+        dealer_available: product.dealer_available ?? false,
         low_stock_threshold: product.low_stock_threshold || 10,
         weight: product.weight || '',
         is_active: product.is_active ?? true,
@@ -94,12 +124,14 @@ export default function EditProductPage() {
         supplied_by: product.supplied_by || '',
       });
 
-      // Load existing images
+      // Shared gallery images (variant-linked ones are edited on each combination)
       if (product.images) {
-        setExistingImages(product.images.map(img => ({
+        const mapped = product.images.map((img) => ({
           ...img,
-          url: getMediaUrl(img.image)
-        })));
+          url: getMediaUrl(img.image),
+        }));
+        setAllProductImages(mapped);
+        setExistingImages(mapped.filter((img) => !img.variant));
       }
 
       setHasVariants((product.variants || []).length > 0);
@@ -301,8 +333,8 @@ export default function EditProductPage() {
         price: parseFloat(formData.price),
         compare_price: formData.compare_price ? parseFloat(formData.compare_price) : null,
         cost_price: formData.cost_price ? parseFloat(formData.cost_price) : null,
-        stock_quantity: parseInt(formData.stock_quantity),
         low_stock_threshold: parseInt(formData.low_stock_threshold),
+        dealer_available: formData.dealer_available,
         weight: formData.weight ? parseFloat(formData.weight) : null,
         is_active: formData.is_active,
         is_featured: formData.is_featured,
@@ -315,12 +347,13 @@ export default function EditProductPage() {
 
       await updateProduct(productData).unwrap();
 
-      // Upload new images
+      // Upload new shared product images
       if (newImages.length > 0) {
         for (const img of newImages) {
           const imageData = new FormData();
           imageData.append('image', img.file);
           imageData.append('is_primary', img.is_primary ? 'true' : 'false');
+          if (img.variant) imageData.append('variant', img.variant);
           try {
             await uploadProductImage({ productId: id, imageData }).unwrap();
           } catch (imgError) {
@@ -333,6 +366,39 @@ export default function EditProductPage() {
       if (setup?.payload) {
         const saved = await syncVariantSetup({ productId: id, ...setup.payload }).unwrap();
         setVariantSnapshot(saved);
+
+        for (const imageId of setup.removedImageIds || []) {
+          try {
+            await deleteProductImage(imageId).unwrap();
+          } catch (error) {
+            console.error('Failed to remove variant image:', error);
+          }
+        }
+
+        for (const pending of setup.pendingImages || []) {
+          const match = (saved.variants || []).find((variant) => (
+            String(variant.id) === String(pending.variantId)
+            || selectionsMatch(pending.selections, variantSelections(variant))
+          ));
+          if (!match) continue;
+          if (pending.replaceImageId) {
+            try {
+              await deleteProductImage(pending.replaceImageId).unwrap();
+            } catch (error) {
+              console.error('Failed to replace variant image:', error);
+            }
+          }
+          const imageData = new FormData();
+          imageData.append('image', pending.file);
+          imageData.append('is_primary', 'false');
+          imageData.append('variant', match.id);
+          try {
+            await uploadProductImage({ productId: id, imageData }).unwrap();
+          } catch (imgError) {
+            console.error('Variant image upload error:', imgError);
+            toast.error('Failed to upload a variant image');
+          }
+        }
       }
 
       toast.success('Product updated successfully!');
@@ -578,25 +644,26 @@ export default function EditProductPage() {
               </div>
             </div>
 
-            {/* Inventory — only show for products without variants */}
+            {/* Stock — quantity is transaction-driven; only threshold + dealer availability are edited here */}
             {!hasVariants && (
               <div className="card">
-                <h2 className="text-lg font-semibold mb-4">Inventory</h2>
-                <div className="grid grid-cols-2 gap-4">
+                <h2 className="text-lg font-semibold mb-4">Stock & dealer availability</h2>
+                <div className="grid grid-cols-2 gap-4 mb-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Stock Quantity
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Warehouse stock</label>
                     <input
                       type="number"
-                      name="stock_quantity"
-                      value={formData.stock_quantity}
-                      onChange={handleInputChange}
-                      className="input"
-                      min="0"
+                      value={formData.warehouse_stock}
+                      className="input bg-gray-50"
+                      readOnly
+                      disabled
                     />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Calculated from purchases and sales.{' '}
+                      <Link href="/finance" className="text-primary-600 font-medium">Finance</Link>
+                      {' '}records restocks.
+                    </p>
                   </div>
-
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Low Stock Threshold
@@ -612,11 +679,26 @@ export default function EditProductPage() {
                     <p className="text-xs text-gray-500 mt-1">Alert when stock falls below this</p>
                   </div>
                 </div>
+                <label className="flex items-center justify-between cursor-pointer border border-gray-200 rounded-xl p-3">
+                  <span>
+                    <span className="block text-sm font-medium text-gray-700">Dealer availability</span>
+                    <span className="block text-xs text-gray-500">
+                      Allow dealer fulfillment when warehouse stock is empty. This is a yes/no flag, not a stock quantity.
+                    </span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    name="dealer_available"
+                    checked={formData.dealer_available}
+                    onChange={handleInputChange}
+                    className="toggle"
+                  />
+                </label>
               </div>
             )}
 
             <VariantOptions
-              key={`${product.id}:${(variantSnapshot?.variants || product.variants || []).map((variant) => variant.id).join(',')}`}
+              key={`${product.id}:${(variantSnapshot?.variants || product.variants || []).map((variant) => variant.id).join(',')}:${allProductImages.map((image) => `${image.id}:${image.variant || ''}`).join('|')}`}
               ref={variantRef}
               productSku={formData.sku}
               barcodePrefix={storeSettings?.barcode_prefix || 'ZZ'}
@@ -624,12 +706,16 @@ export default function EditProductPage() {
               productPrice={formData.price}
               initialGroups={variantSnapshot?.option_groups || product.option_groups}
               initialVariants={variantSnapshot?.variants || product.variants}
+              productImages={allProductImages}
               onCount={(count) => setHasVariants(count > 0)}
             />
 
             {/* Images */}
             <div className="card">
-              <h2 className="text-lg font-semibold mb-4">Product Images</h2>
+              <h2 className="text-lg font-semibold mb-4">Shared Product Images</h2>
+              <p className="text-sm text-gray-500 mb-4">
+                These show for every variant. Add per-variant photos on each combination above.
+              </p>
 
               {/* Existing Images */}
               {existingImages.length > 0 && (
@@ -657,6 +743,43 @@ export default function EditProductPage() {
                           <span className="absolute top-2 left-2 bg-primary-500 text-white text-xs px-2 py-1 rounded">
                             Primary
                           </span>
+                        )}
+                        {(variantSnapshot?.variants || product.variants || []).length > 0 && (
+                          <select
+                            value={img.variant || ''}
+                            onChange={async (event) => {
+                              const variant = event.target.value || null;
+                              try {
+                                await updateProductImage({
+                                  imageId: img.id,
+                                  productId: id,
+                                  variant,
+                                }).unwrap();
+                                setExistingImages((current) => (
+                                  variant
+                                    ? current.filter((item) => item.id !== img.id)
+                                    : current.map((item) => (
+                                      item.id === img.id ? { ...item, variant } : item
+                                    ))
+                                ));
+                                setAllProductImages((current) => current.map((item) => (
+                                  item.id === img.id ? { ...item, variant } : item
+                                )));
+                                toast.success(variant ? 'Image moved to variant' : 'Image is shared');
+                              } catch (error) {
+                                toast.error('Could not update image');
+                              }
+                            }}
+                            className="absolute bottom-1 left-1 right-1 rounded bg-white/95 px-1 py-0.5 text-[10px] text-gray-700"
+                            title="Assign to variant"
+                          >
+                            <option value="">All variants</option>
+                            {(variantSnapshot?.variants || product.variants || []).map((variant) => (
+                              <option key={variant.id} value={variant.id}>
+                                {variantLabel(variant)}
+                              </option>
+                            ))}
+                          </select>
                         )}
                       </div>
                     ))}
@@ -743,6 +866,21 @@ export default function EditProductPage() {
                     className="toggle"
                   />
                 </label>
+                {hasVariants && (
+                  <label className="flex items-center justify-between cursor-pointer">
+                    <span>
+                      <span className="block text-gray-700">Dealer availability</span>
+                      <span className="block text-xs text-gray-500">Independent of warehouse stock</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      name="dealer_available"
+                      checked={formData.dealer_available}
+                      onChange={handleInputChange}
+                      className="toggle"
+                    />
+                  </label>
+                )}
               </div>
             </div>
 
