@@ -634,6 +634,12 @@ class HomepageSection(models.Model):
     view_all_label = models.CharField(max_length=80, blank=True, default='')
     view_all_url = models.CharField(max_length=300, blank=True, default='')
     product_source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='manual')
+    banner_image = models.ImageField(
+        upload_to='homepage/sections/',
+        blank=True,
+        null=True,
+        help_text='Listing page header for View All (Trending / New Arrivals). ~2:1 recommended.',
+    )
 
     class Meta:
         ordering = ['display_order', 'title']

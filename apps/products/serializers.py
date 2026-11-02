@@ -502,18 +502,20 @@ class HomepageSectionProductSerializer(serializers.ModelSerializer):
 class HomepageSectionSerializer(serializers.ModelSerializer):
     """Admin serializer for curated homepage product rows."""
     products = HomepageSectionProductSerializer(source='section_products', many=True, read_only=True)
+    banner_image = RelativeImageField(required=False, allow_null=True)
     product_ids = serializers.ListField(
         child=serializers.UUIDField(),
         required=False,
         write_only=True,
     )
+    clear_banner_image = serializers.BooleanField(required=False, write_only=True, default=False)
 
     class Meta:
         model = HomepageSection
         fields = [
             'id', 'key', 'section_type', 'title', 'subtitle', 'is_enabled',
             'display_order', 'item_limit', 'view_all_label', 'view_all_url',
-            'product_source', 'products', 'product_ids',
+            'product_source', 'banner_image', 'clear_banner_image', 'products', 'product_ids',
         ]
         read_only_fields = ['id', 'key', 'section_type', 'display_order']
 
@@ -530,7 +532,18 @@ class HomepageSectionSerializer(serializers.ModelSerializer):
 
     def validate_product_ids(self, value):
         if not value:
-            return value
+            return []
+        # Empty FormData sentinel or a JSON array string from older clients.
+        if len(value) == 1 and isinstance(value[0], str):
+            raw = value[0].strip()
+            if not raw:
+                return []
+            if raw.startswith('['):
+                import json
+                try:
+                    value = json.loads(raw)
+                except json.JSONDecodeError as exc:
+                    raise serializers.ValidationError('Invalid product_ids.') from exc
         unique = list(dict.fromkeys(value))
         found = set(
             Product.objects.filter(id__in=unique).values_list('id', flat=True)
@@ -542,8 +555,11 @@ class HomepageSectionSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         product_ids = validated_data.pop('product_ids', serializers.empty)
+        clear_banner = validated_data.pop('clear_banner_image', False)
         for field, value in validated_data.items():
             setattr(instance, field, value)
+        if clear_banner and 'banner_image' not in validated_data:
+            instance.banner_image = None
         instance.save()
 
         if product_ids is not serializers.empty:

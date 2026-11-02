@@ -24,6 +24,9 @@ function SectionEditor({ section }) {
   const [viewAllLabel, setViewAllLabel] = useState(section.view_all_label || 'View All');
   const [viewAllUrl, setViewAllUrl] = useState(section.view_all_url || '/products');
   const [products, setProducts] = useState(section.products || []);
+  const [bannerFile, setBannerFile] = useState(null);
+  const [bannerPreview, setBannerPreview] = useState(() => getMediaUrl(section.banner_image) || '');
+  const [clearBanner, setClearBanner] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [updateSection, { isLoading: saving }] = useUpdateHomepageSectionMutation();
@@ -37,6 +40,9 @@ function SectionEditor({ section }) {
     setViewAllLabel(section.view_all_label || 'View All');
     setViewAllUrl(section.view_all_url || '/products');
     setProducts(section.products || []);
+    setBannerFile(null);
+    setBannerPreview(getMediaUrl(section.banner_image) || '');
+    setClearBanner(false);
   }, [section]);
 
   const selectedIds = useMemo(() => new Set(products.map((item) => item.id)), [products]);
@@ -99,18 +105,56 @@ function SectionEditor({ section }) {
     });
   };
 
+  const onBannerPick = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setClearBanner(false);
+    setBannerFile(file);
+    const reader = new FileReader();
+    reader.onload = () => setBannerPreview(reader.result);
+    reader.readAsDataURL(file);
+  };
+
+  const onBannerClear = () => {
+    setBannerFile(null);
+    setBannerPreview('');
+    setClearBanner(Boolean(section.banner_image));
+  };
+
   const handleSave = async () => {
     try {
-      await updateSection({
-        key: section.key,
-        title: title.trim() || section.title,
-        is_enabled: isEnabled,
-        item_limit: Number(itemLimit) || 8,
-        product_source: productSource,
-        view_all_label: viewAllLabel.trim(),
-        view_all_url: viewAllUrl.trim() || '/products',
-        product_ids: isManual ? products.map((item) => item.id) : [],
-      }).unwrap();
+      const useForm = Boolean(bannerFile) || clearBanner;
+      let data;
+      if (useForm) {
+        data = new FormData();
+        data.append('title', title.trim() || section.title);
+        data.append('is_enabled', isEnabled ? 'true' : 'false');
+        data.append('item_limit', String(Number(itemLimit) || 8));
+        data.append('product_source', productSource);
+        data.append('view_all_label', viewAllLabel.trim());
+        data.append('view_all_url', viewAllUrl.trim() || '/products');
+        if (isManual) {
+          products.forEach((item) => data.append('product_ids', item.id));
+        } else {
+          data.append('product_ids', '');
+        }
+        if (bannerFile) data.append('banner_image', bannerFile);
+        if (clearBanner) data.append('clear_banner_image', 'true');
+      } else {
+        data = {
+          title: title.trim() || section.title,
+          is_enabled: isEnabled,
+          item_limit: Number(itemLimit) || 8,
+          product_source: productSource,
+          view_all_label: viewAllLabel.trim(),
+          view_all_url: viewAllUrl.trim() || '/products',
+          product_ids: isManual ? products.map((item) => item.id) : [],
+        };
+      }
+      await updateSection({ key: section.key, data }).unwrap();
+      setBannerFile(null);
+      setClearBanner(false);
       toast.success(`${title || section.title} saved`);
     } catch (error) {
       toast.error(error?.data?.detail || error?.data?.product_ids?.[0] || 'Failed to save section');
@@ -177,6 +221,37 @@ function SectionEditor({ section }) {
           <div className="sm:col-span-2 lg:col-span-3">
             <label className="block text-sm font-medium text-gray-700 mb-1">View all link</label>
             <input value={viewAllUrl} onChange={(e) => setViewAllUrl(e.target.value)} className="input" placeholder="/products" />
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-gray-200 p-4 space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Listing page banner</label>
+            <p className="text-xs text-gray-500 mt-1">
+              Listing page header — recommended ~2:1 (e.g. 1200×600). Shown at the top of Trending / New Arrivals in the app.
+            </p>
+          </div>
+          {bannerPreview ? (
+            <img
+              src={bannerPreview}
+              alt=""
+              className="w-full max-w-xl h-28 rounded-lg object-cover border border-gray-100 bg-gray-50"
+            />
+          ) : (
+            <div className="w-full max-w-xl h-28 rounded-lg border border-dashed border-gray-200 bg-gray-50 flex items-center justify-center text-xs text-gray-400">
+              No banner yet — gradient fallback in the app
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <label className="btn btn-secondary cursor-pointer">
+              {bannerPreview ? 'Replace image' : 'Upload image'}
+              <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="sr-only" onChange={onBannerPick} />
+            </label>
+            {(bannerPreview || section.banner_image) && (
+              <button type="button" onClick={onBannerClear} className="btn btn-secondary text-red-600">
+                Remove banner
+              </button>
+            )}
           </div>
         </div>
 

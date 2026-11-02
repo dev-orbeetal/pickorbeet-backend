@@ -195,7 +195,11 @@ class HomepageSectionAdmin(admin.ModelAdmin):
     inlines = [HomepageSectionProductInline]
     fieldsets = (
         (None, {'fields': ('title', 'key', 'section_type', 'subtitle', 'is_enabled', 'display_order')}),
-        ('Product row', {'fields': ('product_source', 'item_limit', 'view_all_label', 'view_all_url')}),
+        ('Product row', {
+            'fields': (
+                'product_source', 'item_limit', 'view_all_label', 'view_all_url', 'banner_image',
+            ),
+        }),
     )
 
 

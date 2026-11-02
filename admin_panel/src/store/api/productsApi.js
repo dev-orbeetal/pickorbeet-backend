@@ -262,10 +262,11 @@ export const productsApi = baseApi.injectEndpoints({
     }),
 
     updateHomepageSection: builder.mutation({
-      query: ({ key, ...data }) => ({
+      query: ({ key, data }) => ({
         url: `/products/admin/homepage-sections/${key}/`,
         method: 'PATCH',
         body: data,
+        formData: data instanceof FormData,
       }),
       invalidatesTags: ['HomepageSections'],
     }),

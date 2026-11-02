@@ -1,11 +1,20 @@
 from datetime import timedelta
+from io import BytesIO
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
+from PIL import Image
 from rest_framework.test import APIClient
 
 from apps.orders.tests.factories import ShopTestCase, make_product, make_user
 from apps.products.homepage import build_homepage, ensure_curated_product_sections
 from apps.products.models import HomepageSection, HomepageSectionProduct, Product
+
+
+def _png(name='section-banner.png'):
+    buf = BytesIO()
+    Image.new('RGB', (1200, 600), (47, 107, 255)).save(buf, format='PNG')
+    return SimpleUploadedFile(name, buf.getvalue(), content_type='image/png')
 
 
 class HomepageSectionAdminTests(ShopTestCase):
@@ -92,3 +101,25 @@ class HomepageSectionAdminTests(ShopTestCase):
             if section['key'] in {'trending', 'new-arrivals'}
         ]
         self.assertEqual(product_keys, ['trending', 'new-arrivals'])
+
+    def test_section_banner_upload_appears_on_homepage(self):
+        ensure_curated_product_sections()
+        uploaded = self.api.patch(
+            '/api/v1/products/admin/homepage-sections/trending/',
+            {'banner_image': _png()},
+            format='multipart',
+        )
+        self.assertEqual(uploaded.status_code, 200, uploaded.content)
+        self.assertTrue(uploaded.json()['banner_image'])
+
+        homepage = build_homepage(request=None)
+        trending = next(section for section in homepage['sections'] if section['key'] == 'trending')
+        self.assertTrue(trending['banner_image'])
+
+        cleared = self.api.patch(
+            '/api/v1/products/admin/homepage-sections/trending/',
+            {'clear_banner_image': True},
+            format='json',
+        )
+        self.assertEqual(cleared.status_code, 200, cleared.content)
+        self.assertIsNone(cleared.json()['banner_image'])

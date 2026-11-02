@@ -149,6 +149,7 @@ def build_homepage(request):
         elif section.section_type == 'benefits':
             payload['items'] = benefits
         elif section.section_type == 'products':
+            payload['banner_image'] = section.banner_image.url if section.banner_image else None
             payload['products'] = ProductListSerializer(
                 _products_for(section), many=True, context={'request': request}
             ).data
