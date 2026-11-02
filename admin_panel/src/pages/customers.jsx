@@ -1,21 +1,37 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Search, Users, Eye, Mail, Phone, MapPin,
   ShoppingBag, Calendar, RefreshCw, X, User
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '@/components/layout/AdminLayout';
+import LoadError from '@/components/ui/LoadError';
+import Pager from '@/components/ui/Pager';
 import { useGetCustomersQuery, useLazyGetCustomerOrdersQuery } from '@/store/api/customersApi';
 
 export default function CustomersPage() {
-  const { data: customersData, isLoading: loading } = useGetCustomersQuery();
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [query, setQuery] = useState('');
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setQuery(search.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const { data: customersData, isLoading: loading, isError, refetch } = useGetCustomersQuery({
+    page,
+    ...(query ? { search: query } : {}),
+  });
   const [getCustomerOrders, { isFetching: loadingOrders }] = useLazyGetCustomerOrdersQuery();
 
   const customers = Array.isArray(customersData?.results || customersData)
     ? (customersData?.results || customersData)
     : [];
 
-  const [search, setSearch] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [customerOrders, setCustomerOrders] = useState([]);
@@ -41,18 +57,9 @@ export default function CustomersPage() {
     });
   };
 
-  const filteredCustomers = customers.filter(customer => {
-    if (!search) return true;
-    const searchLower = search.toLowerCase();
-    return (
-      customer.full_name?.toLowerCase().includes(searchLower) ||
-      customer.email?.toLowerCase().includes(searchLower) ||
-      customer.phone?.includes(search)
-    );
-  });
+  const filteredCustomers = customers;
 
-  // Calculate stats
-  const totalCustomers = customers.length;
+  const totalCustomers = customersData?.count ?? customers.length;
   const activeCustomers = customers.filter(c => c.is_active).length;
   const newThisMonth = customers.filter(c => {
     const joinDate = new Date(c.date_joined || c.created_at);
@@ -117,10 +124,7 @@ export default function CustomersPage() {
             </div>
           </div>
           <button
-            onClick={() => {
-              setLoading(true);
-              fetchCustomers();
-            }}
+            onClick={() => refetch()}
             className="btn btn-secondary"
           >
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
@@ -157,6 +161,12 @@ export default function CustomersPage() {
                     </td>
                   </tr>
                 ))
+              ) : isError ? (
+                <tr>
+                  <td colSpan="7" className="px-4 py-4">
+                    <LoadError title="Could not load customers" onRetry={refetch} />
+                  </td>
+                </tr>
               ) : filteredCustomers.length === 0 ? (
                 <tr>
                   <td colSpan="7" className="px-4 py-12 text-center text-gray-500">
@@ -228,6 +238,7 @@ export default function CustomersPage() {
             </tbody>
           </table>
         </div>
+        <Pager page={page} count={customersData?.count} onPage={setPage} />
       </div>
 
       {/* Customer Details Modal */}

@@ -78,7 +78,9 @@ export default function Header({ title, onMenuClick }) {
           >
             <Bell className="w-5 h-5" />
             {inbox.unreadCount > 0 && (
-              <span className="absolute top-1 right-1 min-w-[8px] h-2 px-1 bg-red-500 rounded-full" />
+              <span className="absolute -top-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">
+                {inbox.unreadCount > 99 ? '99+' : inbox.unreadCount}
+              </span>
             )}
           </button>
           {open && (

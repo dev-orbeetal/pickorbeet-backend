@@ -3,41 +3,29 @@ import Link from 'next/link';
 import { useSelector } from 'react-redux';
 import {
   LayoutDashboard, Package, ShoppingCart, Users, BarChart3, Activity,
-  Settings, Tag, ShoppingBag, AlertTriangle, Receipt, UserCog, LogOut,
-  Warehouse, Ticket, MessageSquare, Barcode, Headphones, LayoutTemplate
+  Settings, Tag, Receipt, UserCog,
+  Warehouse, Ticket, MessageSquare, Headphones, Wallet, ClipboardList, LayoutTemplate,
 } from 'lucide-react';
+import { MENU_GROUPS } from '@/lib/access';
 
-const menuItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['seller', 'accountant', 'super_admin'] },
-  { href: '/orders', label: 'Orders', icon: ShoppingCart, roles: ['seller', 'accountant', 'super_admin'] },
-  { href: '/pos', label: 'POS / In-Shop', icon: ShoppingBag, roles: ['seller', 'super_admin'] },
-  { href: '/products', label: 'Products', icon: Package, roles: ['seller', 'accountant', 'super_admin'] },
-  { href: '/homepage', label: 'Homepage', icon: LayoutTemplate, roles: ['seller', 'super_admin'] },
-  { href: '/categories', label: 'Categories', icon: Tag, roles: ['seller', 'super_admin'] },
-  { href: '/coupons', label: 'Coupons', icon: Ticket, roles: ['seller', 'super_admin'] },
-  { href: '/inventory', label: 'Inventory', icon: Warehouse, roles: ['seller', 'accountant', 'super_admin'] },
-  { href: '/barcode-labels', label: 'Barcode Labels', icon: Barcode, roles: ['seller', 'super_admin'] },
-  { href: '/low-stock', label: 'Low Stock', icon: AlertTriangle, roles: ['seller', 'accountant', 'super_admin'] },
-  { href: '/reports', label: 'Reports', icon: BarChart3, roles: ['accountant', 'super_admin'] },
-  { href: '/traffic', label: 'Traffic', icon: Activity, roles: ['seller', 'accountant', 'super_admin'] },
-  { href: '/payments', label: 'Payments', icon: Receipt, roles: ['accountant', 'super_admin'] },
-  { href: '/staff', label: 'Staff Management', icon: UserCog, roles: ['super_admin'] },
-  { href: '/customers', label: 'Customers', icon: Users, roles: ['seller', 'super_admin'] },
-  { href: '/contact', label: 'Contact Messages', icon: MessageSquare, roles: ['seller', 'super_admin'] },
-  { href: '/support', label: 'Support', icon: Headphones, roles: ['seller', 'super_admin'] },
-  { href: '/settings', label: 'Settings', icon: Settings, roles: ['super_admin'] },
-];
+const ICONS = {
+  LayoutDashboard, Package, ShoppingCart, Users, BarChart3, Activity,
+  Settings, Tag, Receipt, UserCog,
+  Warehouse, Ticket, MessageSquare, Headphones, Wallet, ClipboardList, LayoutTemplate,
+};
 
 export default function Sidebar() {
   const router = useRouter();
   const { user } = useSelector((state) => state.auth);
   const userRole = user?.role || 'seller';
 
-  const filteredMenu = menuItems.filter(item => item.roles.includes(userRole));
+  const groups = MENU_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => item.roles.includes(userRole)),
+  })).filter((group) => group.items.length > 0);
 
   return (
     <aside className="fixed left-0 top-0 h-screen w-64 bg-sidebar-bg text-white flex flex-col z-50">
-      {/* Logo */}
       <div className="p-6 border-b border-white/10">
         <Link href="/dashboard" className="text-2xl font-bold text-primary-400">
           PickOrbeet
@@ -45,27 +33,30 @@ export default function Sidebar() {
         <p className="text-xs text-gray-400 mt-1">Admin Panel</p>
       </div>
 
-      {/* Navigation */}
       <nav className="flex-1 py-4 overflow-y-auto">
-        <ul className="space-y-1">
-          {filteredMenu.map((item) => {
-            const isActive = router.pathname === item.href || router.pathname.startsWith(item.href + '/');
-            return (
-              <li key={item.href}>
-                <Link
-                  href={item.href}
-                  className={`sidebar-link ${isActive ? 'active' : ''}`}
-                >
-                  <item.icon className="w-5 h-5 mr-3" />
-                  {item.label}
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
+        {groups.map((group) => (
+          <div key={group.label} className="mb-4">
+            <p className="px-6 pb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+              {group.label}
+            </p>
+            <ul className="space-y-1">
+              {group.items.map((item) => {
+                const Icon = ICONS[item.icon];
+                const isActive = router.pathname === item.href || router.pathname.startsWith(`${item.href}/`);
+                return (
+                  <li key={item.href}>
+                    <Link href={item.href} className={`sidebar-link ${isActive ? 'active' : ''}`}>
+                      {Icon && <Icon className="w-5 h-5 mr-3" />}
+                      {item.label}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
       </nav>
 
-      {/* User Info */}
       <div className="p-4 border-t border-gray-700">
         <div className="flex items-center">
           <div className="w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center">

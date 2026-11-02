@@ -1,484 +1,384 @@
 import { useMemo, useState } from 'react';
-import { useRouter } from 'next/router';
 import Link from 'next/link';
+import { useRouter } from 'next/router';
 import {
-  ArrowLeft, Minus, Plus, Search, ShoppingBag, Trash2, X,
+  ArrowLeft, Plus, Search, Trash2, X, Package,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '@/components/layout/AdminLayout';
-import { useCreateManualOrderMutation } from '@/store/api/ordersApi';
-import { useLazyGetProductsQuery } from '@/store/api/productsApi';
+import { useGetInventoryItemsQuery } from '@/store/api/productsApi';
+import { useCreateExternalOrderMutation } from '@/store/api/ordersApi';
 import { getMediaUrl } from '@/lib/utils';
 
-const INSIDE_DHAKA_CHARGE = 60;
-const OUTSIDE_DHAKA_CHARGE = 120;
+const emptyCustomer = {
+  customer_name: '',
+  customer_phone: '',
+  customer_email: '',
+  shipping_address_line1: '',
+  shipping_address_line2: '',
+  shipping_city: 'Dhaka',
+  shipping_district: 'Dhaka',
+  shipping_postal_code: '',
+};
 
-function isInsideDhaka(city, district) {
-  const areas = ['dhaka', 'mirpur', 'uttara', 'gulshan', 'banani', 'dhanmondi', 'mohammadpur'];
-  return areas.includes((city || '').trim().toLowerCase())
-    || (district || '').trim().toLowerCase() === 'dhaka';
+function lineKey(item) {
+  return item.variant_id ? `${item.product_id}_${item.variant_id}` : item.product_id;
 }
 
-export default function CreateManualOrderPage() {
-  const router = useRouter();
-  const [createManualOrder, { isLoading: saving }] = useCreateManualOrderMutation();
-  const [searchProducts] = useLazyGetProductsQuery();
+function availableStock(item) {
+  return Number(item.warehouse_stock || 0) + Number(item.dealer_stock || 0);
+}
 
-  const [customer, setCustomer] = useState({
-    guest_name: '',
-    guest_phone: '',
-    guest_email: '',
-  });
-  const [shipping, setShipping] = useState({
-    shipping_address_line1: '',
-    shipping_address_line2: '',
-    shipping_city: 'Dhaka',
-    shipping_district: 'Dhaka',
-    shipping_postal_code: '',
-  });
-  const [cart, setCart] = useState([]);
-  const [discount, setDiscount] = useState(0);
-  const [deliveryOverride, setDeliveryOverride] = useState('');
+export default function NewOrderPage() {
+  const router = useRouter();
+  const [customer, setCustomer] = useState(emptyCustomer);
+  const [lines, setLines] = useState([]);
+  const [deliveryCharge, setDeliveryCharge] = useState('60');
+  const [discount, setDiscount] = useState('0');
   const [paymentMethod, setPaymentMethod] = useState('cod');
+  const [orderStatus, setOrderStatus] = useState('confirmed');
   const [paymentStatus, setPaymentStatus] = useState('pending');
-  const [orderStatus, setOrderStatus] = useState('pending');
-  const [source, setSource] = useState('Facebook');
   const [notes, setNotes] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [searching, setSearching] = useState(false);
+  const [search, setSearch] = useState('');
   const [variantPicker, setVariantPicker] = useState(null);
 
-  const inside = isInsideDhaka(shipping.shipping_city, shipping.shipping_district);
-  const autoDelivery = inside ? INSIDE_DHAKA_CHARGE : OUTSIDE_DHAKA_CHARGE;
-  const deliveryCharge = deliveryOverride === ''
-    ? autoDelivery
-    : Math.max(0, parseFloat(deliveryOverride) || 0);
+  const { data: inventory, isLoading: inventoryLoading } = useGetInventoryItemsQuery({});
+  const [createExternalOrder, { isLoading: saving }] = useCreateExternalOrderMutation();
 
-  const subtotal = cart.reduce((sum, item) => sum + item.unit_price * item.quantity, 0);
-  const total = Math.max(0, subtotal + deliveryCharge - (parseFloat(discount) || 0));
+  const products = inventory?.items || [];
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return products.slice(0, 40);
+    return products.filter((product) => {
+      const hay = `${product.name} ${product.sku || ''} ${product.category || ''}`.toLowerCase();
+      return hay.includes(q);
+    }).slice(0, 40);
+  }, [products, search]);
 
-  const getCartKey = (item) => (item.variant_id ? `${item.id}_${item.variant_id}` : item.id);
+  const subtotal = lines.reduce((sum, line) => sum + (Number(line.unit_price) || 0) * line.quantity, 0);
+  const total = Math.max(0, subtotal + (Number(deliveryCharge) || 0) - (Number(discount) || 0));
 
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) return;
-    setSearching(true);
-    try {
-      const response = await searchProducts({
-        search: searchQuery.trim(),
-        page_size: 12,
-        is_active: true,
-      }).unwrap();
-      setSearchResults(response.results || response || []);
-    } catch (error) {
-      toast.error('Search failed');
-    } finally {
-      setSearching(false);
+  const addProduct = (product, variant = null) => {
+    const entry = {
+      product_id: product.id,
+      variant_id: variant?.id || null,
+      name: product.name,
+      variant_label: variant
+        ? [variant.size, variant.color].filter(Boolean).join(' / ') || variant.sku
+        : '',
+      sku: variant?.sku || product.sku,
+      unit_price: String(variant?.price ?? product.price ?? 0),
+      catalog_price: Number(variant?.price ?? product.price ?? 0),
+      quantity: 1,
+      warehouse_stock: Number(variant?.warehouse_stock ?? product.warehouse_stock ?? 0),
+      dealer_stock: Number(variant?.dealer_stock ?? product.dealer_stock ?? 0),
+      primary_image: product.primary_image,
+    };
+    const key = lineKey(entry);
+    const existing = lines.findIndex((line) => lineKey(line) === key);
+    if (existing >= 0) {
+      const next = [...lines];
+      next[existing] = { ...next[existing], quantity: next[existing].quantity + 1 };
+      setLines(next);
+    } else {
+      setLines([...lines, entry]);
     }
+    setVariantPicker(null);
+    setSearch('');
+    toast.success(`${entry.name}${entry.variant_label ? ` (${entry.variant_label})` : ''} added`);
   };
 
-  const addProduct = (product) => {
-    const variants = product.variants || [];
-    if (variants.length > 0) {
+  const handlePickProduct = (product) => {
+    if (product.has_variants && product.variants?.length) {
       setVariantPicker(product);
       return;
     }
-    addToCart({
-      id: product.id,
-      name: product.name,
-      sku: product.sku,
-      price: parseFloat(product.price),
-      primary_image: product.primary_image,
-      variant_id: null,
-      variant_label: '',
-    });
+    addProduct(product);
   };
 
-  const addToCart = (product) => {
-    const key = getCartKey(product);
-    const existing = cart.findIndex((item) => getCartKey(item) === key);
-    if (existing > -1) {
-      const next = [...cart];
-      next[existing].quantity += 1;
-      setCart(next);
-    } else {
-      setCart([
-        ...cart,
-        {
-          ...product,
-          quantity: 1,
-          unit_price: parseFloat(product.price) || 0,
-        },
-      ]);
-    }
-    setSearchResults([]);
-    setSearchQuery('');
-    setVariantPicker(null);
-    toast.success(`${product.name} added`);
+  const updateLine = (index, patch) => {
+    setLines((current) => current.map((line, i) => (i === index ? { ...line, ...patch } : line)));
   };
 
-  const updateQuantity = (index, change) => {
-    const next = [...cart];
-    next[index].quantity += change;
-    if (next[index].quantity <= 0) next.splice(index, 1);
-    setCart(next);
-  };
-
-  const updateUnitPrice = (index, value) => {
-    const parsed = parseFloat(value);
-    const next = [...cart];
-    next[index] = {
-      ...next[index],
-      unit_price: Number.isFinite(parsed) && parsed >= 0 ? parsed : 0,
-    };
-    setCart(next);
-  };
-
-  const removeItem = (index) => {
-    const next = [...cart];
-    next.splice(index, 1);
-    setCart(next);
+  const removeLine = (index) => {
+    setLines((current) => current.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    if (!customer.guest_name.trim() || !customer.guest_phone.trim()) {
+    if (!customer.customer_name.trim() || !customer.customer_phone.trim()) {
       toast.error('Customer name and phone are required');
       return;
     }
-    if (!shipping.shipping_address_line1.trim()) {
-      toast.error('Shipping address is required');
+    if (!customer.shipping_address_line1.trim() || !customer.shipping_city.trim() || !customer.shipping_district.trim()) {
+      toast.error('Enter a full delivery address');
       return;
     }
-    if (cart.length === 0) {
+    if (lines.length === 0) {
       toast.error('Add at least one product');
       return;
     }
+    for (const line of lines) {
+      if (!(Number(line.unit_price) >= 0)) {
+        toast.error(`Enter a selling price for ${line.name}`);
+        return;
+      }
+      if (availableStock(line) < line.quantity) {
+        toast.error(`Not enough stock for ${line.name}`);
+        return;
+      }
+    }
 
     try {
-      const response = await createManualOrder({
-        guest_name: customer.guest_name.trim(),
-        guest_phone: customer.guest_phone.trim(),
-        guest_email: customer.guest_email.trim(),
-        shipping_name: customer.guest_name.trim(),
-        shipping_phone: customer.guest_phone.trim(),
-        shipping_address_line1: shipping.shipping_address_line1.trim(),
-        shipping_address_line2: shipping.shipping_address_line2.trim(),
-        shipping_city: shipping.shipping_city.trim(),
-        shipping_district: shipping.shipping_district.trim(),
-        shipping_postal_code: shipping.shipping_postal_code.trim(),
-        items: cart.map((item) => ({
-          product_id: item.id,
-          variant_id: item.variant_id || null,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
+      const result = await createExternalOrder({
+        ...customer,
+        customer_email: customer.customer_email || '',
+        items: lines.map((line) => ({
+          product_id: line.product_id,
+          variant_id: line.variant_id,
+          quantity: line.quantity,
+          unit_price: line.unit_price,
         })),
-        discount: parseFloat(discount) || 0,
-        delivery_charge: deliveryCharge,
+        delivery_charge: deliveryCharge || 0,
+        discount: discount || 0,
         payment_method: paymentMethod,
-        payment_status: paymentStatus,
         order_status: orderStatus,
-        source: source.trim(),
-        notes: notes.trim(),
+        payment_status: paymentStatus,
+        notes,
       }).unwrap();
-
-      toast.success(`Order ${response.order.order_number} created`);
-      router.push(`/orders/${response.order.id}`);
+      toast.success(`Order ${result.order.order_number} created`);
+      router.push(`/orders/${result.order.id}`);
     } catch (error) {
-      const message = error?.data?.error
-        || error?.data?.guest_phone?.[0]
-        || error?.data?.shipping_phone?.[0]
-        || error?.data?.items?.[0]
-        || error?.data?.detail
-        || 'Failed to create order';
-      toast.error(message);
+      const data = error?.data;
+      const message = data?.detail
+        || (Array.isArray(data?.items) ? data.items[0] : null)
+        || Object.values(data || {}).flat?.()?.[0]
+        || 'Could not create the order';
+      toast.error(typeof message === 'string' ? message : 'Could not create the order');
     }
   };
 
-  const sourcePresets = useMemo(
-    () => ['Facebook', 'WhatsApp', 'Instagram', 'Phone', 'Other'],
-    [],
-  );
-
   return (
-    <AdminLayout title="Create Order">
-      <div className="mb-6 flex items-center justify-between gap-3">
-        <div>
-          <Link href="/orders" className="inline-flex items-center text-sm text-gray-500 hover:text-gray-800 mb-2">
-            <ArrowLeft className="w-4 h-4 mr-1" /> Back to orders
-          </Link>
-          <h1 className="text-xl font-semibold text-gray-900">Create custom order</h1>
-          <p className="text-sm text-gray-500">
-            For Facebook, WhatsApp, phone, or other off-platform sales that need delivery.
-          </p>
-        </div>
+    <AdminLayout title="Add Order">
+      <div className="mb-6">
+        <Link href="/orders" className="inline-flex items-center gap-1 text-sm text-primary-600 mb-2">
+          <ArrowLeft className="w-4 h-4" />
+          Back to Orders
+        </Link>
+        <h1 className="text-2xl font-semibold text-gray-900">Add Order</h1>
+        <p className="text-sm text-gray-500 mt-1">
+          Create an order for phone, Facebook, or walk-in sales. Stock is deducted normally from available inventory.
+        </p>
       </div>
 
-      <form onSubmit={handleSubmit} className="grid lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          <div className="card p-5 space-y-4">
-            <h2 className="font-semibold text-gray-900">Customer</h2>
-            <div className="grid sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+      <form onSubmit={handleSubmit} className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <div className="xl:col-span-2 space-y-6">
+          <section className="card p-5 space-y-4">
+            <h2 className="font-semibold text-gray-900">Customer & delivery</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label="Customer name" required>
                 <input
                   className="input"
-                  value={customer.guest_name}
-                  onChange={(e) => setCustomer({ ...customer, guest_name: e.target.value })}
                   required
+                  value={customer.customer_name}
+                  onChange={(e) => setCustomer({ ...customer, customer_name: e.target.value })}
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Phone *</label>
+              </Field>
+              <Field label="Phone" required>
                 <input
                   className="input"
-                  value={customer.guest_phone}
-                  onChange={(e) => setCustomer({ ...customer, guest_phone: e.target.value })}
-                  placeholder="01XXXXXXXXX"
                   required
+                  value={customer.customer_phone}
+                  onChange={(e) => setCustomer({ ...customer, customer_phone: e.target.value })}
                 />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+              </Field>
+              <Field label="Email" className="sm:col-span-2">
                 <input
                   type="email"
                   className="input"
-                  value={customer.guest_email}
-                  onChange={(e) => setCustomer({ ...customer, guest_email: e.target.value })}
+                  value={customer.customer_email}
+                  onChange={(e) => setCustomer({ ...customer, customer_email: e.target.value })}
                 />
-              </div>
-            </div>
-          </div>
-
-          <div className="card p-5 space-y-4">
-            <h2 className="font-semibold text-gray-900">Shipping address</h2>
-            <div className="grid sm:grid-cols-2 gap-4">
-              <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Address line 1 *</label>
+              </Field>
+              <Field label="Address line 1" required className="sm:col-span-2">
                 <input
                   className="input"
-                  value={shipping.shipping_address_line1}
-                  onChange={(e) => setShipping({ ...shipping, shipping_address_line1: e.target.value })}
                   required
+                  value={customer.shipping_address_line1}
+                  onChange={(e) => setCustomer({ ...customer, shipping_address_line1: e.target.value })}
                 />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Address line 2</label>
+              </Field>
+              <Field label="Address line 2" className="sm:col-span-2">
                 <input
                   className="input"
-                  value={shipping.shipping_address_line2}
-                  onChange={(e) => setShipping({ ...shipping, shipping_address_line2: e.target.value })}
+                  value={customer.shipping_address_line2}
+                  onChange={(e) => setCustomer({ ...customer, shipping_address_line2: e.target.value })}
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">City *</label>
+              </Field>
+              <Field label="City" required>
                 <input
                   className="input"
-                  value={shipping.shipping_city}
-                  onChange={(e) => setShipping({ ...shipping, shipping_city: e.target.value })}
                   required
+                  value={customer.shipping_city}
+                  onChange={(e) => setCustomer({ ...customer, shipping_city: e.target.value })}
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">District *</label>
+              </Field>
+              <Field label="District" required>
                 <input
                   className="input"
-                  value={shipping.shipping_district}
-                  onChange={(e) => setShipping({ ...shipping, shipping_district: e.target.value })}
                   required
+                  value={customer.shipping_district}
+                  onChange={(e) => setCustomer({ ...customer, shipping_district: e.target.value })}
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Postal code</label>
-                <input
-                  className="input"
-                  value={shipping.shipping_postal_code}
-                  onChange={(e) => setShipping({ ...shipping, shipping_postal_code: e.target.value })}
-                />
-              </div>
-              <div className="flex items-end">
-                <p className="text-sm text-gray-500 pb-2">
-                  Zone: <span className="font-medium text-gray-800">{inside ? 'Inside Dhaka' : 'Outside Dhaka'}</span>
-                </p>
-              </div>
+              </Field>
             </div>
-          </div>
+          </section>
 
-          <div className="card p-5 space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="font-semibold text-gray-900">Products</h2>
-              <span className="text-sm text-gray-500">{cart.length} item{cart.length === 1 ? '' : 's'}</span>
-            </div>
+          <section className="card p-5 space-y-4">
+            <h2 className="font-semibold text-gray-900">Products</h2>
 
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  className="input pl-10"
-                  placeholder="Search products by name, SKU, barcode…"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      handleSearch();
-                    }
-                  }}
-                />
-              </div>
-              <button type="button" onClick={handleSearch} className="btn btn-secondary" disabled={searching}>
-                {searching ? '…' : 'Search'}
-              </button>
-            </div>
-
-            {searchResults.length > 0 && (
-              <div className="border rounded-xl overflow-hidden max-h-64 overflow-y-auto">
-                {searchResults.map((product) => (
-                  <button
-                    key={product.id}
-                    type="button"
-                    onClick={() => addProduct(product)}
-                    className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-gray-50 border-b last:border-0"
-                  >
-                    {product.primary_image ? (
-                      <img src={getMediaUrl(product.primary_image)} alt="" className="w-10 h-10 rounded object-cover" />
-                    ) : (
-                      <div className="w-10 h-10 rounded bg-gray-100" />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">{product.name}</p>
-                      <p className="text-xs text-gray-500">{product.sku}</p>
-                    </div>
-                    <p className="text-sm font-semibold text-primary-600">
-                      ৳{parseFloat(product.price).toLocaleString()}
-                    </p>
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {cart.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-gray-200 py-12 text-center text-gray-400">
-                <ShoppingBag className="w-10 h-10 mx-auto mb-2" />
-                <p>Search and add products for this order</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {cart.map((item, index) => (
-                  <div key={getCartKey(item)} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
-                    {item.primary_image ? (
-                      <img src={getMediaUrl(item.primary_image)} alt="" className="w-12 h-12 rounded-lg object-cover" />
-                    ) : (
-                      <div className="w-12 h-12 rounded-lg bg-gray-200" />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">{item.name}</p>
-                      {item.variant_label && (
-                        <p className="text-xs text-primary-600">{item.variant_label}</p>
-                      )}
-                      <div className="mt-1 flex items-center gap-2">
-                        <div className="relative w-28">
-                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">৳</span>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={item.unit_price}
-                            onChange={(e) => updateUnitPrice(index, e.target.value)}
-                            className="input py-1 pl-5 pr-2 text-sm"
-                          />
-                        </div>
-                        {parseFloat(item.price) !== item.unit_price && (
-                          <span className="text-xs text-gray-400 line-through">
-                            ৳{parseFloat(item.price).toLocaleString()}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button type="button" onClick={() => updateQuantity(index, -1)} className="p-1 bg-white border rounded">
-                        <Minus className="w-4 h-4" />
-                      </button>
-                      <span className="w-8 text-center font-medium">{item.quantity}</span>
-                      <button type="button" onClick={() => updateQuantity(index, 1)} className="p-1 bg-white border rounded">
-                        <Plus className="w-4 h-4" />
-                      </button>
-                    </div>
-                    <div className="w-24 text-right font-semibold">
-                      ৳{(item.unit_price * item.quantity).toLocaleString()}
-                    </div>
-                    <button type="button" onClick={() => removeItem(index)} className="p-1 text-red-500 hover:bg-red-50 rounded">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="space-y-6">
-          <div className="card p-5 space-y-4">
-            <h2 className="font-semibold text-gray-900">Order details</h2>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Source</label>
-              <div className="flex flex-wrap gap-2 mb-2">
-                {sourcePresets.map((preset) => (
-                  <button
-                    key={preset}
-                    type="button"
-                    onClick={() => setSource(preset)}
-                    className={`px-2.5 py-1 text-xs rounded-full border ${
-                      source === preset
-                        ? 'bg-primary-600 text-white border-primary-600'
-                        : 'bg-white text-gray-600 border-gray-200'
-                    }`}
-                  >
-                    {preset}
-                  </button>
-                ))}
-              </div>
+            <div className="relative">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
-                className="input"
-                value={source}
-                onChange={(e) => setSource(e.target.value)}
-                placeholder="Facebook / WhatsApp / Phone…"
+                className="input pl-9"
+                placeholder="Search products by name or SKU"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Payment method</label>
+            <div className="max-h-56 overflow-y-auto divide-y border rounded-lg">
+              {inventoryLoading ? (
+                <p className="p-4 text-sm text-gray-500">Loading catalog…</p>
+              ) : filtered.length === 0 ? (
+                <p className="p-4 text-sm text-gray-500">No products match.</p>
+              ) : filtered.map((product) => (
+                <button
+                  key={product.id}
+                  type="button"
+                  onClick={() => handlePickProduct(product)}
+                  className="w-full text-left px-3 py-2.5 hover:bg-gray-50 flex items-center gap-3"
+                >
+                  <div className="w-10 h-10 rounded bg-gray-100 overflow-hidden flex-shrink-0">
+                    {product.primary_image ? (
+                      <img src={getMediaUrl(product.primary_image)} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <Package className="w-5 h-5 m-2.5 text-gray-400" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-gray-900 truncate">{product.name}</p>
+                    <p className="text-xs text-gray-500">
+                      ৳{Number(product.price).toLocaleString()} · Stock{' '}
+                      {(Number(product.warehouse_stock || 0) + Number(product.dealer_stock || 0))}
+                      {product.has_variants ? ' · has variants' : ''}
+                    </p>
+                  </div>
+                  <Plus className="w-4 h-4 text-primary-600" />
+                </button>
+              ))}
+            </div>
+
+            <div className="overflow-x-auto border rounded-lg">
+              <table className="w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    {['Product', 'Selling price', 'Qty', 'Stock', ''].map((heading) => (
+                      <th key={heading || 'x'} className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">{heading}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {lines.length === 0 ? (
+                    <tr>
+                      <td colSpan="5" className="px-3 py-8 text-center text-sm text-gray-500">
+                        No products yet. Search and add items above.
+                      </td>
+                    </tr>
+                  ) : lines.map((line, index) => (
+                    <tr key={lineKey(line)}>
+                      <td className="px-3 py-3 text-sm">
+                        <p className="font-medium text-gray-900">{line.name}</p>
+                        {line.variant_label ? <p className="text-xs text-gray-500">{line.variant_label}</p> : null}
+                        <p className="text-xs text-gray-400">Listed ৳{Number(line.catalog_price).toLocaleString()}</p>
+                      </td>
+                      <td className="px-3 py-3">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          className="input w-28"
+                          value={line.unit_price}
+                          onChange={(e) => updateLine(index, { unit_price: e.target.value })}
+                        />
+                      </td>
+                      <td className="px-3 py-3">
+                        <input
+                          type="number"
+                          min="1"
+                          className="input w-20"
+                          value={line.quantity}
+                          onChange={(e) => updateLine(index, { quantity: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+                        />
+                      </td>
+                      <td className="px-3 py-3 text-sm">
+                        <span className={availableStock(line) < line.quantity ? 'text-red-600 font-medium' : 'text-gray-700'}>
+                          {availableStock(line)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 text-right">
+                        <button type="button" onClick={() => removeLine(index)} className="text-red-600 p-1" aria-label="Remove">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <div className="space-y-6">
+          <section className="card p-5 space-y-4">
+            <h2 className="font-semibold text-gray-900">Order settings</h2>
+            <Field label="Order status">
+              <select className="input" value={orderStatus} onChange={(e) => setOrderStatus(e.target.value)}>
+                <option value="pending">Pending</option>
+                <option value="confirmed">Confirmed</option>
+                <option value="processing">Processing</option>
+                <option value="shipped">Shipped</option>
+                <option value="out_for_delivery">Out for delivery</option>
+                <option value="delivered">Delivered</option>
+              </select>
+            </Field>
+            <Field label="Payment status">
+              <select className="input" value={paymentStatus} onChange={(e) => setPaymentStatus(e.target.value)}>
+                <option value="pending">Pending</option>
+                <option value="paid">Paid</option>
+                <option value="failed">Failed</option>
+              </select>
+            </Field>
+            <Field label="Payment method">
               <select className="input" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
                 <option value="cod">Cash on delivery</option>
-                <option value="bkash">bKash</option>
-                <option value="nagad">Nagad</option>
                 <option value="cash">Cash</option>
                 <option value="card">Card</option>
                 <option value="mobile_banking">Mobile banking</option>
-                <option value="bank_transfer">Bank transfer</option>
+                <option value="other">Other</option>
               </select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Payment status</label>
-                <select className="input" value={paymentStatus} onChange={(e) => setPaymentStatus(e.target.value)}>
-                  <option value="pending">Pending</option>
-                  <option value="paid">Paid</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Order status</label>
-                <select className="input" value={orderStatus} onChange={(e) => setOrderStatus(e.target.value)}>
-                  <option value="pending">Pending</option>
-                  <option value="confirmed">Confirmed</option>
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Discount</label>
+            </Field>
+            <Field label="Delivery charge">
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                className="input"
+                value={deliveryCharge}
+                onChange={(e) => setDeliveryCharge(e.target.value)}
+              />
+            </Field>
+            <Field label="Discount">
               <input
                 type="number"
                 min="0"
@@ -487,106 +387,90 @@ export default function CreateManualOrderPage() {
                 value={discount}
                 onChange={(e) => setDiscount(e.target.value)}
               />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Delivery charge
-                <span className="text-gray-400 font-normal"> (auto ৳{autoDelivery})</span>
-              </label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                className="input"
-                value={deliveryOverride}
-                onChange={(e) => setDeliveryOverride(e.target.value)}
-                placeholder={String(autoDelivery)}
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+            </Field>
+            <Field label="Notes">
               <textarea
-                className="input min-h-[90px]"
+                className="input"
+                rows={3}
+                placeholder="Channel, conversation link, special instructions…"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="Any special instructions…"
               />
-            </div>
-          </div>
+            </Field>
+          </section>
 
-          <div className="card p-5 space-y-2">
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600">Subtotal</span>
-              <span>৳{subtotal.toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600">Delivery</span>
-              <span>৳{deliveryCharge.toLocaleString()}</span>
-            </div>
-            {(parseFloat(discount) || 0) > 0 && (
-              <div className="flex justify-between text-sm text-green-600">
-                <span>Discount</span>
-                <span>-৳{(parseFloat(discount) || 0).toLocaleString()}</span>
-              </div>
-            )}
-            <div className="flex justify-between text-xl font-bold pt-2 border-t">
+          <section className="card p-5 space-y-3">
+            <h2 className="font-semibold text-gray-900">Summary</h2>
+            <Row label="Subtotal" value={`৳${subtotal.toLocaleString()}`} />
+            <Row label="Delivery" value={`৳${Number(deliveryCharge || 0).toLocaleString()}`} />
+            <Row label="Discount" value={`−৳${Number(discount || 0).toLocaleString()}`} />
+            <div className="border-t pt-3 flex justify-between font-semibold text-gray-900">
               <span>Total</span>
-              <span className="text-primary-600">৳{total.toLocaleString()}</span>
+              <span>৳{total.toLocaleString()}</span>
             </div>
-            <button type="submit" disabled={saving || cart.length === 0} className="w-full btn btn-primary py-3 mt-3">
+            <p className="text-xs text-gray-500">
+              {['confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered'].includes(orderStatus)
+                ? 'Stock will be deducted from available inventory when you save.'
+                : 'Stock stays until the order is confirmed.'}
+            </p>
+            <button type="submit" disabled={saving} className="btn btn-primary w-full">
               {saving ? 'Creating…' : 'Create order'}
             </button>
-          </div>
+          </section>
         </div>
       </form>
 
       {variantPicker && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
-            <div className="p-5 border-b flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold">Select variant</h2>
-                <p className="text-sm text-gray-500">{variantPicker.name}</p>
-              </div>
-              <button type="button" onClick={() => setVariantPicker(null)} className="p-2 hover:bg-gray-100 rounded-lg">
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-white rounded-xl w-full max-w-md max-h-[80vh] overflow-y-auto">
+            <div className="p-4 border-b flex items-center justify-between">
+              <h3 className="font-semibold text-gray-900">{variantPicker.name}</h3>
+              <button type="button" onClick={() => setVariantPicker(null)} className="p-2 hover:bg-gray-100 rounded-lg" aria-label="Close">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-4 max-h-80 overflow-y-auto space-y-2">
-              {(variantPicker.variants || []).map((variant) => {
-                const label = [variant.size, variant.color].filter(Boolean).join(' / ')
-                  || variant.label
-                  || 'Default';
-                const price = parseFloat(variant.effective_price || variant.price || variantPicker.price);
-                return (
+            <ul className="divide-y">
+              {(variantPicker.variants || []).map((variant) => (
+                <li key={variant.id}>
                   <button
-                    key={variant.id}
                     type="button"
-                    onClick={() => addToCart({
-                      id: variantPicker.id,
-                      name: variantPicker.name,
-                      sku: variant.sku || variantPicker.sku,
-                      price,
-                      primary_image: variantPicker.primary_image,
-                      variant_id: variant.id,
-                      variant_label: label,
-                    })}
-                    className="w-full flex items-center justify-between p-4 rounded-xl border-2 border-gray-200 hover:border-primary-500 hover:bg-primary-50 text-left"
+                    onClick={() => addProduct(variantPicker, variant)}
+                    className="w-full text-left px-4 py-3 hover:bg-gray-50"
                   >
-                    <div>
-                      <p className="font-medium">{label}</p>
-                      <p className="text-xs text-gray-500">SKU: {variant.sku || '—'}</p>
-                    </div>
-                    <p className="font-semibold text-primary-600">৳{price.toLocaleString()}</p>
+                    <p className="text-sm font-medium">
+                      {[variant.size, variant.color].filter(Boolean).join(' / ') || variant.sku || 'Variant'}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      ৳{Number(variant.price).toLocaleString()} · Stock{' '}
+                      {Number(variant.warehouse_stock || 0) + Number(variant.dealer_stock || 0)}
+                    </p>
                   </button>
-                );
-              })}
-            </div>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       )}
     </AdminLayout>
+  );
+}
+
+function Field({ label, required, className = '', children }) {
+  return (
+    <label className={`block ${className}`}>
+      <span className="block text-sm font-medium text-gray-700 mb-1">
+        {label}{required ? ' *' : ''}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+function Row({ label, value }) {
+  return (
+    <div className="flex justify-between text-sm text-gray-700">
+      <span>{label}</span>
+      <span>{value}</span>
+    </div>
   );
 }

@@ -27,7 +27,7 @@ export const productsApi = baseApi.injectEndpoints({
         method: 'POST',
         body: data,
       }),
-      invalidatesTags: [{ type: 'Products', id: 'LIST' }],
+      invalidatesTags: [{ type: 'Products', id: 'LIST' }, 'Inventory', 'Finance'],
     }),
 
     updateProduct: builder.mutation({
@@ -68,13 +68,6 @@ export const productsApi = baseApi.injectEndpoints({
       providesTags: ['Products', 'Inventory'],
     }),
 
-    searchBarcode: builder.query({
-      query: (barcode) => ({
-        url: '/products/admin/barcode-search/',
-        params: { barcode },
-      }),
-    }),
-
     uploadProductImage: builder.mutation({
       query: ({ productId, imageData }) => ({
         url: `/products/admin/products/${productId}/images/`,
@@ -83,6 +76,18 @@ export const productsApi = baseApi.injectEndpoints({
       }),
       invalidatesTags: (result, error, { productId }) => [
         { type: 'Products', id: productId },
+      ],
+    }),
+
+    updateProductImage: builder.mutation({
+      query: ({ imageId, ...data }) => ({
+        url: `/products/admin/images/${imageId}/`,
+        method: 'PATCH',
+        body: data,
+      }),
+      invalidatesTags: (result, error, { productId }) => [
+        { type: 'Products', id: productId || 'LIST' },
+        { type: 'Products', id: 'LIST' },
       ],
     }),
 
@@ -151,7 +156,7 @@ export const productsApi = baseApi.injectEndpoints({
         method: 'POST',
         body: data,
       }),
-      invalidatesTags: ['Inventory', 'Products'],
+      invalidatesTags: ['Inventory', 'Products', 'Finance'],
     }),
 
     updateVariantStock: builder.mutation({
@@ -160,7 +165,44 @@ export const productsApi = baseApi.injectEndpoints({
         method: 'POST',
         body: data,
       }),
-      invalidatesTags: ['Inventory', 'Products'],
+      invalidatesTags: ['Inventory', 'Products', 'Finance'],
+    }),
+
+    transferProductStock: builder.mutation({
+      query: ({ productId, ...data }) => ({
+        url: `/products/admin/products/${productId}/stock/transfer/`,
+        method: 'POST',
+        body: data,
+      }),
+      invalidatesTags: ['Inventory', 'Products', 'Finance'],
+    }),
+
+    transferVariantStock: builder.mutation({
+      query: ({ variantId, ...data }) => ({
+        url: `/products/admin/variants/${variantId}/stock/transfer/`,
+        method: 'POST',
+        body: data,
+      }),
+      invalidatesTags: ['Inventory', 'Products', 'Finance'],
+    }),
+
+    uploadInventoryCsv: builder.mutation({
+      query: (file) => {
+        const body = new FormData();
+        body.append('file', file);
+        return {
+          url: '/products/admin/inventory/upload/',
+          method: 'POST',
+          body,
+          formData: true,
+        };
+      },
+      invalidatesTags: ['Inventory', 'Products', 'Finance'],
+    }),
+
+    getSellers: builder.query({
+      query: () => '/products/admin/sellers/',
+      providesTags: ['Staff'],
     }),
 
     getStoreSettings: builder.query({
@@ -241,8 +283,8 @@ export const {
   useDeleteProductMutation,
   useUpdateStockMutation,
   useGetLowStockQuery,
-  useLazySearchBarcodeQuery,
   useUploadProductImageMutation,
+  useUpdateProductImageMutation,
   useDeleteProductImageMutation,
   useCreateVariantMutation,
   useUpdateVariantMutation,
@@ -251,6 +293,10 @@ export const {
   useGetInventoryItemsQuery,
   useUpdateProductStockMutation,
   useUpdateVariantStockMutation,
+  useTransferProductStockMutation,
+  useTransferVariantStockMutation,
+  useUploadInventoryCsvMutation,
+  useGetSellersQuery,
   useGetStoreSettingsQuery,
   useUpdateStoreSettingsMutation,
   useGetBannersQuery,

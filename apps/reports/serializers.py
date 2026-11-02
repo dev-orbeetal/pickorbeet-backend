@@ -59,7 +59,7 @@ class SalesSummarySerializer(serializers.Serializer):
     total_items_sold = serializers.IntegerField()
     average_order_value = serializers.DecimalField(max_digits=10, decimal_places=2)
     online_orders = serializers.IntegerField()
-    in_shop_orders = serializers.IntegerField()
+    external_orders = serializers.IntegerField()
 
 
 class TopProductSerializer(serializers.Serializer):

@@ -7,10 +7,6 @@ from django.db.models.functions import Coalesce, Lower
 from django.conf import settings
 from django.utils.text import slugify
 import uuid
-import barcode
-from barcode.writer import ImageWriter
-from io import BytesIO
-from django.core.files import File
 
 
 class Category(models.Model):
@@ -90,7 +86,7 @@ class SubCategory(models.Model):
 
 
 class Product(models.Model):
-    """Product model with barcode, stock management."""
+    """Product model with stock management and an internal supply classification."""
     
     SIZE_CHOICES = [
         ('XS', 'Extra Small'),
@@ -101,6 +97,13 @@ class Product(models.Model):
         ('XXL', 'Double XL'),
         ('XXXL', 'Triple XL'),
         ('FREE', 'Free Size'),
+    ]
+
+    SUPPLY_AVAILABLE = 'available_stock'
+    SUPPLY_SELLER = 'seller_provided'
+    SUPPLY_CHOICES = [
+        (SUPPLY_AVAILABLE, 'Available Stock'),
+        (SUPPLY_SELLER, 'Seller-Provided'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -118,14 +121,62 @@ class Product(models.Model):
     
     price = models.DecimalField(max_digits=10, decimal_places=2)
     compare_price = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    # Weighted-average unit cost. Purchases update this from inventory_cost_value.
     cost_price = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    inventory_cost_value = models.DecimalField(
+        max_digits=14, decimal_places=2, default=0,
+        help_text='Cost remaining in on-hand units at weighted-average cost.',
+    )
+    opening_cost_value = models.DecimalField(
+        max_digits=14, decimal_places=2, default=0,
+        help_text='On-hand stock valued from the cost saved before purchase vouchers existed.',
+    )
+    opening_quantity = models.PositiveIntegerField(
+        default=0,
+        help_text='On-hand units counted before purchase vouchers existed.',
+    )
+    shrinkage_cost = models.DecimalField(
+        max_digits=14, decimal_places=2, default=0,
+        help_text='Cost removed for damage, loss, and other non-sale stock reductions.',
+    )
     
     size = models.CharField(max_length=10, choices=SIZE_CHOICES, blank=True, null=True)
     color = models.CharField(max_length=50, blank=True, null=True)
     material = models.CharField(max_length=100, blank=True, null=True)
     
-    stock_quantity = models.PositiveIntegerField(default=0)
+    stock_quantity = models.PositiveIntegerField(
+        default=0,
+        help_text='Total sellable units (warehouse_stock + dealer_stock).',
+    )
+    warehouse_stock = models.PositiveIntegerField(
+        default=0,
+        help_text='Units currently in the central warehouse.',
+    )
+    dealer_stock = models.PositiveIntegerField(
+        default=0,
+        help_text='Units currently at dealer locations.',
+    )
+    dealer_available = models.BooleanField(
+        default=False,
+        help_text=(
+            'Manual flag: dealers can fulfill this product even when warehouse '
+            'stock is zero. Independent of calculated dealer_stock.'
+        ),
+    )
     low_stock_threshold = models.PositiveIntegerField(default=10)
+    # Internal only. Public catalog responses do not include these fields.
+    supply_type = models.CharField(
+        max_length=20,
+        choices=SUPPLY_CHOICES,
+        default=SUPPLY_AVAILABLE,
+    )
+    supplied_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='supplied_products',
+    )
     
     is_active = models.BooleanField(default=True)
     is_featured = models.BooleanField(default=False)
@@ -166,37 +217,11 @@ class Product(models.Model):
             while Product.objects.filter(slug=self.slug).exclude(pk=self.pk).exists():
                 self.slug = f"{original_slug}-{counter}"
                 counter += 1
-        
-        # Generate barcode if not exists (auto-generate unique barcode with prefix)
-        if not self.barcode:
-            import random as _random
-            from apps.products.models import StoreSettings
-            prefix = StoreSettings.get_barcode_prefix()
-            timestamp = str(int(__import__('time').time()))[-10:]
-            random_suffix = str(_random.randint(1000, 9999))
-            candidate = f"{prefix}-{timestamp}{random_suffix}"
-            # Ensure barcode uniqueness
-            while Product.objects.filter(barcode=candidate).exclude(pk=self.pk).exists():
-                random_suffix = str(_random.randint(1000, 9999))
-                candidate = f"{prefix}-{timestamp}{random_suffix}"
-            self.barcode = candidate
-        
-        # Generate barcode image
-        if self.barcode and not self.barcode_image:
-            self.generate_barcode_image()
+
+        if self.supply_type != self.SUPPLY_SELLER:
+            self.supplied_by = None
         
         super().save(*args, **kwargs)
-
-    def generate_barcode_image(self):
-        """Generate barcode image for the product."""
-        try:
-            EAN = barcode.get_barcode_class('code128')
-            ean = EAN(self.barcode, writer=ImageWriter())
-            buffer = BytesIO()
-            ean.write(buffer)
-            self.barcode_image.save(f'barcode_{self.sku}.png', File(buffer), save=False)
-        except Exception:
-            pass
 
     @property
     def is_low_stock(self):
@@ -228,10 +253,18 @@ class Product(models.Model):
 
 
 class ProductImage(models.Model):
-    """Product images model."""
+    """Product images model. Optionally scoped to one variant (e.g. a color)."""
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='images')
+    variant = models.ForeignKey(
+        'ProductVariant',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='images',
+        help_text='When set, the store shows this image for that variant. Empty means shared across variants.',
+    )
     image = models.ImageField(upload_to='products/')
     alt_text = models.CharField(max_length=255, blank=True, null=True)
     is_primary = models.BooleanField(default=False)
@@ -324,7 +357,18 @@ class ProductVariant(models.Model):
     values = models.ManyToManyField(ProductOptionValue, related_name='variants', blank=True)
     
     price = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
-    stock_quantity = models.PositiveIntegerField(default=0)
+    stock_quantity = models.PositiveIntegerField(
+        default=0,
+        help_text='Total sellable units (warehouse_stock + dealer_stock).',
+    )
+    warehouse_stock = models.PositiveIntegerField(
+        default=0,
+        help_text='Units currently in the central warehouse.',
+    )
+    dealer_stock = models.PositiveIntegerField(
+        default=0,
+        help_text='Units currently at dealer locations.',
+    )
     low_stock_threshold = models.PositiveIntegerField(default=10)
     
     is_active = models.BooleanField(default=True)

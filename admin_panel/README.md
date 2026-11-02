@@ -19,17 +19,15 @@ Custom admin panel for PickOrbeet E-commerce platform built with Next.js.
 - Quick actions
 
 ### Order Management
-- View all orders (online & in-shop)
+- View all orders (online & external)
 - Update order status
 - Print shipping vouchers
 - Order history tracking
 
-### POS (Point of Sale)
-- Barcode scanning support
-- Quick product search
-- Cart management
-- Receipt printing (POS thermal)
-- Cash, Card, Mobile Banking payments
+### External Orders
+- Create orders from Facebook, phone, or direct messages
+- Custom selling prices and warehouse/dealer stock source
+- Customer details, delivery charge, discount, and notes
 
 ### Products
 - Product listing with filters
@@ -84,7 +82,7 @@ The panel is served by Django at `/admin/` (locally `http://127.0.0.1:8777/admin
 |---------|-------------|------------|--------|
 | Dashboard | ✓ | ✓ | ✓ |
 | Orders | ✓ | ✓ | ✓ |
-| POS | ✓ | ✗ | ✓ |
+| External Orders | ✓ | ✗ | ✓ |
 | Products | ✓ | ✓ | ✓ |
 | Categories | ✓ | ✗ | ✓ |
 | Low Stock | ✓ | ✓ | ✓ |

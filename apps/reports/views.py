@@ -317,9 +317,12 @@ class DashboardStatsView(APIView):
     def get(self, request):
         today = timezone.now().date()
         
-        # Today's stats
+        # Today's stats, compared with the previous calendar day.
         today_orders = Order.objects.filter(created_at__date=today)
         today_revenue = today_orders.aggregate(total=Sum('total'))['total'] or 0
+        yesterday = today - timedelta(days=1)
+        yesterday_orders = Order.objects.filter(created_at__date=yesterday)
+        yesterday_revenue = yesterday_orders.aggregate(total=Sum('total'))['total'] or 0
         
         # This month stats
         month_start = today.replace(day=1)
@@ -362,6 +365,10 @@ class DashboardStatsView(APIView):
                 'orders': today_orders.count(),
                 'revenue': float(today_revenue),
             },
+            'yesterday': {
+                'orders': yesterday_orders.count(),
+                'revenue': float(yesterday_revenue),
+            },
             'this_month': {
                 'orders': month_orders.count(),
                 'revenue': float(month_revenue),
@@ -390,16 +397,26 @@ class SalesReportView(APIView):
             created_at__date__lte=end_date,
             payment_status='paid'
         )
+        ranged_orders = Order.objects.filter(
+            created_at__date__gte=start_date,
+            created_at__date__lte=end_date,
+        ).exclude(order_status='cancelled')
+        pending_statuses = [
+            'pending', 'confirmed', 'processing', 'shipped', 'out_for_delivery',
+        ]
         
-        # Overall summary
+        # Overall summary. Revenue and item totals stay on paid orders.
         summary = orders.aggregate(
             total_orders=Count('id'),
             total_revenue=Sum('total'),
             total_items=Sum('items__quantity'),
         )
+        orders_excluding_cancelled = ranged_orders.count()
+        completed_orders = ranged_orders.filter(order_status='delivered').count()
+        pending_orders = ranged_orders.filter(order_status__in=pending_statuses).count()
         
         online_orders = orders.filter(order_type='online').count()
-        in_shop_orders = orders.filter(order_type='in_shop').count()
+        external_orders = orders.filter(order_type='external').count()
         
         avg_order_value = orders.aggregate(avg=Avg('total'))['avg'] or 0
         
@@ -439,11 +456,15 @@ class SalesReportView(APIView):
             },
             'summary': {
                 'total_orders': summary['total_orders'] or 0,
+                'total_sales': summary['total_orders'] or 0,
+                'orders_excluding_cancelled': orders_excluding_cancelled,
+                'completed_orders': completed_orders,
+                'pending_orders': pending_orders,
                 'total_revenue': float(summary['total_revenue'] or 0),
                 'total_items_sold': summary['total_items'] or 0,
                 'average_order_value': float(avg_order_value),
                 'online_orders': online_orders,
-                'in_shop_orders': in_shop_orders,
+                'external_orders': external_orders,
             },
             'daily_sales': list(daily_sales),
             'top_products': [
@@ -670,7 +691,8 @@ class GenerateDailySalesReportView(APIView):
         )
         
         online_orders = orders.filter(order_type='online')
-        in_shop_orders = orders.filter(order_type='in_shop')
+        # Field name is historical; counts external admin sales (and any legacy in-shop).
+        offline_orders = orders.filter(order_type__in=['external', 'in_shop'])
         
         totals = orders.aggregate(
             gross_revenue=Sum('total'),
@@ -680,10 +702,10 @@ class GenerateDailySalesReportView(APIView):
         )
         
         # Payment breakdown
-        cash = in_shop_orders.filter(payment_method='cash').aggregate(
+        cash = offline_orders.filter(payment_method='cash').aggregate(
             total=Sum('total')
         )['total'] or 0
-        card = in_shop_orders.filter(payment_method='card').aggregate(
+        card = offline_orders.filter(payment_method='card').aggregate(
             total=Sum('total')
         )['total'] or 0
         online = online_orders.aggregate(total=Sum('total'))['total'] or 0
@@ -693,7 +715,7 @@ class GenerateDailySalesReportView(APIView):
             defaults={
                 'total_orders': orders.count(),
                 'online_orders': online_orders.count(),
-                'in_shop_orders': in_shop_orders.count(),
+                'in_shop_orders': offline_orders.count(),
                 'gross_revenue': totals['gross_revenue'] or 0,
                 'delivery_charges': totals['delivery_charges'] or 0,
                 'discounts': totals['discounts'] or 0,

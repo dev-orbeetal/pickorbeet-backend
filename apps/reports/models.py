@@ -89,6 +89,7 @@ class StockMovement(models.Model):
         ('out', 'Stock Out'),
         ('adjustment', 'Adjustment'),
         ('return', 'Return'),
+        ('transfer', 'Transfer'),
     ]
     
     REASON_CHOICES = [
@@ -98,6 +99,14 @@ class StockMovement(models.Model):
         ('damaged', 'Damaged'),
         ('lost', 'Lost/Missing'),
         ('adjustment', 'Manual Adjustment'),
+        ('transfer', 'Location Transfer'),
+    ]
+
+    LOCATION_WAREHOUSE = 'warehouse'
+    LOCATION_DEALER = 'dealer'
+    LOCATION_CHOICES = [
+        (LOCATION_WAREHOUSE, 'Warehouse'),
+        (LOCATION_DEALER, 'Dealer'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -112,7 +121,30 @@ class StockMovement(models.Model):
     
     movement_type = models.CharField(max_length=20, choices=MOVEMENT_TYPE_CHOICES)
     reason = models.CharField(max_length=20, choices=REASON_CHOICES)
+    location = models.CharField(
+        max_length=20,
+        choices=LOCATION_CHOICES,
+        blank=True,
+        default='',
+        help_text='Stock location this movement affects. Empty for legacy rows.',
+    )
+    from_location = models.CharField(
+        max_length=20,
+        choices=LOCATION_CHOICES,
+        blank=True,
+        default='',
+        help_text='Source location for transfers.',
+    )
+    to_location = models.CharField(
+        max_length=20,
+        choices=LOCATION_CHOICES,
+        blank=True,
+        default='',
+        help_text='Destination location for transfers.',
+    )
     quantity = models.IntegerField()  # Positive for in, negative for out
+    unit_cost = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    total_cost = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
     
     previous_stock = models.PositiveIntegerField()
     new_stock = models.PositiveIntegerField()

@@ -142,7 +142,7 @@ export default function StaffPage() {
           <div className="flex items-center gap-2">
             <Store className="w-5 h-5 text-green-600" />
             <span className="text-sm">
-              <strong>Seller:</strong> POS, orders, products
+              <strong>Seller:</strong> External orders, orders, products
             </span>
           </div>
         </div>

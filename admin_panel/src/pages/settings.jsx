@@ -91,7 +91,6 @@ export default function SettingsPage() {
   };
 
   const [formData, setFormData] = useState({
-    barcode_prefix: '',
     popular_searches: '',
     contact_address: '',
     contact_phone_1: '',
@@ -108,7 +107,6 @@ export default function SettingsPage() {
   useEffect(() => {
     if (settings) {
       setFormData({
-        barcode_prefix: settings.barcode_prefix || '',
         popular_searches: settings.popular_searches || '',
         contact_address: settings.contact_address || '',
         contact_phone_1: settings.contact_phone_1 || '',
@@ -427,25 +425,6 @@ export default function SettingsPage() {
                   </button>
                 </div>
               ))}
-            </div>
-          </div>
-
-          {/* Barcode Settings */}
-          <div className="bg-white rounded-xl shadow-sm border p-6">
-            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
-              <Tag className="w-5 h-5 text-primary-600" />
-              Barcode Settings
-            </h2>
-            <div className="max-w-xs">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Barcode Prefix</label>
-              <input
-                type="text"
-                value={formData.barcode_prefix}
-                onChange={(e) => handleChange('barcode_prefix', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                placeholder="ZZ"
-              />
-              <p className="text-xs text-gray-500 mt-1">Prefix used for auto-generated product barcodes</p>
             </div>
           </div>
 

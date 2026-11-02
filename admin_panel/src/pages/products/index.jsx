@@ -1,55 +1,94 @@
-import { Fragment, useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, Fragment } from 'react';
 import Link from 'next/link';
 import {
-  Search, Plus, Edit, Trash2, AlertTriangle,
-  ChevronDown, ChevronRight, Copy, Check,
-  Package, Layers
+  Search, Plus, Edit, Trash2, Info,
+  ChevronDown, ChevronRight,
+  Package, Layers, Home,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '@/components/layout/AdminLayout';
-import Pagination from '@/components/ui/Pagination';
-import { useGetProductsQuery, useDeleteProductMutation } from '@/store/api/productsApi';
+import SupplyBadge from '@/components/products/SupplyBadge';
+import LoadError from '@/components/ui/LoadError';
+import Pager from '@/components/ui/Pager';
+import {
+  useGetProductsQuery,
+  useDeleteProductMutation,
+  useUpdateProductMutation,
+} from '@/store/api/productsApi';
 import { useGetCategoriesQuery } from '@/store/api/categoriesApi';
 import { getMediaUrl } from '@/lib/utils';
 
+function stockTotals(product) {
+  const variants = product.variants || [];
+  if (variants.length > 0) {
+    const warehouse = variants.reduce((sum, v) => sum + Number(v.warehouse_stock || 0), 0);
+    const dealer = variants.reduce((sum, v) => sum + Number(v.dealer_stock || 0), 0);
+    return { warehouse, dealer, total: warehouse + dealer };
+  }
+  const warehouse = Number(product.warehouse_stock || 0);
+  const dealer = Number(product.dealer_stock || 0);
+  return {
+    warehouse,
+    dealer,
+    total: warehouse + dealer || Number(product.stock_quantity || 0),
+  };
+}
+
+function FlagToggle({ checked, onToggle, disabled, ariaLabel, onLabel, offLabel }) {
+  return (
+    <div className="flex items-center justify-center gap-2">
+      <input
+        type="checkbox"
+        className="toggle"
+        checked={checked}
+        disabled={disabled}
+        onChange={onToggle}
+        aria-label={ariaLabel}
+      />
+      <span
+        className={`px-2 py-0.5 rounded-full text-[11px] font-medium whitespace-nowrap ${
+          checked ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+        }`}
+      >
+        {checked ? onLabel : offLabel}
+      </span>
+    </div>
+  );
+}
+
 export default function ProductsPage() {
+  const [page, setPage] = useState(1);
   const [filters, setFilters] = useState({
     search: '',
     category: '',
     is_active: '',
+    supply_type: '',
   });
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
   const [expandedProducts, setExpandedProducts] = useState({});
-  const [copiedBarcode, setCopiedBarcode] = useState(null);
+  const [togglingKey, setTogglingKey] = useState(null);
+
+  useEffect(() => {
+    setPage(1);
+  }, [filters.search, filters.category, filters.is_active, filters.supply_type]);
 
   const queryParams = useMemo(() => {
-    const params = { page, page_size: pageSize };
+    const params = { page };
     if (filters.search) params.search = filters.search;
     if (filters.category) params.category = filters.category;
     if (filters.is_active) params.is_active = filters.is_active;
+    if (filters.supply_type) params.supply_type = filters.supply_type;
     return params;
-  }, [filters, page, pageSize]);
+  }, [filters, page]);
 
   const { data: categoriesData } = useGetCategoriesQuery();
-  const { data: productsData, isLoading: loading, isFetching } = useGetProductsQuery(queryParams);
+  const { data: productsData, isLoading: loading, isError, refetch } = useGetProductsQuery(queryParams);
   const [deleteProduct] = useDeleteProductMutation();
+  const [updateProduct] = useUpdateProductMutation();
 
   const categories = Array.isArray(categoriesData?.results || categoriesData)
     ? (categoriesData?.results || categoriesData)
     : [];
   const products = productsData?.results || productsData || [];
-  const totalCount = typeof productsData?.count === 'number' ? productsData.count : products.length;
-
-  const updateFilters = (patch) => {
-    setFilters((prev) => ({ ...prev, ...patch }));
-    setPage(1);
-  };
-
-  const handlePageSizeChange = (size) => {
-    setPageSize(size);
-    setPage(1);
-  };
 
   const handleDelete = async (id) => {
     if (!confirm('Are you sure you want to delete this product?')) return;
@@ -61,23 +100,47 @@ export default function ProductsPage() {
     }
   };
 
-  const toggleExpand = (productId) => {
-    setExpandedProducts(prev => ({ ...prev, [productId]: !prev[productId] }));
+  const handleDealerAvailability = async (product) => {
+    const next = !product.dealer_available;
+    setTogglingKey(`${product.id}:dealer`);
+    try {
+      await updateProduct({ id: product.id, dealer_available: next }).unwrap();
+      toast.success(next ? 'Dealer availability enabled' : 'Dealer availability disabled');
+    } catch (error) {
+      toast.error(error?.data?.detail || 'Could not update dealer availability');
+    } finally {
+      setTogglingKey(null);
+    }
   };
 
-  const copyBarcode = (barcode) => {
-    if (!barcode) return;
-    navigator.clipboard.writeText(barcode);
-    setCopiedBarcode(barcode);
-    toast.success('Barcode copied!');
-    setTimeout(() => setCopiedBarcode(null), 2000);
+  const handleFeatured = async (product) => {
+    const next = !product.is_featured;
+    setTogglingKey(`${product.id}:featured`);
+    try {
+      await updateProduct({ id: product.id, is_featured: next }).unwrap();
+      toast.success(next ? 'Added to homepage Trending' : 'Removed from homepage Trending');
+    } catch (error) {
+      toast.error(error?.data?.detail || 'Could not update trending status');
+    } finally {
+      setTogglingKey(null);
+    }
+  };
+
+  const toggleExpand = (productId) => {
+    setExpandedProducts((prev) => ({ ...prev, [productId]: !prev[productId] }));
   };
 
   const getImageUrl = (img) => getMediaUrl(img);
 
   return (
     <AdminLayout title="Products">
-      {/* Header */}
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold text-gray-900">Products</h1>
+        <p className="text-sm text-gray-500 mt-1">
+          Manage products, view stock from purchase records, and set dealer availability.
+        </p>
+      </div>
+
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div className="flex-1">
           <div className="relative max-w-md">
@@ -86,16 +149,16 @@ export default function ProductsPage() {
               type="text"
               placeholder="Search products..."
               value={filters.search}
-              onChange={(e) => updateFilters({ search: e.target.value })}
+              onChange={(e) => setFilters({ ...filters, search: e.target.value })}
               className="input pl-10"
             />
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <select
             value={filters.category}
-            onChange={(e) => updateFilters({ category: e.target.value })}
+            onChange={(e) => setFilters({ ...filters, category: e.target.value })}
             className="input w-auto"
           >
             <option value="">All Categories</option>
@@ -106,12 +169,22 @@ export default function ProductsPage() {
 
           <select
             value={filters.is_active}
-            onChange={(e) => updateFilters({ is_active: e.target.value })}
+            onChange={(e) => setFilters({ ...filters, is_active: e.target.value })}
             className="input w-auto"
           >
             <option value="">All Status</option>
             <option value="true">Active</option>
             <option value="false">Inactive</option>
+          </select>
+
+          <select
+            value={filters.supply_type}
+            onChange={(e) => setFilters({ ...filters, supply_type: e.target.value })}
+            className="input w-auto"
+          >
+            <option value="">All sources</option>
+            <option value="available_stock">Available Stock</option>
+            <option value="seller_provided">Seller-Provided</option>
           </select>
 
           <Link href="/products/new" className="btn btn-primary">
@@ -121,27 +194,53 @@ export default function ProductsPage() {
         </div>
       </div>
 
-      {/* Products Table */}
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="w-8 py-3 px-3"></th>
-                <th className="text-left py-3 px-4 text-xs font-semibold text-gray-600 uppercase">Product</th>
-                <th className="text-left py-3 px-4 text-xs font-semibold text-gray-600 uppercase">SKU / Barcode</th>
-                <th className="text-left py-3 px-4 text-xs font-semibold text-gray-600 uppercase">Category</th>
-                <th className="text-right py-3 px-4 text-xs font-semibold text-gray-600 uppercase">Price</th>
-                <th className="text-center py-3 px-4 text-xs font-semibold text-gray-600 uppercase">Stock</th>
-                <th className="text-center py-3 px-4 text-xs font-semibold text-gray-600 uppercase">Status</th>
-                <th className="text-center py-3 px-4 text-xs font-semibold text-gray-600 uppercase">Actions</th>
+                <th className="w-8 py-3 px-3" />
+                <th className="text-left py-3 px-4 text-xs font-semibold text-gray-600 uppercase">
+                  Product
+                </th>
+                <th className="text-left py-3 px-4 text-xs font-semibold text-gray-600 uppercase">
+                  SKU
+                </th>
+                <th className="text-left py-3 px-4 text-xs font-semibold text-gray-600 uppercase">
+                  Category
+                </th>
+                <th className="text-right py-3 px-4 text-xs font-semibold text-gray-600 uppercase">
+                  Selling Price
+                </th>
+                <th className="text-center py-3 px-4 text-xs font-semibold text-gray-600 uppercase">
+                  <span className="inline-flex items-center gap-1 justify-center">
+                    <Home className="w-3.5 h-3.5" /> Warehouse Stock
+                  </span>
+                </th>
+                <th className="text-center py-3 px-4 text-xs font-semibold text-gray-600 uppercase">
+                  <span className="inline-flex items-center gap-1">
+                    Dealer Availability
+                    <span title="Manual flag. Independent of warehouse stock. Enables dealer fulfillment when warehouse is empty.">
+                      <Info className="w-3.5 h-3.5 text-gray-400" />
+                    </span>
+                  </span>
+                </th>
+                <th className="text-center py-3 px-4 text-xs font-semibold text-gray-600 uppercase">
+                  Trending
+                </th>
+                <th className="text-center py-3 px-4 text-xs font-semibold text-gray-600 uppercase">
+                  Status
+                </th>
+                <th className="text-center py-3 px-4 text-xs font-semibold text-gray-600 uppercase">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 [...Array(6)].map((_, i) => (
                   <tr key={i} className="border-b border-gray-100">
-                    <td colSpan={8} className="py-5 px-4">
+                    <td colSpan={10} className="py-5 px-4">
                       <div className="flex items-center gap-4">
                         <div className="w-8" />
                         <div className="w-12 h-12 bg-gray-100 rounded-lg animate-pulse" />
@@ -153,9 +252,15 @@ export default function ProductsPage() {
                     </td>
                   </tr>
                 ))
+              ) : isError ? (
+                <tr>
+                  <td colSpan={10} className="py-4">
+                    <LoadError title="Could not load products" onRetry={refetch} />
+                  </td>
+                </tr>
               ) : products.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-16">
+                  <td colSpan={10} className="text-center py-16">
                     <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                     <p className="text-gray-500 font-medium">No products found</p>
                     <p className="text-gray-400 text-sm mt-1">Try adjusting your search or filters</p>
@@ -166,27 +271,26 @@ export default function ProductsPage() {
                   const variants = product.variants || [];
                   const hasVariants = variants.length > 0;
                   const isExpanded = expandedProducts[product.id];
-                  const totalStock = hasVariants
-                    ? variants.reduce((sum, v) => sum + (v.stock_quantity || 0), 0)
-                    : product.stock_quantity;
+                  const { warehouse } = stockTotals(product);
 
                   return (
                     <Fragment key={product.id}>
-                      <tr className={`border-b border-gray-100 hover:bg-gray-50/70 transition-colors ${isFetching ? 'opacity-70' : ''}`}>
-                        {/* Expand toggle */}
+                      <tr className="border-b border-gray-100 hover:bg-gray-50/70 transition-colors">
                         <td className="py-3 px-3">
                           {hasVariants ? (
                             <button
+                              type="button"
                               onClick={() => toggleExpand(product.id)}
                               className="p-1.5 hover:bg-gray-200 rounded-lg transition-colors"
                               title={`${variants.length} variant${variants.length > 1 ? 's' : ''}`}
                             >
-                              {isExpanded ? <ChevronDown className="w-4 h-4 text-gray-600" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
+                              {isExpanded
+                                ? <ChevronDown className="w-4 h-4 text-gray-600" />
+                                : <ChevronRight className="w-4 h-4 text-gray-400" />}
                             </button>
                           ) : <span className="w-7" />}
                         </td>
 
-                        {/* Product info */}
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-3">
                             <div className="w-12 h-12 bg-gray-100 rounded-xl flex-shrink-0 overflow-hidden border border-gray-200">
@@ -200,9 +304,11 @@ export default function ProductsPage() {
                             </div>
                             <div className="min-w-0">
                               <p className="font-semibold text-gray-900 truncate">{product.name}</p>
-                              <div className="flex items-center gap-2 mt-0.5">
+                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                                 {product.is_featured && (
-                                  <span className="px-1.5 py-0.5 bg-primary-50 text-primary-700 rounded text-[10px] font-bold uppercase">Trending</span>
+                                  <span className="px-1.5 py-0.5 bg-primary-50 text-primary-700 rounded text-[10px] font-bold uppercase">
+                                    Trending
+                                  </span>
                                 )}
                                 {hasVariants && (
                                   <span className="flex items-center gap-1 text-xs text-gray-500">
@@ -210,72 +316,61 @@ export default function ProductsPage() {
                                     {variants.length} variant{variants.length > 1 ? 's' : ''}
                                   </span>
                                 )}
+                                <SupplyBadge type={product.supply_type} seller={product.supplied_by_name} />
                               </div>
                             </div>
                           </div>
                         </td>
 
-                        {/* SKU / Barcode */}
                         <td className="py-3 px-4">
-                          <div className="space-y-1">
-                            {product.sku && (
-                              <p className="font-mono text-sm text-gray-700">{product.sku}</p>
-                            )}
-                            {product.barcode && (
-                              <button
-                                onClick={() => copyBarcode(product.barcode)}
-                                className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-gray-100 hover:bg-gray-200 rounded text-xs font-mono text-gray-600 transition-colors group"
-                                title="Click to copy barcode"
-                              >
-                                {copiedBarcode === product.barcode ? (
-                                  <Check className="w-3 h-3 text-green-600" />
-                                ) : (
-                                  <Copy className="w-3 h-3 text-gray-400 group-hover:text-gray-600" />
-                                )}
-                                {product.barcode}
-                              </button>
-                            )}
-                            {!product.sku && !product.barcode && (
-                              <span className="text-gray-300 text-sm">—</span>
-                            )}
-                          </div>
+                          <p className="font-mono text-sm text-gray-700">{product.sku || '—'}</p>
                         </td>
 
-                        {/* Category */}
                         <td className="py-3 px-4">
                           <span className="text-sm text-gray-600">{product.category_name || '—'}</span>
                         </td>
 
-                        {/* Price */}
                         <td className="py-3 px-4 text-right">
                           <p className="font-semibold text-gray-900">৳{parseFloat(product.price).toLocaleString()}</p>
                           {product.compare_price && parseFloat(product.compare_price) > parseFloat(product.price) && (
-                            <p className="text-xs text-gray-400 line-through">৳{parseFloat(product.compare_price).toLocaleString()}</p>
+                            <p className="text-xs text-gray-400 line-through">
+                              ৳{parseFloat(product.compare_price).toLocaleString()}
+                            </p>
                           )}
                         </td>
 
-                        {/* Stock */}
-                        <td className="py-3 px-4 text-center">
-                          {product.is_out_of_stock || totalStock === 0 ? (
-                            <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-medium">Out of Stock</span>
-                          ) : product.is_low_stock ? (
-                            <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium flex items-center justify-center gap-1 w-fit mx-auto">
-                              <AlertTriangle className="w-3 h-3" />
-                              {totalStock}
-                            </span>
-                          ) : (
-                            <span className="font-bold text-gray-900">{totalStock}</span>
-                          )}
+                        <td className="py-3 px-4 text-center text-sm tabular-nums text-gray-800 font-semibold">
+                          {warehouse}
                         </td>
 
-                        {/* Status */}
+                        <td className="py-3 px-4">
+                          <FlagToggle
+                            checked={Boolean(product.dealer_available)}
+                            onToggle={() => handleDealerAvailability(product)}
+                            disabled={togglingKey === `${product.id}:dealer`}
+                            ariaLabel={`Dealer availability for ${product.name}`}
+                            onLabel="Available"
+                            offLabel="Not Available"
+                          />
+                        </td>
+
+                        <td className="py-3 px-4">
+                          <FlagToggle
+                            checked={Boolean(product.is_featured)}
+                            onToggle={() => handleFeatured(product)}
+                            disabled={togglingKey === `${product.id}:featured`}
+                            ariaLabel={`Trending for ${product.name}`}
+                            onLabel="Trending"
+                            offLabel="Not trending"
+                          />
+                        </td>
+
                         <td className="py-3 px-4 text-center">
                           <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${product.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                             {product.is_active ? 'Active' : 'Inactive'}
                           </span>
                         </td>
 
-                        {/* Actions */}
                         <td className="py-3 px-4 text-center">
                           <div className="flex items-center justify-center gap-1">
                             <Link
@@ -286,6 +381,7 @@ export default function ProductsPage() {
                               <Edit className="w-4 h-4" />
                             </Link>
                             <button
+                              type="button"
                               onClick={() => handleDelete(product.id)}
                               className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                               title="Delete product"
@@ -296,12 +392,12 @@ export default function ProductsPage() {
                         </td>
                       </tr>
 
-                      {/* Variant Rows */}
                       {hasVariants && isExpanded && variants.map((variant) => {
                         const vLabel = [variant.size, variant.color].filter(Boolean).join(' / ') || 'Default';
+                        const vWarehouse = Number(variant.warehouse_stock || 0);
                         return (
                           <tr key={variant.id} className="border-b border-gray-50 bg-blue-50/30 transition-colors hover:bg-blue-50/50">
-                            <td className="py-2.5 px-3"></td>
+                            <td className="py-2.5 px-3" />
                             <td className="py-2.5 px-4 pl-16">
                               <div className="flex items-center gap-2">
                                 <span className="w-2 h-2 bg-primary-400 rounded-full flex-shrink-0" />
@@ -309,41 +405,21 @@ export default function ProductsPage() {
                               </div>
                             </td>
                             <td className="py-2.5 px-4">
-                              <div className="space-y-1">
-                                {variant.sku && (
-                                  <p className="font-mono text-xs text-gray-500">{variant.sku}</p>
-                                )}
-                                {variant.barcode && (
-                                  <button
-                                    onClick={() => copyBarcode(variant.barcode)}
-                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 rounded text-[11px] font-mono text-gray-500 transition-colors group"
-                                    title="Click to copy barcode"
-                                  >
-                                    {copiedBarcode === variant.barcode ? (
-                                      <Check className="w-2.5 h-2.5 text-green-600" />
-                                    ) : (
-                                      <Copy className="w-2.5 h-2.5 text-gray-400 group-hover:text-gray-600" />
-                                    )}
-                                    {variant.barcode}
-                                  </button>
-                                )}
-                              </div>
+                              <p className="font-mono text-xs text-gray-500">{variant.sku || '—'}</p>
                             </td>
-                            <td className="py-2.5 px-4"></td>
+                            <td className="py-2.5 px-4" />
                             <td className="py-2.5 px-4 text-right text-sm text-gray-700">
                               ৳{parseFloat(variant.effective_price || variant.price).toLocaleString()}
                             </td>
-                            <td className="py-2.5 px-4 text-center">
-                              <span className={`font-bold text-sm ${variant.stock_quantity === 0 ? 'text-red-600' : 'text-gray-800'}`}>
-                                {variant.stock_quantity}
-                              </span>
-                            </td>
+                            <td className="py-2.5 px-4 text-center text-sm tabular-nums text-gray-700 font-semibold">{vWarehouse}</td>
+                            <td className="py-2.5 px-4 text-center text-xs text-gray-400">—</td>
+                            <td className="py-2.5 px-4 text-center text-xs text-gray-400">—</td>
                             <td className="py-2.5 px-4 text-center">
                               <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${variant.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                                 {variant.is_active ? 'Active' : 'Inactive'}
                               </span>
                             </td>
-                            <td className="py-2.5 px-4"></td>
+                            <td className="py-2.5 px-4" />
                           </tr>
                         );
                       })}
@@ -355,16 +431,13 @@ export default function ProductsPage() {
           </table>
         </div>
 
-        {!loading && (
-          <Pagination
-            page={page}
-            pageSize={pageSize}
-            count={totalCount}
-            onPageChange={setPage}
-            onPageSizeChange={handlePageSizeChange}
-            itemLabel="products"
-          />
+        {!loading && !isError && products.length > 0 && (
+          <div className="px-4 py-3 border-t bg-gray-50 text-sm text-gray-500 flex items-center justify-between">
+            <span>{productsData?.count || products.length} product{(productsData?.count || products.length) !== 1 ? 's' : ''}</span>
+            <span>{products.reduce((sum, p) => sum + (p.variants?.length || 0), 0)} variants on this page</span>
+          </div>
         )}
+        <Pager page={page} count={productsData?.count} onPage={setPage} />
       </div>
     </AdminLayout>
   );

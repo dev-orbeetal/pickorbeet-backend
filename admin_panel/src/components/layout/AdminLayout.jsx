@@ -4,8 +4,10 @@ import { useDispatch, useSelector } from 'react-redux';
 import Head from 'next/head';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import Link from 'next/link';
 import { checkAuth } from '@/store/slices/authSlice';
 import { useGetProfileQuery } from '@/store/api/authApi';
+import { rolesForPath } from '@/lib/access';
 
 export default function AdminLayout({ children, title = 'Admin Panel' }) {
   const router = useRouter();
@@ -43,6 +45,9 @@ export default function AdminLayout({ children, title = 'Admin Panel' }) {
     return null;
   }
 
+  const allowed = rolesForPath(router.pathname);
+  const denied = user?.role && allowed && !allowed.includes(user.role);
+
   return (
     <>
       <Head>
@@ -67,7 +72,17 @@ export default function AdminLayout({ children, title = 'Admin Panel' }) {
         <div className="lg:ml-64">
           <Header title={title} onMenuClick={() => setSidebarOpen(!sidebarOpen)} />
           <main className="p-6">
-            {children}
+            {denied ? (
+              <div className="card max-w-lg p-8">
+                <h2 className="text-lg font-semibold text-gray-900">You don&apos;t have access</h2>
+                <p className="mt-2 text-sm text-gray-500">
+                  This section is not available for your role.
+                </p>
+                <Link href="/dashboard" className="btn btn-primary mt-4 inline-flex">
+                  Back to dashboard
+                </Link>
+              </div>
+            ) : children}
           </main>
         </div>
       </div>

@@ -6,6 +6,7 @@ import uuid
 from decimal import Decimal
 
 from rest_framework import generics, status, filters
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -21,23 +22,38 @@ from .models import (
 from .serializers import (
     CategorySerializer, CategoryListSerializer, SubCategorySerializer,
     ProductListSerializer, ProductDetailSerializer, ProductCreateUpdateSerializer,
+    AdminProductListSerializer, AdminProductDetailSerializer,
     ProductImageSerializer, ProductVariantSerializer, BarcodeProductSerializer,
-    ProductStockUpdateSerializer, ContactMessageSubmitSerializer, ContactMessageSerializer,
+    ProductStockUpdateSerializer, StockTransferSerializer,
+    ContactMessageSubmitSerializer, ContactMessageSerializer,
     HomepageBannerSerializer, HomepageSectionSerializer, ProductReviewSerializer,
     ProductReviewWriteSerializer,
 )
 from apps.accounts.permissions import IsStaffUser, IsSeller
-from apps.reports.models import StockMovement
 from core.pagination import AdminPagination
+from .costing import StockError, apply_stock_operation, remove_units, transfer_stock
 from .homepage import curated_product_sections_queryset
 from .search import filter_product_search, search_names_catalog
 
 
 def public_categories():
-    """Active categories with active subcategories, in admin display order."""
-    active_subcategories = SubCategory.objects.filter(is_active=True).order_by('display_order', 'name')
-    return Category.objects.filter(is_active=True).prefetch_related(
-        Prefetch('subcategories', queryset=active_subcategories)
+    """Active categories/subcategories that have at least one active product."""
+    has_active_products = Count(
+        'products',
+        filter=Q(products__is_active=True),
+        distinct=True,
+    )
+    active_subcategories = (
+        SubCategory.objects.filter(is_active=True)
+        .annotate(_active_product_count=has_active_products)
+        .filter(_active_product_count__gt=0)
+        .order_by('display_order', 'name')
+    )
+    return (
+        Category.objects.filter(is_active=True)
+        .annotate(_active_product_count=has_active_products)
+        .filter(_active_product_count__gt=0)
+        .prefetch_related(Prefetch('subcategories', queryset=active_subcategories))
     )
 
 
@@ -105,9 +121,19 @@ class SubCategoryListView(generics.ListAPIView):
 
     def get_queryset(self):
         category_slug = self.kwargs.get('category_slug')
-        return SubCategory.objects.filter(
-            category__slug=category_slug,
-            is_active=True
+        return (
+            SubCategory.objects.filter(
+                category__slug=category_slug,
+                is_active=True,
+            )
+            .annotate(
+                _active_product_count=Count(
+                    'products',
+                    filter=Q(products__is_active=True),
+                    distinct=True,
+                )
+            )
+            .filter(_active_product_count__gt=0)
         )
 
 
@@ -386,12 +412,13 @@ class CategoryProductsView(generics.ListAPIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        categories = Category.objects.filter(is_active=True)[:6]
         result = []
-        for category in categories:
+        for category in public_categories()[:6]:
             products = with_catalog_stats(Product.objects.filter(
                 category=category, is_active=True
             ))[:4]
+            if not products:
+                continue
             result.append({
                 'category': CategoryListSerializer(category).data,
                 'products': ProductListSerializer(products, many=True).data
@@ -433,22 +460,24 @@ class AdminProductListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated, IsStaffUser]
     pagination_class = AdminPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ['category', 'subcategory', 'is_active', 'is_featured']
+    filterset_fields = ['category', 'subcategory', 'is_active', 'is_featured', 'supply_type']
     search_fields = ['name', 'sku', 'barcode']
 
     def get_serializer_class(self):
         if self.request.method == 'POST':
             return ProductCreateUpdateSerializer
-        return ProductListSerializer
+        return AdminProductListSerializer
 
     def get_queryset(self):
         return with_catalog_stats(Product.objects.all().select_related(
-            'category', 'subcategory'
+            'category', 'subcategory', 'supplied_by'
         ).prefetch_related('variants'))
 
     def create(self, request, *args, **kwargs):
         try:
             return super().create(request, *args, **kwargs)
+        except ValidationError:
+            raise
         except Exception as e:
             return Response(
                 {'detail': f'Failed to create product: {str(e)}'},
@@ -464,7 +493,10 @@ class AdminProductDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_serializer_class(self):
         if self.request.method in ['PUT', 'PATCH']:
             return ProductCreateUpdateSerializer
-        return ProductDetailSerializer
+        return AdminProductDetailSerializer
+
+    def get_queryset(self):
+        return Product.objects.all().select_related('supplied_by')
 
     def destroy(self, request, *args, **kwargs):
         product = self.get_object()
@@ -479,21 +511,34 @@ class AdminProductDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 
 class ProductImageUploadView(generics.CreateAPIView):
-    """Admin: Upload product images."""
+    """Admin: Upload product images. Optional variant scopes the image to one SKU."""
     serializer_class = ProductImageSerializer
     permission_classes = [IsAuthenticated, IsStaffUser]
 
-    def perform_create(self, serializer):
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
         product_id = self.kwargs.get('product_id')
-        product = Product.objects.get(id=product_id)
+        context['product'] = Product.objects.get(id=product_id)
+        return context
+
+    def perform_create(self, serializer):
+        product = self.get_serializer_context()['product']
         serializer.save(product=product)
 
 
-class ProductImageDeleteView(generics.DestroyAPIView):
-    """Admin: Delete product image."""
+class ProductImageDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """Admin: Update assignment (variant / primary) or delete a product image."""
     serializer_class = ProductImageSerializer
     permission_classes = [IsAuthenticated, IsStaffUser]
-    queryset = ProductImage.objects.all()
+    queryset = ProductImage.objects.select_related('product', 'variant')
+    http_method_names = ['get', 'patch', 'delete', 'head', 'options']
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        image = ProductImage.objects.filter(pk=self.kwargs.get('pk')).select_related('product').first()
+        if image:
+            context['product'] = image.product
+        return context
 
 
 class BarcodeSearchView(APIView):
@@ -586,6 +631,18 @@ class BarcodeSearchView(APIView):
             )
 
 
+def _stock_response(result, message):
+    expense = result.get('expense')
+    return Response({
+        'message': message,
+        'new_stock': result['new_stock'],
+        'warehouse_stock': result.get('warehouse_stock'),
+        'dealer_stock': result.get('dealer_stock'),
+        'location_stock': result.get('location_stock'),
+        'voucher_number': expense.voucher_number if expense else None,
+    })
+
+
 class ProductStockUpdateView(APIView):
     """Update product stock with movement tracking."""
     permission_classes = [IsAuthenticated, IsStaffUser]
@@ -593,7 +650,7 @@ class ProductStockUpdateView(APIView):
     def post(self, request, pk):
         serializer = ProductStockUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
+
         try:
             product = Product.objects.get(pk=pk)
         except Product.DoesNotExist:
@@ -601,50 +658,24 @@ class ProductStockUpdateView(APIView):
                 {'error': 'Product not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
-        
-        quantity = serializer.validated_data['quantity']
-        operation = serializer.validated_data['operation']
-        reason = request.data.get('reason', 'adjustment')
-        note = request.data.get('note', '')
-        previous_stock = product.stock_quantity
-        
-        if operation == 'add':
-            product.stock_quantity += quantity
-            movement_type = 'in'
-            movement_qty = quantity
-        elif operation == 'subtract':
-            if product.stock_quantity < quantity:
-                return Response(
-                    {'error': 'Insufficient stock'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            product.stock_quantity -= quantity
-            movement_type = 'out'
-            movement_qty = -quantity
-        else:  # set
-            diff = quantity - product.stock_quantity
-            product.stock_quantity = quantity
-            movement_type = 'adjustment'
-            movement_qty = diff
-        
-        product.save()
-        
-        StockMovement.objects.create(
-            product=product,
-            variant=None,
-            movement_type=movement_type,
-            reason=reason,
-            quantity=movement_qty,
-            previous_stock=previous_stock,
-            new_stock=product.stock_quantity,
-            note=note,
-            created_by=request.user,
-        )
-        
-        return Response({
-            'message': 'Stock updated successfully',
-            'new_stock': product.stock_quantity
-        })
+
+        try:
+            result = apply_stock_operation(
+                product=product,
+                quantity=serializer.validated_data['quantity'],
+                operation=serializer.validated_data['operation'],
+                reason=serializer.validated_data.get('reason') or 'adjustment',
+                note=serializer.validated_data.get('note') or '',
+                user=request.user,
+                unit_cost=serializer.validated_data.get('unit_cost'),
+                payment_method=serializer.validated_data.get('payment_method') or '',
+                payee=serializer.validated_data.get('payee') or '',
+                location=serializer.validated_data.get('location') or 'warehouse',
+            )
+        except StockError as exc:
+            return Response({'error': exc.message}, status=status.HTTP_400_BAD_REQUEST)
+
+        return _stock_response(result, 'Stock updated successfully')
 
 
 class VariantStockUpdateView(APIView):
@@ -663,49 +694,88 @@ class VariantStockUpdateView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        quantity = serializer.validated_data['quantity']
-        operation = serializer.validated_data['operation']
-        reason = request.data.get('reason', 'adjustment')
-        note = request.data.get('note', '')
-        previous_stock = variant.stock_quantity
+        try:
+            result = apply_stock_operation(
+                product=variant.product,
+                variant=variant,
+                quantity=serializer.validated_data['quantity'],
+                operation=serializer.validated_data['operation'],
+                reason=serializer.validated_data.get('reason') or 'adjustment',
+                note=serializer.validated_data.get('note') or '',
+                user=request.user,
+                unit_cost=serializer.validated_data.get('unit_cost'),
+                payment_method=serializer.validated_data.get('payment_method') or '',
+                payee=serializer.validated_data.get('payee') or '',
+                location=serializer.validated_data.get('location') or 'warehouse',
+            )
+        except StockError as exc:
+            return Response({'error': exc.message}, status=status.HTTP_400_BAD_REQUEST)
 
-        if operation == 'add':
-            variant.stock_quantity += quantity
-            movement_type = 'in'
-            movement_qty = quantity
-        elif operation == 'subtract':
-            if variant.stock_quantity < quantity:
-                return Response(
-                    {'error': 'Insufficient stock'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            variant.stock_quantity -= quantity
-            movement_type = 'out'
-            movement_qty = -quantity
-        else:  # set
-            diff = quantity - variant.stock_quantity
-            variant.stock_quantity = quantity
-            movement_type = 'adjustment'
-            movement_qty = diff
+        return _stock_response(result, 'Variant stock updated successfully')
 
-        variant.save()
 
-        StockMovement.objects.create(
-            product=variant.product,
-            variant=variant,
-            movement_type=movement_type,
-            reason=reason,
-            quantity=movement_qty,
-            previous_stock=previous_stock,
-            new_stock=variant.stock_quantity,
-            note=note,
-            created_by=request.user,
+class ProductStockTransferView(APIView):
+    """Move product stock between warehouse and dealer."""
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def post(self, request, pk):
+        serializer = StockTransferSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        product = get_object_or_404(Product, pk=pk)
+        try:
+            result = transfer_stock(
+                product=product,
+                quantity=serializer.validated_data['quantity'],
+                from_location=serializer.validated_data['from_location'],
+                to_location=serializer.validated_data['to_location'],
+                note=serializer.validated_data.get('note') or '',
+                user=request.user,
+            )
+        except StockError as exc:
+            return Response({'error': exc.message}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'message': 'Stock transferred successfully', **result})
+
+
+class VariantStockTransferView(APIView):
+    """Move variant stock between warehouse and dealer."""
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def post(self, request, variant_id):
+        serializer = StockTransferSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        variant = get_object_or_404(ProductVariant.objects.select_related('product'), pk=variant_id)
+        try:
+            result = transfer_stock(
+                product=variant.product,
+                variant=variant,
+                quantity=serializer.validated_data['quantity'],
+                from_location=serializer.validated_data['from_location'],
+                to_location=serializer.validated_data['to_location'],
+                note=serializer.validated_data.get('note') or '',
+                user=request.user,
+            )
+        except StockError as exc:
+            return Response({'error': exc.message}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'message': 'Variant stock transferred successfully', **result})
+
+
+class AdminSellerListView(APIView):
+    """Active seller accounts for the internal supply classification."""
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def get(self, request):
+        from apps.accounts.models import User
+        sellers = User.objects.filter(role='seller', is_active=True).order_by(
+            'first_name', 'last_name'
         )
-
-        return Response({
-            'message': 'Variant stock updated successfully',
-            'new_stock': variant.stock_quantity
-        })
+        return Response([
+            {
+                'id': str(seller.id),
+                'full_name': seller.full_name,
+                'email': seller.email,
+            }
+            for seller in sellers
+        ])
 
 
 class InventoryItemsView(APIView):
@@ -719,10 +789,11 @@ class InventoryItemsView(APIView):
         search = request.query_params.get('search', '').strip()
         stock_filter = request.query_params.get('stock_status', '')  # all, in_stock, low_stock, out_of_stock
         category_id = request.query_params.get('category', '')
+        supply_type = request.query_params.get('supply_type', '').strip()
 
         products = Product.objects.filter(
             is_active=True
-        ).select_related('category').prefetch_related(
+        ).select_related('category', 'supplied_by').prefetch_related(
             models.Prefetch(
                 'variants',
                 queryset=ProductVariant.objects.filter(is_active=True).order_by('size', 'color')
@@ -740,6 +811,9 @@ class InventoryItemsView(APIView):
 
         if category_id:
             products = products.filter(category_id=category_id)
+
+        if supply_type in (Product.SUPPLY_AVAILABLE, Product.SUPPLY_SELLER):
+            products = products.filter(supply_type=supply_type)
 
         items = []
         for product in products:
@@ -769,37 +843,164 @@ class InventoryItemsView(APIView):
                 continue
 
             variant_data = []
+            total_warehouse = 0
+            total_dealer = 0
             for v in variants:
+                total_warehouse += v.warehouse_stock or 0
+                total_dealer += v.dealer_stock or 0
                 variant_data.append({
                     'id': str(v.id),
                     'sku': v.sku,
-                    'barcode': v.barcode,
                     'size': v.size,
                     'color': v.color,
                     'price': float(v.effective_price),
                     'stock_quantity': v.stock_quantity,
+                    'warehouse_stock': v.warehouse_stock,
+                    'dealer_stock': v.dealer_stock,
                     'low_stock_threshold': v.low_stock_threshold,
                     'is_active': v.is_active,
                 })
 
+            if not has_variants:
+                total_warehouse = product.warehouse_stock or 0
+                total_dealer = product.dealer_stock or 0
+
+            seller = product.supplied_by
             items.append({
                 'id': str(product.id),
                 'name': product.name,
                 'sku': product.sku,
-                'barcode': product.barcode,
                 'category': product.category.name if product.category else None,
                 'price': float(product.price),
                 'stock_quantity': product.stock_quantity,
+                'warehouse_stock': total_warehouse,
+                'dealer_stock': total_dealer,
                 'total_stock': total_variant_stock,
+                'dealer_available': bool(product.dealer_available),
                 'low_stock_threshold': product.low_stock_threshold,
                 'has_variants': has_variants,
                 'variants': variant_data,
                 'primary_image': product.primary_image,
+                'supply_type': product.supply_type,
+                'supplied_by': str(seller.id) if seller else None,
+                'supplied_by_name': seller.full_name if seller else None,
             })
 
         return Response({
             'count': len(items),
             'items': items,
+        })
+
+
+class InventoryUploadView(APIView):
+    """CSV upload for inventory adjustments and warehouse/dealer transfers.
+
+    Columns (header row required):
+    sku,location,operation,quantity,reason,unit_cost,note,from_location,to_location
+
+    - operation: add | subtract | set | transfer
+    - location: warehouse | dealer (required for add/subtract/set)
+    - from_location / to_location: required when operation=transfer
+    """
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def post(self, request):
+        import csv
+        import io
+
+        upload = request.FILES.get('file')
+        if upload is None:
+            return Response({'error': 'Upload a CSV file as "file".'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            text = upload.read().decode('utf-8-sig')
+        except UnicodeDecodeError:
+            return Response({'error': 'CSV must be UTF-8 encoded.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        reader = csv.DictReader(io.StringIO(text))
+        if not reader.fieldnames:
+            return Response({'error': 'CSV is empty.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        required = {'sku', 'operation', 'quantity'}
+        headers = {name.strip().lower() for name in reader.fieldnames if name}
+        if not required.issubset(headers):
+            return Response(
+                {'error': 'CSV must include sku, operation, and quantity columns.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        updated = 0
+        errors = []
+        for index, raw in enumerate(reader, start=2):
+            row = {(key or '').strip().lower(): (value or '').strip() for key, value in raw.items()}
+            sku = row.get('sku')
+            operation = (row.get('operation') or '').lower()
+            try:
+                quantity = int(row.get('quantity') or 0)
+            except ValueError:
+                errors.append({'row': index, 'error': 'Quantity must be a number.'})
+                continue
+            if not sku:
+                errors.append({'row': index, 'error': 'SKU is required.'})
+                continue
+
+            variant = ProductVariant.objects.select_related('product').filter(
+                models.Q(sku__iexact=sku) | models.Q(barcode__iexact=sku)
+            ).first()
+            product = None
+            if variant is None:
+                product = Product.objects.filter(
+                    models.Q(sku__iexact=sku) | models.Q(barcode__iexact=sku)
+                ).first()
+                if product is None:
+                    errors.append({'row': index, 'error': f'No product/variant found for SKU {sku}.'})
+                    continue
+                if product.variants.exists():
+                    errors.append({
+                        'row': index,
+                        'error': f'{sku} has variants. Use a variant SKU.',
+                    })
+                    continue
+            else:
+                product = variant.product
+
+            try:
+                if operation == 'transfer':
+                    transfer_stock(
+                        product=product,
+                        variant=variant,
+                        quantity=quantity,
+                        from_location=row.get('from_location') or 'warehouse',
+                        to_location=row.get('to_location') or 'dealer',
+                        note=row.get('note') or f'CSV upload row {index}',
+                        user=request.user,
+                    )
+                elif operation in {'add', 'subtract', 'set'}:
+                    unit_cost = row.get('unit_cost') or None
+                    apply_stock_operation(
+                        product=product,
+                        variant=variant,
+                        quantity=quantity,
+                        operation=operation,
+                        reason=(row.get('reason') or 'adjustment').lower(),
+                        note=row.get('note') or f'CSV upload row {index}',
+                        user=request.user,
+                        unit_cost=unit_cost,
+                        location=(row.get('location') or 'warehouse').lower(),
+                    )
+                else:
+                    errors.append({'row': index, 'error': f'Unknown operation "{operation}".'})
+                    continue
+                updated += 1
+            except StockError as exc:
+                errors.append({'row': index, 'error': exc.message})
+            except Exception as exc:  # noqa: BLE001 - surface row errors to admin
+                errors.append({'row': index, 'error': str(exc)})
+
+        return Response({
+            'updated': updated,
+            'failed': len(errors),
+            'errors': errors[:50],
         })
 
 
@@ -874,6 +1075,19 @@ class ProductVariantDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
         product_id = self.kwargs.get('product_id')
         return ProductVariant.objects.filter(product_id=product_id)
+
+    def perform_destroy(self, instance):
+        if instance.stock_quantity:
+            remove_units(
+                product=instance.product,
+                variant=instance,
+                quantity=instance.stock_quantity,
+                reason='adjustment',
+                note='Variant removed',
+                user=self.request.user,
+                movement_type='adjustment',
+            )
+        instance.delete()
 
 
 _BADGE_SIZES = {'small', 'medium', 'large'}

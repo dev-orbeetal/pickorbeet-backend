@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { Plus, Printer, RefreshCw, Trash2, X } from 'lucide-react';
+import { ImagePlus, Plus, Printer, RefreshCw, Trash2, X } from 'lucide-react';
 
 const PRESETS = [
   { name: 'Black', hex: '#171717' },
@@ -87,7 +87,17 @@ function reconcile(groups, rows, productSku, prefix) {
       const extensions = combos.filter((candidate) => isSubset(row.selections, candidate));
       return extensions.length === 1;
     });
-    if (parent) return { ...parent, selections };
+    if (parent) {
+      return {
+        ...parent,
+        selections,
+        imageFile: parent.imageFile || null,
+        imagePreview: parent.imagePreview || '',
+        imageId: parent.imageId || null,
+        imageUrl: parent.imageUrl || '',
+        removedImageId: parent.removedImageId || null,
+      };
+    }
     return {
       key: nextKey(),
       id: null,
@@ -98,6 +108,11 @@ function reconcile(groups, rows, productSku, prefix) {
       lowStock: 10,
       isActive: true,
       selections,
+      imageFile: null,
+      imagePreview: '',
+      imageId: null,
+      imageUrl: '',
+      removedImageId: null,
     };
   });
   return assignSkus(productSku, next);
@@ -178,18 +193,31 @@ function rowSelections(variant) {
   return selections;
 }
 
-function rowsFromProduct(variants) {
-  return (variants || []).filter((variant) => rowSelections(variant).length).map((variant) => ({
-    key: variant.id || nextKey(),
-    id: variant.id || null,
-    sku: variant.sku || '',
-    barcode: variant.barcode || '',
-    price: variant.price ?? '',
-    stock: variant.stock_quantity ?? 0,
-    lowStock: variant.low_stock_threshold ?? 10,
-    isActive: variant.is_active !== false,
-    selections: rowSelections(variant),
-  }));
+function imageForVariant(variantId, productImages) {
+  if (!variantId) return null;
+  return (productImages || []).find((image) => String(image.variant || '') === String(variantId)) || null;
+}
+
+function rowsFromProduct(variants, productImages) {
+  return (variants || []).filter((variant) => rowSelections(variant).length).map((variant) => {
+    const linked = imageForVariant(variant.id, productImages);
+    return {
+      key: variant.id || nextKey(),
+      id: variant.id || null,
+      sku: variant.sku || '',
+      barcode: variant.barcode || '',
+      price: variant.price ?? '',
+      stock: variant.stock_quantity ?? 0,
+      lowStock: variant.low_stock_threshold ?? 10,
+      isActive: variant.is_active !== false,
+      selections: rowSelections(variant),
+      imageId: linked?.id || null,
+      imageUrl: linked?.url || linked?.image || '',
+      imageFile: null,
+      imagePreview: '',
+      removedImageId: null,
+    };
+  });
 }
 
 const VariantOptions = forwardRef(function VariantOptions({
@@ -199,10 +227,11 @@ const VariantOptions = forwardRef(function VariantOptions({
   productPrice,
   initialGroups,
   initialVariants,
+  productImages,
   onCount,
 }, ref) {
   const [groups, setGroups] = useState(() => groupsFromProduct(initialGroups, initialVariants));
-  const [rows, setRows] = useState(() => rowsFromProduct(initialVariants));
+  const [rows, setRows] = useState(() => rowsFromProduct(initialVariants, productImages));
   const onCountRef = useRef(onCount);
   onCountRef.current = onCount;
 
@@ -245,7 +274,7 @@ const VariantOptions = forwardRef(function VariantOptions({
   useImperativeHandle(ref, () => ({
     getSetup() {
       const named = groups.filter((group) => group.name.trim() || group.values.length);
-      if (!named.length) return { payload: { option_groups: [], variants: [] } };
+      if (!named.length) return { payload: { option_groups: [], variants: [] }, pendingImages: [] };
       const names = named.map((group) => group.name.trim().toLowerCase());
       if (named.some((group) => !group.name.trim())) return { error: 'Name each option.' };
       if (new Set(names).size !== names.length) return { error: 'Option names must be different.' };
@@ -271,9 +300,53 @@ const VariantOptions = forwardRef(function VariantOptions({
             selections: row.selections,
           })),
         },
+        pendingImages: rows
+          .filter((row) => row.imageFile)
+          .map((row) => ({
+            variantId: row.id,
+            selections: row.selections,
+            file: row.imageFile,
+            replaceImageId: row.imageId || null,
+          })),
+        removedImageIds: rows
+          .map((row) => row.removedImageId)
+          .filter(Boolean),
       };
     },
   }), [barcodePrefix, groups, productSku, rows]);
+
+  const setRowImage = (rowKey, file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setRows((current) => current.map((row) => (
+        row.key === rowKey
+          ? {
+            ...row,
+            imageFile: file,
+            imagePreview: reader.result,
+            removedImageId: row.imageId || row.removedImageId || null,
+          }
+          : row
+      )));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const clearRowImage = (rowKey) => {
+    setRows((current) => current.map((row) => (
+      row.key === rowKey
+        ? {
+          ...row,
+          imageFile: null,
+          imagePreview: '',
+          imageUrl: '',
+          removedImageId: row.imageId || row.removedImageId || null,
+          imageId: null,
+        }
+        : row
+    )));
+  };
 
   const addGroup = () => {
     changeGroups([...groups, {
@@ -330,7 +403,7 @@ const VariantOptions = forwardRef(function VariantOptions({
         </button>
       </div>
       <p className="text-sm text-gray-500 mb-4">
-        Name an option such as Size, Color, or Storage, then add its values. For Color, choose Shown as → Color and pick a swatch for each value so the store and app show it.
+        Name an option such as Size, Color, or Storage, then add its values. For Color, choose Shown as → Color and pick a swatch for each value so the store and app show it. Upload an image on each combination so shoppers see that variant&apos;s photo.
       </p>
 
       {groups.length === 0 ? (
@@ -485,77 +558,117 @@ const VariantOptions = forwardRef(function VariantOptions({
       {rows.length > 0 && (
         <div className="mt-5 space-y-3">
           <h3 className="text-sm font-semibold text-gray-800">Combinations</h3>
-          {rows.map((row) => (
-            <div key={row.key} className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-medium text-gray-800">
-                  {row.selections.map((item) => item.label).join(' / ')}
-                </p>
-                <p className="font-mono text-xs text-gray-500">SKU {row.sku}</p>
-              </div>
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                <label className="block text-xs font-medium text-gray-600">
-                  Price (৳)
-                  <input
-                    type="number"
-                    value={row.price}
-                    min="0"
-                    step="0.01"
-                    placeholder="Same as product"
-                    onChange={(event) => setRows(rows.map((item) => (
-                      item.key === row.key ? { ...item, price: event.target.value } : item
-                    )))}
-                    className="input mt-1 text-sm"
-                  />
-                </label>
-                <label className="block text-xs font-medium text-gray-600">
-                  Stock
-                  <input
-                    type="number"
-                    value={row.stock}
-                    min="0"
-                    onChange={(event) => setRows(rows.map((item) => (
-                      item.key === row.key ? { ...item, stock: event.target.value } : item
-                    )))}
-                    className="input mt-1 text-sm"
-                  />
-                </label>
-                <label className="block text-xs font-medium text-gray-600">
-                  Low stock alert
-                  <input
-                    type="number"
-                    value={row.lowStock}
-                    min="0"
-                    onChange={(event) => setRows(rows.map((item) => (
-                      item.key === row.key ? { ...item, lowStock: event.target.value } : item
-                    )))}
-                    className="input mt-1 text-sm"
-                  />
-                </label>
-                <label className="block text-xs font-medium text-gray-600">
-                  Barcode
-                  <div className="mt-1 flex gap-2">
-                    <input value={row.barcode} readOnly className="input text-sm font-mono" />
-                    <button
-                      type="button"
-                      title="Regenerate barcode"
-                      onClick={() => setRows(rows.map((item) => (
-                        item.key === row.key ? { ...item, barcode: newBarcode(barcodePrefix, 0) } : item
-                      )))}
-                      className="btn btn-secondary px-2"
-                    >
-                      <RefreshCw className="w-4 h-4" />
-                    </button>
-                    {row.barcode && (
-                      <button type="button" title="Print barcode" onClick={() => printBarcode(row)} className="btn btn-secondary px-2">
-                        <Printer className="w-4 h-4" />
-                      </button>
+          {rows.map((row) => {
+            const thumb = row.imagePreview || row.imageUrl;
+            return (
+              <div key={row.key} className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-gray-800">
+                    {row.selections.map((item) => item.label).join(' / ')}
+                  </p>
+                  <p className="font-mono text-xs text-gray-500">SKU {row.sku}</p>
+                </div>
+                <div className="mb-3 flex items-center gap-3">
+                  <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-white">
+                    {thumb ? (
+                      <img src={thumb} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-gray-300">
+                        <ImagePlus className="h-5 w-5" />
+                      </div>
                     )}
                   </div>
-                </label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="btn btn-secondary cursor-pointer text-sm">
+                      <ImagePlus className="mr-1 h-4 w-4" />
+                      {thumb ? 'Change image' : 'Add image'}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          event.target.value = '';
+                          if (file) setRowImage(row.key, file);
+                        }}
+                      />
+                    </label>
+                    {thumb && (
+                      <button
+                        type="button"
+                        onClick={() => clearRowImage(row.key)}
+                        className="btn btn-secondary text-sm text-red-600"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                    <span className="text-xs text-gray-500">Shown when shoppers pick this variant</span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                  <label className="block text-xs font-medium text-gray-600">
+                    Price (৳)
+                    <input
+                      type="number"
+                      value={row.price}
+                      min="0"
+                      step="0.01"
+                      placeholder="Same as product"
+                      onChange={(event) => setRows(rows.map((item) => (
+                        item.key === row.key ? { ...item, price: event.target.value } : item
+                      )))}
+                      className="input mt-1 text-sm"
+                    />
+                  </label>
+                  <label className="block text-xs font-medium text-gray-600">
+                    Stock
+                    <input
+                      type="number"
+                      value={row.stock}
+                      min="0"
+                      onChange={(event) => setRows(rows.map((item) => (
+                        item.key === row.key ? { ...item, stock: event.target.value } : item
+                      )))}
+                      className="input mt-1 text-sm"
+                    />
+                  </label>
+                  <label className="block text-xs font-medium text-gray-600">
+                    Low stock alert
+                    <input
+                      type="number"
+                      value={row.lowStock}
+                      min="0"
+                      onChange={(event) => setRows(rows.map((item) => (
+                        item.key === row.key ? { ...item, lowStock: event.target.value } : item
+                      )))}
+                      className="input mt-1 text-sm"
+                    />
+                  </label>
+                  <label className="block text-xs font-medium text-gray-600">
+                    Barcode
+                    <div className="mt-1 flex gap-2">
+                      <input value={row.barcode} readOnly className="input text-sm font-mono" />
+                      <button
+                        type="button"
+                        title="Regenerate barcode"
+                        onClick={() => setRows(rows.map((item) => (
+                          item.key === row.key ? { ...item, barcode: newBarcode(barcodePrefix, 0) } : item
+                        )))}
+                        className="btn btn-secondary px-2"
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                      </button>
+                      {row.barcode && (
+                        <button type="button" title="Print barcode" onClick={() => printBarcode(row)} className="btn btn-secondary px-2">
+                          <Printer className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </label>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

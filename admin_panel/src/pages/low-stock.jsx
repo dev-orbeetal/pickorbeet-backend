@@ -1,48 +1,15 @@
-import { useState } from 'react';
-import { AlertTriangle, Package, RefreshCw, Plus, Minus } from 'lucide-react';
-import toast from 'react-hot-toast';
+import Link from 'next/link';
+import { AlertTriangle, Package, RefreshCw } from 'lucide-react';
 import AdminLayout from '@/components/layout/AdminLayout';
-import { useGetLowStockQuery, useUpdateStockMutation, useUpdateVariantStockMutation } from '@/store/api/productsApi';
+import { useGetLowStockQuery } from '@/store/api/productsApi';
 import { getMediaUrl } from '@/lib/utils';
 
 export default function LowStockPage() {
   const { data: productsData, isLoading: loading, refetch: fetchLowStock } = useGetLowStockQuery();
-  const [updateStockMutation] = useUpdateStockMutation();
-  const [updateVariantStockMutation] = useUpdateVariantStockMutation();
-
   const products = productsData?.results || productsData || [];
-  const [updating, setUpdating] = useState(null);
-
-  const updateStock = async (productId, operation, quantity) => {
-    setUpdating(productId);
-    try {
-      await updateStockMutation({ id: productId, operation, quantity }).unwrap();
-      toast.success('Stock updated');
-    } catch (error) {
-      toast.error(error?.data?.error || 'Failed to update stock');
-    } finally {
-      setUpdating(null);
-    }
-  };
-
-  const updateVariantStock = async (variantId, operation, quantity) => {
-    setUpdating(variantId);
-    try {
-      await updateVariantStockMutation({ variantId, operation, quantity }).unwrap();
-      toast.success('Variant stock updated');
-      fetchLowStock();
-    } catch (error) {
-      toast.error(error?.data?.error || 'Failed to update variant stock');
-    } finally {
-      setUpdating(null);
-    }
-  };
-
-  const [stockInputs, setStockInputs] = useState({});
 
   return (
     <AdminLayout title="Low Stock Alerts">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <div className="p-3 bg-red-100 rounded-xl">
@@ -53,21 +20,26 @@ export default function LowStockPage() {
               {products.length} Products Need Attention
             </h2>
             <p className="text-sm text-gray-500">
-              Products with stock at or below threshold
+              Quantities change through purchases and sales. Review stock and dealer availability on Products.
             </p>
           </div>
         </div>
 
-        <button
-          onClick={fetchLowStock}
-          className="btn btn-secondary"
-        >
-          <RefreshCw className="w-4 h-4 mr-2" />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <Link href="/products" className="btn btn-primary">
+            Open Products
+          </Link>
+          <button
+            type="button"
+            onClick={fetchLowStock}
+            className="btn btn-secondary"
+          >
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh
+          </button>
+        </div>
       </div>
 
-      {/* Products Grid */}
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
         {loading ? (
           [...Array(6)].map((_, i) => (
@@ -116,7 +88,6 @@ export default function LowStockPage() {
                   </div>
                 </div>
 
-                {/* Stock Status */}
                 {hasVariants ? (
                   <div className="space-y-2 mb-4">
                     {lowVariants.map((v) => {
@@ -143,33 +114,6 @@ export default function LowStockPage() {
                           <p className="text-xs text-gray-500 mt-1">
                             Threshold: {v.low_stock_threshold ?? product.low_stock_threshold}
                           </p>
-                          <div className="flex items-center gap-2 mt-2">
-                            <input
-                              type="number"
-                              placeholder="Qty"
-                              min="1"
-                              value={stockInputs[v.id] || ''}
-                              onChange={(e) => setStockInputs({
-                                ...stockInputs,
-                                [v.id]: parseInt(e.target.value) || ''
-                              })}
-                              className="input flex-1 text-sm py-1"
-                            />
-                            <button
-                              onClick={() => {
-                                const qty = stockInputs[v.id];
-                                if (qty > 0) {
-                                  updateVariantStock(v.id, 'add', qty);
-                                  setStockInputs({ ...stockInputs, [v.id]: '' });
-                                }
-                              }}
-                              disabled={updating === v.id || !stockInputs[v.id]}
-                              className="btn btn-success text-sm py-1 px-3"
-                            >
-                              <Plus className="w-3 h-3 mr-1" />
-                              Add
-                            </button>
-                          </div>
                         </div>
                       );
                     })}
@@ -198,36 +142,9 @@ export default function LowStockPage() {
                   </div>
                 )}
 
-                {/* Quick Stock Update for non-variant products */}
-                {!hasVariants && (
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      placeholder="Qty"
-                      min="1"
-                      value={stockInputs[product.id] || ''}
-                      onChange={(e) => setStockInputs({
-                        ...stockInputs,
-                        [product.id]: parseInt(e.target.value) || ''
-                      })}
-                      className="input flex-1"
-                    />
-                    <button
-                      onClick={() => {
-                        const qty = stockInputs[product.id];
-                        if (qty > 0) {
-                          updateStock(product.id, 'add', qty);
-                          setStockInputs({ ...stockInputs, [product.id]: '' });
-                        }
-                      }}
-                      disabled={updating === product.id || !stockInputs[product.id]}
-                      className="btn btn-success"
-                    >
-                      <Plus className="w-4 h-4 mr-1" />
-                      Add
-                    </button>
-                  </div>
-                )}
+                <Link href={`/products/${product.id}`} className="text-sm font-medium text-primary-600">
+                  View product →
+                </Link>
               </div>
             );
           })

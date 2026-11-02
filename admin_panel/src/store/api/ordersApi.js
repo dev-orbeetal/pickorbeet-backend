@@ -31,34 +31,37 @@ export const ordersApi = baseApi.injectEndpoints({
         { type: 'Orders', id },
         { type: 'Orders', id: 'LIST' },
         'Dashboard',
+        'Finance',
       ],
     }),
 
-    createInShopOrder: builder.mutation({
+    createExternalOrder: builder.mutation({
       query: (data) => ({
-        url: '/orders/admin/in-shop/',
+        url: '/orders/admin/external/',
         method: 'POST',
         body: data,
       }),
       invalidatesTags: [
         { type: 'Orders', id: 'LIST' },
         'Dashboard',
+        'Finance',
         'Inventory',
         { type: 'Products', id: 'LIST' },
       ],
     }),
 
-    createManualOrder: builder.mutation({
-      query: (data) => ({
-        url: '/orders/admin/manual/',
-        method: 'POST',
-        body: data,
+    updateExternalOrder: builder.mutation({
+      query: ({ id, ...body }) => ({
+        url: `/orders/admin/${id}/external/`,
+        method: 'PATCH',
+        body,
       }),
-      invalidatesTags: [
+      invalidatesTags: (result, error, { id }) => [
+        { type: 'Orders', id },
         { type: 'Orders', id: 'LIST' },
         'Dashboard',
+        'Finance',
         'Inventory',
-        { type: 'Products', id: 'LIST' },
       ],
     }),
 
@@ -137,8 +140,8 @@ export const {
   useLazyGetOrdersQuery,
   useGetOrderQuery,
   useUpdateOrderStatusMutation,
-  useCreateInShopOrderMutation,
-  useCreateManualOrderMutation,
+  useCreateExternalOrderMutation,
+  useUpdateExternalOrderMutation,
   useDeleteOrderMutation,
   useBookShipmentMutation,
   useRefreshShipmentMutation,

@@ -55,6 +55,8 @@ def make_product(name=None, price='1599.00', compare_price='1999.00', stock=10, 
         price=Decimal(price),
         compare_price=Decimal(compare_price) if compare_price else None,
         stock_quantity=stock,
+        warehouse_stock=fields.pop('warehouse_stock', stock),
+        dealer_stock=fields.pop('dealer_stock', 0),
         **fields,
     )
 

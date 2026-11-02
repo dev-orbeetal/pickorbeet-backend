@@ -6,6 +6,7 @@ import {
   Printer, Filter, Search
 } from 'lucide-react';
 import AdminLayout from '@/components/layout/AdminLayout';
+import LoadError from '@/components/ui/LoadError';
 import { useGetSalesReportMutation, useGetStockReportQuery } from '@/store/api/reportsApi';
 
 function StatCard({ icon: Icon, label, value, color = 'blue', sub }) {
@@ -106,13 +107,14 @@ export default function ReportsPage() {
     end_date: new Date().toISOString().split('T')[0],
   });
   const [salesData, setSalesData] = useState(null);
+  const [salesError, setSalesError] = useState(false);
   const [stockFilter, setStockFilter] = useState('all');
   const [stockSearch, setStockSearch] = useState('');
   const salesPrintRef = useRef();
   const stockPrintRef = useRef();
 
   const [getSalesReport, { isLoading: salesLoading }] = useGetSalesReportMutation();
-  const { data: stockData, isLoading: stockLoading } = useGetStockReportQuery(undefined, {
+  const { data: stockData, isLoading: stockLoading, isError: stockError, refetch: refetchStock } = useGetStockReportQuery(undefined, {
     skip: reportType !== 'stock',
   });
 
@@ -127,7 +129,10 @@ export default function ReportsPage() {
       csvContent = 'Sales Report\n';
       csvContent += `Date Range,${dateRange.start_date} to ${dateRange.end_date}\n\n`;
       csvContent += 'Summary\n';
-      csvContent += `Total Orders,${salesData.summary?.total_orders || 0}\n`;
+      csvContent += `Total Sales,${salesData.summary?.total_sales || 0}\n`;
+      csvContent += `Total Orders,${salesData.summary?.orders_excluding_cancelled || 0}\n`;
+      csvContent += `Completed Orders,${salesData.summary?.completed_orders || 0}\n`;
+      csvContent += `Pending Orders,${salesData.summary?.pending_orders || 0}\n`;
       csvContent += `Total Revenue,${salesData.summary?.total_revenue || 0}\n`;
       csvContent += `Items Sold,${salesData.summary?.total_items_sold || 0}\n`;
       csvContent += `Average Order Value,${salesData.summary?.average_order_value || 0}\n\n`;
@@ -210,10 +215,12 @@ export default function ReportsPage() {
 
   const fetchSalesReport = async () => {
     try {
+      setSalesError(false);
       const response = await getSalesReport(dateRange).unwrap();
       setSalesData(response);
     } catch (error) {
-      console.error('Failed to fetch sales report:', error);
+      setSalesError(true);
+      setSalesData(null);
     }
   };
 
@@ -296,6 +303,14 @@ export default function ReportsPage() {
             </div>
           </div>
 
+          <p className="mb-4 text-sm text-gray-500">
+            Revenue is paid orders in this range. Completed means delivered. Pending means not yet delivered.
+          </p>
+          {salesError && (
+            <div className="mb-6">
+              <LoadError title="Could not load the sales report" onRetry={fetchSalesReport} />
+            </div>
+          )}
           {loading ? (
             <div className="animate-pulse space-y-4">
               <div className="grid grid-cols-4 gap-4">
@@ -304,13 +319,21 @@ export default function ReportsPage() {
             </div>
           ) : salesData && (
             <>
-              {/* Summary */}
-              <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                <StatCard icon={ShoppingCart} label="Total Orders" value={salesData.summary?.total_orders || 0} color="blue"
-                  sub={`Online: ${salesData.summary?.online_orders || 0} · In-shop: ${salesData.summary?.in_shop_orders || 0}`} />
-                <StatCard icon={DollarSign} label="Total Revenue" value={`৳${(salesData.summary?.total_revenue || 0).toLocaleString()}`} color="green" />
-                <StatCard icon={Package} label="Items Sold" value={salesData.summary?.total_items_sold || 0} color="purple" />
-                <StatCard icon={BarChart3} label="Avg. Order Value" value={`৳${Math.round(salesData.summary?.average_order_value || 0).toLocaleString()}`} color="yellow" />
+              <div className="mb-6">
+                <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-3">Sales Summary</h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                  <StatCard icon={ShoppingCart} label="Total Sales" value={salesData.summary?.total_sales || 0} color="blue"
+                    sub={`Online: ${salesData.summary?.online_orders || 0} · External: ${salesData.summary?.external_orders || 0}`} />
+                  <StatCard icon={ShoppingCart} label="Total Orders" value={salesData.summary?.orders_excluding_cancelled || 0} color="indigo"
+                    sub="Excludes cancelled" />
+                  <StatCard icon={Package} label="Completed" value={salesData.summary?.completed_orders || 0} color="green" sub="Delivered" />
+                  <StatCard icon={BarChart3} label="Pending" value={salesData.summary?.pending_orders || 0} color="yellow"
+                    sub="Not yet delivered" />
+                  <StatCard icon={DollarSign} label="Total Revenue" value={`৳${(salesData.summary?.total_revenue || 0).toLocaleString()}`} color="green"
+                    sub="Paid orders" />
+                  <StatCard icon={Package} label="Items Sold" value={salesData.summary?.total_items_sold || 0} color="purple" />
+                  <StatCard icon={BarChart3} label="Avg. Order Value" value={`৳${Math.round(salesData.summary?.average_order_value || 0).toLocaleString()}`} color="cyan" />
+                </div>
               </div>
 
               <div className="grid lg:grid-cols-2 gap-6 mb-6">
@@ -423,7 +446,9 @@ export default function ReportsPage() {
               {salesData && (
                 <>
                   <div className="stat-grid">
-                    <div className="stat-box"><div className="val">{salesData.summary?.total_orders || 0}</div><div className="lbl">Orders</div></div>
+                    <div className="stat-box"><div className="val">{salesData.summary?.total_sales || 0}</div><div className="lbl">Sales</div></div>
+                    <div className="stat-box"><div className="val">{salesData.summary?.completed_orders || 0}</div><div className="lbl">Completed</div></div>
+                    <div className="stat-box"><div className="val">{salesData.summary?.pending_orders || 0}</div><div className="lbl">Pending</div></div>
                     <div className="stat-box"><div className="val">৳{(salesData.summary?.total_revenue || 0).toLocaleString()}</div><div className="lbl">Revenue</div></div>
                     <div className="stat-box"><div className="val">{salesData.summary?.total_items_sold || 0}</div><div className="lbl">Items Sold</div></div>
                     <div className="stat-box"><div className="val">৳{Math.round(salesData.summary?.average_order_value || 0).toLocaleString()}</div><div className="lbl">Avg. Order</div></div>
@@ -482,6 +507,11 @@ export default function ReportsPage() {
             </div>
           </div>
 
+          {stockError && (
+            <div className="mb-6">
+              <LoadError title="Could not load the stock report" onRetry={refetchStock} />
+            </div>
+          )}
           {loading ? (
             <div className="animate-pulse space-y-4">
               <div className="grid grid-cols-4 gap-4">

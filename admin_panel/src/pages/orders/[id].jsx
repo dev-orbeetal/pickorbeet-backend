@@ -4,14 +4,16 @@ import {
   ArrowLeft, Printer, Package, Truck, CheckCircle,
   XCircle, Clock, MapPin, Phone, Mail, User,
   RotateCcw, AlertTriangle, X, ChevronRight,
-  ShoppingBag, BoxIcon, Send, CircleDot, Ban, RefreshCw
+  ShoppingBag, BoxIcon, Send, CircleDot, Ban, RefreshCw, Pencil,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useReactToPrint } from 'react-to-print';
 import AdminLayout from '@/components/layout/AdminLayout';
 import { useGetOrderQuery, useUpdateOrderStatusMutation, useBookShipmentMutation, useRefreshShipmentMutation } from '@/store/api/ordersApi';
 import SteadfastCard from '@/components/orders/SteadfastCard';
+import ExternalOrderEditModal from '@/components/orders/ExternalOrderEditModal';
 import { getMediaUrl, routeId } from '@/lib/utils';
+import { statusLabel } from '@/lib/labels';
 
 const ALL_STATUSES = [
   { key: 'pending', label: 'Pending', icon: Clock, color: 'yellow', ring: 'ring-yellow-400', bg: 'bg-yellow-50', text: 'text-yellow-700', border: 'border-yellow-200', activeBg: 'bg-yellow-500', activeText: 'text-white' },
@@ -147,6 +149,7 @@ export default function OrderDetailPage() {
   const id = routeId(router);
   const printRef = useRef();
   const [statusModal, setStatusModal] = useState({ open: false, target: null });
+  const [editOpen, setEditOpen] = useState(false);
 
   const { data: order, isLoading: loading, error } = useGetOrderQuery(id, {
     skip: !id,
@@ -229,6 +232,7 @@ export default function OrderDetailPage() {
 
   const currentIdx = MAIN_FLOW.indexOf(order.order_status);
   const isTerminal = order.order_status === 'cancelled' || order.order_status === 'refunded';
+  const canEditExternal = order.order_type === 'external' && !isTerminal;
 
   return (
     <AdminLayout title={`Order ${order.order_number}`}>
@@ -240,6 +244,11 @@ export default function OrderDetailPage() {
         currentStatus={order.order_status}
         onConfirm={confirmStatusChange}
         updating={updating}
+      />
+      <ExternalOrderEditModal
+        order={order}
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
       />
 
       {/* Header */}
@@ -253,6 +262,12 @@ export default function OrderDetailPage() {
         </button>
 
         <div className="flex items-center space-x-3">
+          {canEditExternal && (
+            <button type="button" onClick={() => setEditOpen(true)} className="btn btn-primary">
+              <Pencil className="w-4 h-4 mr-2" />
+              Edit order
+            </button>
+          )}
           <button onClick={handlePrint} className="btn btn-secondary">
             <Printer className="w-4 h-4 mr-2" />
             Print Voucher
@@ -466,6 +481,34 @@ export default function OrderDetailPage() {
                 <p>{order.shipping_city}, {order.shipping_district}</p>
               </div>
             </div>
+          </div>
+
+          <div className="card p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Order details</h2>
+            <dl className="space-y-2 text-sm">
+              <div className="flex justify-between gap-3">
+                <dt className="text-gray-500">Type</dt>
+                <dd className="font-medium text-gray-900">{statusLabel(order.order_type)}</dd>
+              </div>
+              {order.processed_by_name ? (
+                <div className="flex justify-between gap-3">
+                  <dt className="text-gray-500">Created / processed by</dt>
+                  <dd className="font-medium text-gray-900">{order.processed_by_name}</dd>
+                </div>
+              ) : null}
+              {order.stock_location ? (
+                <div className="flex justify-between gap-3">
+                  <dt className="text-gray-500">Stock source</dt>
+                  <dd className="font-medium text-gray-900">{statusLabel(order.stock_location)}</dd>
+                </div>
+              ) : null}
+              {order.notes ? (
+                <div>
+                  <dt className="text-gray-500 mb-1">Notes</dt>
+                  <dd className="text-gray-800 whitespace-pre-wrap">{order.notes}</dd>
+                </div>
+              ) : null}
+            </dl>
           </div>
 
           {/* Payment Summary */}

@@ -179,8 +179,8 @@ def book_shipment(order, user=None, *, note='', client=None):
         existing = Shipment.objects.filter(order=order).first()
         if existing and existing.consignment_id:
             raise ShipmentError('already_booked', 'This order is already booked with Steadfast.', 409)
-        if order.order_type != 'online':
-            raise ShipmentError('not_bookable', 'In-shop orders are not sent by courier.')
+        if order.order_type not in ('online', 'external'):
+            raise ShipmentError('not_bookable', 'Only online and external orders can be sent by courier.')
         if order.order_status not in BOOKABLE_ORDER_STATUSES:
             raise ShipmentError(
                 'not_bookable',

@@ -505,7 +505,7 @@ function ShopPath({ query }) {
   return (
     <div>
       <p className="text-sm text-gray-500 mb-4">
-        Product, cart, and checkout are page views. Orders are online orders placed in this range, excluding cancelled and in-shop sales.
+        Product, cart, and checkout are page views. Orders are online orders placed in this range, excluding cancelled and external/admin sales.
       </p>
       <ol className="space-y-4">
         {steps.map((step, index) => {

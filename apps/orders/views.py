@@ -6,7 +6,6 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django_filters.rest_framework import DjangoFilterBackend
-from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from django.db.models import Count, Q
@@ -15,25 +14,32 @@ from .models import Order, OrderItem, OrderStatusHistory, Cart, CartItem, Coupon
 from .serializers import (
     CartSerializer, CartItemSerializer, AddToCartSerializer, UpdateCartItemSerializer,
     OrderListSerializer, OrderDetailSerializer, CheckoutSerializer,
-    InShopOrderSerializer, AdminManualOrderSerializer, OrderStatusUpdateSerializer,
-    TrackOrderSerializer, OrderStatusHistorySerializer, CouponSerializer, CouponCreateSerializer,
-    ValidateCouponSerializer, ApplyCouponSerializer, DeliveryOptionSerializer,
-    DeliveryUpdateSerializer,
+    ExternalOrderSerializer, ExternalOrderUpdateSerializer, OrderStatusUpdateSerializer,
+    TrackOrderSerializer, OrderStatusHistorySerializer, CouponSerializer,
+    CouponCreateSerializer, ValidateCouponSerializer, ApplyCouponSerializer,
+    DeliveryOptionSerializer, DeliveryUpdateSerializer,
 )
+from apps.products.costing import StockError
 from apps.products.models import Product, ProductVariant
 from apps.reports.models import StockMovement
 from apps.products.variants import variant_options
-
-
-def snapshot_options(variant):
-    return variant_options(variant) if variant else []
 from apps.accounts.permissions import IsStaffUser, IsSeller, IsSuperAdmin
 from apps.shipping.services import status_group
 from apps.notifications.services import notify_order_placed
 from apps.orders.emails import notify_order_placed_email
 from .services import (
-    DeliveryUpdateError, change_order_status, is_inside_dhaka, update_delivery_details,
+    STOCK_DEDUCTED_STATUSES,
+    DeliveryUpdateError,
+    ExternalOrderUpdateError,
+    change_order_status,
+    reduce_stock,
+    update_delivery_details,
+    update_external_order,
 )
+
+
+def snapshot_options(variant):
+    return variant_options(variant) if variant else []
 
 
 def public_shipment_summary(order):
@@ -569,241 +575,83 @@ class UpdateOrderStatusView(APIView):
         return Response(OrderDetailSerializer(order, context={'request': request}).data)
 
 
-class InShopOrderView(APIView):
-    """Create in-shop order (POS)."""
+class ExternalOrderView(APIView):
+    """Create an order received outside the storefront (Facebook, phone, DM)."""
     permission_classes = [IsAuthenticated, IsSeller]
 
     def post(self, request):
-        serializer = InShopOrderSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        
-        data = serializer.validated_data
-        items_data = data['items']
-        
-        with transaction.atomic():
-            # Calculate subtotal
-            subtotal = 0
-            order_items = []
-            
-            for item_data in items_data:
-                product = Product.objects.get(id=item_data['product_id'])
-                variant = None
-                if item_data.get('variant_id'):
-                    variant = ProductVariant.objects.get(id=item_data['variant_id'])
-                
-                catalog_price = variant.effective_price if variant else product.price
-                if 'unit_price' in item_data and item_data['unit_price'] is not None:
-                    unit_price = Decimal(item_data['unit_price'])
-                else:
-                    unit_price = catalog_price
-                quantity = item_data['quantity']
-                subtotal += unit_price * quantity
-
-                # When staff overrides the charged price, snapshot the catalog
-                # selling price as compare_price so the deal remains visible.
-                if unit_price != Decimal(catalog_price):
-                    compare_price = catalog_price
-                else:
-                    compare_price = product.compare_price
-                
-                order_items.append({
-                    'product': product,
-                    'variant': variant,
-                    'quantity': quantity,
-                    'unit_price': unit_price,
-                    'compare_price': compare_price,
-                })
-            
-            # Create order
-            order = Order.objects.create(
-                guest_name=data.get('customer_name', 'Walk-in Customer'),
-                guest_phone=data.get('customer_phone', ''),
-                guest_email=data.get('customer_email', ''),
-                order_type='in_shop',
-                order_status='delivered',
-                payment_status='paid',
-                shipping_name=data.get('customer_name', 'Walk-in Customer'),
-                shipping_phone=data.get('customer_phone', ''),
-                shipping_address_line1='In-Shop Purchase',
-                shipping_city='Dhaka',
-                shipping_district='Dhaka',
-                subtotal=subtotal,
-                discount=data.get('discount', 0),
-                delivery_charge=0,
-                payment_method=data['payment_method'],
-                processed_by=request.user,
-                notes=data.get('notes', ''),
-                delivered_at=timezone.now(),
-                stock_reduced=True,
-            )
-            
-            # Create order items and update stock immediately for in-shop orders
-            for item in order_items:
-                OrderItem.objects.create(
-                    order=order,
-                    product=item['product'],
-                    variant=item['variant'],
-                    product_name=item['product'].name,
-                    product_sku=item['product'].sku,
-                    size=item['variant'].size if item['variant'] else item['product'].size,
-                    color=item['variant'].color if item['variant'] else item['product'].color,
-                    options=snapshot_options(item['variant']),
-                    quantity=item['quantity'],
-                    unit_price=item['unit_price'],
-                    compare_price=item['compare_price'],
-                )
-                
-                # Update stock
-                if item['variant']:
-                    prev = item['variant'].stock_quantity
-                    item['variant'].stock_quantity = max(0, item['variant'].stock_quantity - item['quantity'])
-                    item['variant'].save(update_fields=['stock_quantity'])
-                    StockMovement.objects.create(
-                        product=item['product'], variant=item['variant'],
-                        movement_type='out', quantity=-item['quantity'],
-                        previous_stock=prev, new_stock=item['variant'].stock_quantity,
-                        reason='sale', reference_order=order,
-                        note=f'In-shop order #{order.order_number}',
-                        created_by=request.user,
-                    )
-                else:
-                    prev = item['product'].stock_quantity
-                    item['product'].stock_quantity = max(0, item['product'].stock_quantity - item['quantity'])
-                    item['product'].save(update_fields=['stock_quantity'])
-                    StockMovement.objects.create(
-                        product=item['product'], variant=None,
-                        movement_type='out', quantity=-item['quantity'],
-                        previous_stock=prev, new_stock=item['product'].stock_quantity,
-                        reason='sale', reference_order=order,
-                        note=f'In-shop order #{order.order_number}',
-                        created_by=request.user,
-                    )
-            
-            # Create status history
-            OrderStatusHistory.objects.create(
-                order=order,
-                status='delivered',
-                note='In-shop purchase completed',
-                changed_by=request.user
-            )
-        
-        return Response({
-            'message': 'In-shop order created successfully',
-            'order': OrderDetailSerializer(order).data
-        }, status=status.HTTP_201_CREATED)
-
-
-class AdminManualOrderView(APIView):
-    """Create an online order from admin for Facebook / phone / other channels."""
-    permission_classes = [IsAuthenticated, IsStaffUser]
-
-    def post(self, request):
-        serializer = AdminManualOrderSerializer(data=request.data)
+        serializer = ExternalOrderSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         items_data = data['items']
-        requested_status = data.get('order_status', 'pending')
-        payment_status = data.get('payment_status', 'pending')
-        discount = Decimal(data.get('discount') or 0)
+        order_status_value = data.get('order_status') or 'confirmed'
+        payment_status_value = data.get('payment_status') or 'pending'
 
         with transaction.atomic():
-            subtotal = Decimal('0')
+            subtotal = Decimal('0.00')
             order_items = []
-
             for item_data in items_data:
                 try:
-                    product = Product.objects.get(id=item_data['product_id'])
+                    product = Product.objects.select_related().get(id=item_data['product_id'])
                 except Product.DoesNotExist:
                     return Response(
-                        {'error': f'Product not found: {item_data["product_id"]}'},
+                        {'detail': f"Product {item_data['product_id']} was not found."},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
-
                 variant = None
                 if item_data.get('variant_id'):
                     try:
                         variant = ProductVariant.objects.get(
-                            id=item_data['variant_id'], product=product
+                            id=item_data['variant_id'], product=product,
                         )
                     except ProductVariant.DoesNotExist:
                         return Response(
-                            {'error': f'Variant not found: {item_data["variant_id"]}'},
+                            {'detail': 'Variant does not belong to the selected product.'},
                             status=status.HTTP_400_BAD_REQUEST,
                         )
+                elif product.variants.exists():
+                    return Response(
+                        {'detail': f'Select a variant for {product.name}.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
 
-                catalog_price = variant.effective_price if variant else product.price
-                if 'unit_price' in item_data and item_data['unit_price'] is not None:
-                    unit_price = Decimal(item_data['unit_price'])
-                else:
-                    unit_price = Decimal(catalog_price)
-
+                unit_price = item_data['unit_price']
                 quantity = item_data['quantity']
                 subtotal += unit_price * quantity
-
-                if unit_price != Decimal(catalog_price):
-                    compare_price = catalog_price
-                else:
-                    compare_price = product.compare_price
-
                 order_items.append({
                     'product': product,
                     'variant': variant,
                     'quantity': quantity,
                     'unit_price': unit_price,
-                    'compare_price': compare_price,
                 })
 
-            inside = is_inside_dhaka(data['shipping_city'], data['shipping_district'])
-            if data.get('delivery_charge') is not None:
-                delivery_charge = Decimal(data['delivery_charge'])
-                explicit_delivery = True
-            else:
-                delivery_charge = Decimal(
-                    settings.DELIVERY_CHARGE_INSIDE_DHAKA
-                    if inside
-                    else settings.DELIVERY_CHARGE_OUTSIDE_DHAKA
-                )
-                explicit_delivery = False
-
-            source = (data.get('source') or '').strip()
-            notes = (data.get('notes') or '').strip()
-            if source:
-                notes = f'Source: {source}' + (f'\n{notes}' if notes else '')
-
-            # Non-zero delivery avoids Order.save() overwriting an explicit free (0) charge.
-            create_delivery = delivery_charge if delivery_charge or not explicit_delivery else Decimal('0.01')
-
+            now = timezone.now()
             order = Order.objects.create(
-                guest_name=data['guest_name'],
-                guest_phone=data['guest_phone'],
-                guest_email=data.get('guest_email') or None,
-                order_type='online',
-                order_status='pending',
-                payment_status=payment_status,
-                shipping_name=data['shipping_name'],
-                shipping_phone=data['shipping_phone'],
+                guest_name=data['customer_name'],
+                guest_phone=data['customer_phone'],
+                guest_email=data.get('customer_email') or '',
+                order_type='external',
+                order_status=order_status_value,
+                payment_status=payment_status_value,
+                shipping_name=data['customer_name'],
+                shipping_phone=data['customer_phone'],
                 shipping_address_line1=data['shipping_address_line1'],
                 shipping_address_line2=data.get('shipping_address_line2') or '',
                 shipping_city=data['shipping_city'],
                 shipping_district=data['shipping_district'],
                 shipping_postal_code=data.get('shipping_postal_code') or '',
-                is_inside_dhaka=inside,
                 subtotal=subtotal,
-                discount=discount,
-                delivery_charge=create_delivery,
-                payment_method=data.get('payment_method') or 'cod',
+                discount=data.get('discount') or 0,
+                delivery_charge=data.get('delivery_charge') or 0,
+                payment_method=data.get('payment_method') or '',
                 processed_by=request.user,
-                notes=notes,
+                notes=data.get('notes') or '',
+                stock_location=(data.get('stock_location') or '').strip(),
                 stock_reduced=False,
+                confirmed_at=now if order_status_value in STOCK_DEDUCTED_STATUSES else None,
+                shipped_at=now if order_status_value in ('shipped', 'out_for_delivery', 'delivered') else None,
+                delivered_at=now if order_status_value == 'delivered' else None,
             )
-
-            if explicit_delivery and delivery_charge != order.delivery_charge:
-                Order.objects.filter(pk=order.pk).update(
-                    delivery_charge=delivery_charge,
-                    total=subtotal + delivery_charge - discount,
-                    is_inside_dhaka=inside,
-                )
-                order.refresh_from_db()
 
             for item in order_items:
                 OrderItem.objects.create(
@@ -811,38 +659,61 @@ class AdminManualOrderView(APIView):
                     product=item['product'],
                     variant=item['variant'],
                     product_name=item['product'].name,
-                    product_sku=item['product'].sku,
+                    product_sku=(
+                        item['variant'].sku if item['variant'] and item['variant'].sku
+                        else item['product'].sku
+                    ),
                     size=item['variant'].size if item['variant'] else item['product'].size,
                     color=item['variant'].color if item['variant'] else item['product'].color,
                     options=snapshot_options(item['variant']),
                     quantity=item['quantity'],
                     unit_price=item['unit_price'],
-                    compare_price=item['compare_price'],
+                    compare_price=item['product'].compare_price,
                 )
+
+            if order_status_value in STOCK_DEDUCTED_STATUSES:
+                try:
+                    reduce_stock(order, user=request.user)
+                except StockError as exc:
+                    transaction.set_rollback(True)
+                    return Response({'detail': exc.message}, status=status.HTTP_400_BAD_REQUEST)
+                order.save(update_fields=['stock_reduced'])
 
             OrderStatusHistory.objects.create(
                 order=order,
-                status='pending',
-                note=f'Manual order created by staff'
-                     + (f' ({source})' if source else ''),
+                status=order_status_value,
+                note='External order created by admin',
                 changed_by=request.user,
             )
 
-            if requested_status != 'pending':
-                order = change_order_status(
-                    order,
-                    requested_status,
-                    note=f'Status set on creation by staff',
-                    changed_by=request.user,
-                )
-
-        notify_order_placed(order)
-        notify_order_placed_email(order)
-
         return Response({
-            'message': 'Order created successfully',
+            'message': 'External order created successfully',
             'order': OrderDetailSerializer(order, context={'request': request}).data,
         }, status=status.HTTP_201_CREATED)
+
+
+class ExternalOrderUpdateView(APIView):
+    """Edit an admin-created external order after it was placed."""
+    permission_classes = [IsAuthenticated, IsSeller]
+
+    def patch(self, request, pk):
+        try:
+            order = Order.objects.get(pk=pk)
+        except Order.DoesNotExist:
+            return Response({'detail': 'Order not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = ExternalOrderUpdateSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        try:
+            order = update_external_order(
+                order, serializer.validated_data, user=request.user,
+            )
+        except ExternalOrderUpdateError as exc:
+            return Response({'detail': exc.message}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            'message': 'External order updated',
+            'order': OrderDetailSerializer(order, context={'request': request}).data,
+        })
 
 
 # Coupon Views
