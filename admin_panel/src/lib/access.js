@@ -5,12 +5,14 @@ export const MENU_GROUPS = [
       { href: '/dashboard', label: 'Dashboard', icon: 'LayoutDashboard', roles: ['seller', 'accountant', 'super_admin'] },
       { href: '/orders', label: 'Orders', icon: 'ShoppingCart', roles: ['seller', 'accountant', 'super_admin'] },
       { href: '/finance', label: 'Finance', icon: 'Wallet', roles: ['accountant', 'super_admin'] },
+      { href: '/shipments', label: 'Shipments', icon: 'Truck', roles: ['seller', 'accountant', 'super_admin'] },
     ],
   },
   {
     label: 'Catalog',
     items: [
       { href: '/products', label: 'Products', icon: 'Package', roles: ['seller', 'accountant', 'super_admin'] },
+      { href: '/homepage', label: 'Homepage', icon: 'LayoutTemplate', roles: ['seller', 'super_admin'] },
       { href: '/categories', label: 'Categories', icon: 'Tag', roles: ['seller', 'super_admin'] },
       { href: '/coupons', label: 'Coupons', icon: 'Ticket', roles: ['seller', 'super_admin'] },
     ],

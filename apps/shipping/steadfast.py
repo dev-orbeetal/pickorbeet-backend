@@ -182,3 +182,24 @@ class SteadfastClient:
 
     def status_by_tracking_code(self, tracking_code):
         return self._status(f'/status_by_trackingcode/{tracking_code}')
+
+    def get_balance(self):
+        """Return the merchant account balance as a float (taka)."""
+        payload = self._request('GET', '/get_balance')
+        raw = payload.get('current_balance', payload.get('balance'))
+        if raw is None:
+            raise SteadfastError('Steadfast did not return a balance.', payload=payload)
+        try:
+            return float(raw)
+        except (TypeError, ValueError) as exc:
+            raise SteadfastError('Steadfast returned an invalid balance.', payload=payload) from exc
+
+    def trackings_by_invoice(self, invoice):
+        """Return tracking timeline steps for an invoice (empty list if none)."""
+        payload = self._request('GET', f'/trackings_by_invoice/{invoice}')
+        steps = payload.get('trackings') or payload.get('data') or payload
+        if isinstance(steps, dict):
+            steps = steps.get('trackings') or steps.get('data') or []
+        if not isinstance(steps, list):
+            raise SteadfastError('Steadfast did not return tracking steps.', payload=payload)
+        return steps

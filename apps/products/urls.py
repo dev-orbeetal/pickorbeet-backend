@@ -7,6 +7,7 @@ from .views import (
     ProductListView, ProductDetailView, ProductReviewView, FeaturedProductsView, CategoryProductsView,
     HomepageBannerListView, HomepageConfigView, CatalogIndexView,
     AdminHomepageBannerListCreateView, AdminHomepageBannerDetailView,
+    AdminHomepageSectionListView, AdminHomepageSectionDetailView,
     AdminCategoryListCreateView, AdminCategoryDetailView,
     AdminSubCategoryListCreateView, AdminSubCategoryDetailView,
     AdminProductListCreateView, AdminProductDetailView,
@@ -58,6 +59,12 @@ urlpatterns = [
     path('admin/settings/', StoreSettingsView.as_view(), name='store_settings'),
     path('admin/banners/', AdminHomepageBannerListCreateView.as_view(), name='admin_banner_list'),
     path('admin/banners/<uuid:pk>/', AdminHomepageBannerDetailView.as_view(), name='admin_banner_detail'),
+    path('admin/homepage-sections/', AdminHomepageSectionListView.as_view(), name='admin_homepage_sections'),
+    path(
+        'admin/homepage-sections/<slug:key>/',
+        AdminHomepageSectionDetailView.as_view(),
+        name='admin_homepage_section_detail',
+    ),
     
     # Contact messages
     path('contact/', PublicContactSubmitView.as_view(), name='contact_submit'),

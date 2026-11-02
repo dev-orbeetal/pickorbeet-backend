@@ -255,6 +255,20 @@ export const productsApi = baseApi.injectEndpoints({
       }),
       invalidatesTags: ['Banners'],
     }),
+
+    getHomepageSections: builder.query({
+      query: () => '/products/admin/homepage-sections/',
+      providesTags: ['HomepageSections'],
+    }),
+
+    updateHomepageSection: builder.mutation({
+      query: ({ key, ...data }) => ({
+        url: `/products/admin/homepage-sections/${key}/`,
+        method: 'PATCH',
+        body: data,
+      }),
+      invalidatesTags: ['HomepageSections'],
+    }),
   }),
   overrideExisting: false,
 });
@@ -289,4 +303,6 @@ export const {
   useCreateBannerMutation,
   useUpdateBannerMutation,
   useDeleteBannerMutation,
+  useGetHomepageSectionsQuery,
+  useUpdateHomepageSectionMutation,
 } = productsApi;

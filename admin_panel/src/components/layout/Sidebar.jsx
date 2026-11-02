@@ -3,15 +3,15 @@ import Link from 'next/link';
 import { useSelector } from 'react-redux';
 import {
   LayoutDashboard, Package, ShoppingCart, Users, BarChart3, Activity,
-  Settings, Tag, Receipt, UserCog,
-  Warehouse, Ticket, MessageSquare, Headphones, Wallet, ClipboardList,
+  Settings, Tag, Receipt, UserCog, Truck,
+  Warehouse, Ticket, MessageSquare, Headphones, Wallet, ClipboardList, LayoutTemplate,
 } from 'lucide-react';
 import { MENU_GROUPS } from '@/lib/access';
 
 const ICONS = {
   LayoutDashboard, Package, ShoppingCart, Users, BarChart3, Activity,
-  Settings, Tag, Receipt, UserCog,
-  Warehouse, Ticket, MessageSquare, Headphones, Wallet, ClipboardList,
+  Settings, Tag, Receipt, UserCog, Truck,
+  Warehouse, Ticket, MessageSquare, Headphones, Wallet, ClipboardList, LayoutTemplate,
 };
 
 export default function Sidebar() {

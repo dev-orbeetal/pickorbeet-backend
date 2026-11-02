@@ -118,7 +118,7 @@ export default function ProductsPage() {
     setTogglingKey(`${product.id}:featured`);
     try {
       await updateProduct({ id: product.id, is_featured: next }).unwrap();
-      toast.success(next ? 'Marked as trending' : 'Removed from trending');
+      toast.success(next ? 'Added to homepage Trending' : 'Removed from homepage Trending');
     } catch (error) {
       toast.error(error?.data?.detail || 'Could not update trending status');
     } finally {
@@ -361,7 +361,7 @@ export default function ProductsPage() {
                             disabled={togglingKey === `${product.id}:featured`}
                             ariaLabel={`Trending for ${product.name}`}
                             onLabel="Trending"
-                            offLabel="Not Trending"
+                            offLabel="Not trending"
                           />
                         </td>
 

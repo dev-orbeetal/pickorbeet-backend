@@ -188,3 +188,86 @@ class ShipmentEndpointTests(ShopTestCase):
         by_code = APIClient().post('/api/v1/orders/track/', {'tracking_code': 'sf123456789bd'}, format='json')
         self.assertEqual(by_code.status_code, 200)
         self.assertEqual(by_code.json()['order_number'], self.order.order_number)
+
+
+@override_settings(STEADFAST_SYNC_ORDER_STATUS=True)
+class AdminShipmentDashboardTests(ShopTestCase):
+    def setUp(self):
+        super().setUp()
+        self.staff = make_user(role='seller')
+        self.customer = make_user()
+        self.api = APIClient()
+        self.order_a = make_order(user=self.customer)
+        self.order_b = make_order(user=make_user())
+        self.ship_a = book_shipment(self.order_a, self.staff, client=FakeClient(consignment_id=1001, tracking_code='AAA111'))
+        self.ship_b = book_shipment(self.order_b, self.staff, client=FakeClient(consignment_id=1002, tracking_code='BBB222'))
+        Shipment.objects.filter(pk=self.ship_b.pk).update(status='delivered')
+
+    def test_list_and_status_group_filter(self):
+        self.api.force_authenticate(self.staff)
+        listing = self.api.get('/api/v1/shipping/admin/shipments/')
+        self.assertEqual(listing.status_code, 200)
+        self.assertEqual(listing.json()['count'], 2)
+
+        delivered = self.api.get('/api/v1/shipping/admin/shipments/', {'status_group': 'delivered'})
+        self.assertEqual(delivered.status_code, 200)
+        self.assertEqual(delivered.json()['count'], 1)
+        self.assertEqual(delivered.json()['results'][0]['tracking_code'], 'BBB222')
+
+        search = self.api.get('/api/v1/shipping/admin/shipments/', {'search': self.order_a.order_number})
+        self.assertEqual(search.json()['count'], 1)
+        self.assertEqual(search.json()['results'][0]['order']['order_number'], self.order_a.order_number)
+
+    def test_summary_kpis(self):
+        self.api.force_authenticate(self.staff)
+        response = self.api.get('/api/v1/shipping/admin/shipments/summary/')
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body['total'], 2)
+        self.assertEqual(body['by_status_group']['in_review'], 1)
+        self.assertEqual(body['by_status_group']['delivered'], 1)
+        self.assertEqual(body['open_count'], 1)
+
+    def test_balance_endpoint(self):
+        self.api.force_authenticate(self.staff)
+        with mock.patch('apps.shipping.views.SteadfastClient', return_value=FakeClient(balance=990.25)):
+            response = self.api.get('/api/v1/shipping/admin/steadfast/balance/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'configured': True, 'current_balance': 990.25})
+
+    def test_refresh_and_bulk_refresh(self):
+        self.api.force_authenticate(self.staff)
+        with mock.patch('apps.shipping.services.SteadfastClient', return_value=FakeClient(status='pending')):
+            single = self.api.post(f'/api/v1/shipping/admin/shipments/{self.ship_a.pk}/refresh/')
+        self.assertEqual(single.status_code, 200)
+        self.assertEqual(single.json()['status'], 'pending')
+        self.ship_a.refresh_from_db()
+        self.assertIsNotNone(self.ship_a.last_checked_at)
+
+        open_ship = book_shipment(
+            make_order(user=make_user()),
+            self.staff,
+            client=FakeClient(consignment_id=1003, tracking_code='CCC333'),
+        )
+        with mock.patch('apps.shipping.services.SteadfastClient', return_value=FakeClient(status='hold')):
+            bulk = self.api.post(
+                '/api/v1/shipping/admin/shipments/bulk-refresh/',
+                {'ids': [str(self.ship_a.pk), str(open_ship.pk)], 'pause': 0},
+                format='json',
+            )
+        self.assertEqual(bulk.status_code, 200)
+        self.assertEqual(bulk.json()['checked'], 2)
+        open_ship.refresh_from_db()
+        self.assertEqual(open_ship.status, 'hold')
+
+    def test_detail_can_include_live_trackings(self):
+        self.api.force_authenticate(self.staff)
+        steps = [{'status': 'pending', 'message': 'At hub'}]
+        with mock.patch('apps.shipping.views.SteadfastClient', return_value=FakeClient(trackings=steps)):
+            response = self.api.get(f'/api/v1/shipping/admin/shipments/{self.ship_a.pk}/', {'live': 1})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['live_trackings'], steps)
+
+    def test_customers_cannot_access_admin_shipments(self):
+        self.api.force_authenticate(self.customer)
+        self.assertEqual(self.api.get('/api/v1/shipping/admin/shipments/').status_code, 403)

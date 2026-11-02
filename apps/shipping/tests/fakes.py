@@ -38,13 +38,27 @@ class FakeClient:
 
     is_configured = True
 
-    def __init__(self, status='in_review', error=None, consignment_id=1424107, tracking_code='SF123456789BD'):
+    def __init__(
+        self,
+        status='in_review',
+        error=None,
+        consignment_id=1424107,
+        tracking_code='SF123456789BD',
+        balance=1250.5,
+        trackings=None,
+    ):
         self.status = status
         self.error = error
         self.consignment_id = consignment_id
         self.tracking_code = tracking_code
+        self.balance = balance
+        self.trackings = trackings if trackings is not None else [
+            {'status': 'pending', 'message': 'Picked up', 'updated_at': '2025-10-24 10:00:00'},
+        ]
         self.created = []
         self.status_checks = []
+        self.balance_checks = 0
+        self.tracking_lookups = []
 
     def create_order(self, **kwargs):
         if self.error:
@@ -70,6 +84,18 @@ class FakeClient:
 
     def status_by_tracking_code(self, code):
         return self.status_by_cid(code)
+
+    def get_balance(self):
+        self.balance_checks += 1
+        if self.error:
+            raise self.error
+        return self.balance
+
+    def trackings_by_invoice(self, invoice):
+        self.tracking_lookups.append(invoice)
+        if self.error:
+            raise self.error
+        return list(self.trackings)
 
 
 TIMEOUT = requests.Timeout('slow')

@@ -126,7 +126,10 @@ export const baseApi = createApi({
     'SupportThread',
     'StoreSettings',
     'Banners',
+    'HomepageSections',
     'Traffic',
+    'Shipments',
+    'SteadfastBalance',
   ],
   endpoints: () => ({}),
 });

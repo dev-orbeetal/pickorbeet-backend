@@ -26,10 +26,13 @@ from .serializers import (
     ProductImageSerializer, ProductVariantSerializer, BarcodeProductSerializer,
     ProductStockUpdateSerializer, StockTransferSerializer,
     ContactMessageSubmitSerializer, ContactMessageSerializer,
-    HomepageBannerSerializer, ProductReviewSerializer, ProductReviewWriteSerializer,
+    HomepageBannerSerializer, HomepageSectionSerializer, ProductReviewSerializer,
+    ProductReviewWriteSerializer,
 )
 from apps.accounts.permissions import IsStaffUser, IsSeller
+from core.pagination import AdminPagination
 from .costing import StockError, apply_stock_operation, remove_units, transfer_stock
+from .homepage import curated_product_sections_queryset
 from .search import filter_product_search, search_names_catalog
 
 
@@ -369,6 +372,27 @@ class AdminHomepageBannerDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = HomepageBanner.objects.all()
 
 
+class AdminHomepageSectionListView(generics.ListAPIView):
+    """Admin: curated homepage product rows (trending, new arrivals)."""
+    serializer_class = HomepageSectionSerializer
+    permission_classes = [IsAuthenticated, IsStaffUser]
+    pagination_class = None
+
+    def get_queryset(self):
+        return curated_product_sections_queryset()
+
+
+class AdminHomepageSectionDetailView(generics.RetrieveUpdateAPIView):
+    """Admin: update a curated homepage product row and its product picks."""
+    serializer_class = HomepageSectionSerializer
+    permission_classes = [IsAuthenticated, IsStaffUser]
+    lookup_field = 'key'
+    http_method_names = ['get', 'put', 'patch', 'head', 'options']
+
+    def get_queryset(self):
+        return curated_product_sections_queryset()
+
+
 class HomepageBannerListView(generics.ListAPIView):
     """Public list of manually uploaded homepage banners."""
     serializer_class = HomepageBannerSerializer
@@ -434,6 +458,7 @@ class AdminSubCategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
 class AdminProductListCreateView(generics.ListCreateAPIView):
     """Admin: List and create products."""
     permission_classes = [IsAuthenticated, IsStaffUser]
+    pagination_class = AdminPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_fields = ['category', 'subcategory', 'is_active', 'is_featured', 'supply_type']
     search_fields = ['name', 'sku', 'barcode']
