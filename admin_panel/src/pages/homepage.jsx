@@ -135,7 +135,12 @@ function SectionEditor({ section }) {
         data.append('view_all_label', viewAllLabel.trim());
         data.append('view_all_url', viewAllUrl.trim() || '/products');
         if (isManual) {
-          products.forEach((item) => data.append('product_ids', item.id));
+          if (products.length) {
+            products.forEach((item) => data.append('product_ids', item.id));
+          } else {
+            // Explicit empty list for multipart (omit would leave old picks).
+            data.append('product_ids', '');
+          }
         } else {
           data.append('product_ids', '');
         }
@@ -157,7 +162,14 @@ function SectionEditor({ section }) {
       setClearBanner(false);
       toast.success(`${title || section.title} saved`);
     } catch (error) {
-      toast.error(error?.data?.detail || error?.data?.product_ids?.[0] || 'Failed to save section');
+      const productIdError = error?.data?.product_ids;
+      const productMsg = typeof productIdError === 'string'
+        ? productIdError
+        : productIdError?.[0]
+          || (productIdError && typeof productIdError === 'object'
+            ? Object.values(productIdError).flat()?.[0]
+            : null);
+      toast.error(error?.data?.detail || productMsg || 'Failed to save section');
     }
   };
 

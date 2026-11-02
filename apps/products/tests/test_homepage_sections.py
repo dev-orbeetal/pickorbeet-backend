@@ -123,3 +123,47 @@ class HomepageSectionAdminTests(ShopTestCase):
         )
         self.assertEqual(cleared.status_code, 200, cleared.content)
         self.assertIsNone(cleared.json()['banner_image'])
+
+    def test_multipart_banner_with_empty_product_ids_sentinel(self):
+        """Admin FormData appends product_ids='' for featured/auto sources."""
+        ensure_curated_product_sections()
+        HomepageSection.objects.filter(key='trending').update(product_source='featured')
+        response = self.api.patch(
+            '/api/v1/products/admin/homepage-sections/trending/',
+            {
+                'title': 'Trending Products',
+                'is_enabled': 'true',
+                'item_limit': '8',
+                'product_source': 'featured',
+                'view_all_label': 'View All',
+                'view_all_url': '/products',
+                'product_ids': '',
+                'banner_image': _png('trending-banner.png'),
+            },
+            format='multipart',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['product_source'], 'featured')
+        self.assertTrue(response.json()['banner_image'])
+        self.assertEqual(response.json()['products'], [])
+
+    def test_new_arrivals_multipart_banner_with_empty_product_ids(self):
+        ensure_curated_product_sections()
+        response = self.api.patch(
+            '/api/v1/products/admin/homepage-sections/new-arrivals/',
+            {
+                'title': 'New Arrivals',
+                'is_enabled': 'true',
+                'item_limit': '8',
+                'product_source': 'latest',
+                'view_all_label': 'View All',
+                'view_all_url': '/products',
+                'product_ids': '',
+                'banner_image': _png('new-arrivals-banner.png'),
+            },
+            format='multipart',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['product_source'], 'latest')
+        self.assertTrue(response.json()['banner_image'])
+        self.assertEqual(response.json()['products'], [])

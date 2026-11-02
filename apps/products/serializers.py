@@ -503,10 +503,13 @@ class HomepageSectionSerializer(serializers.ModelSerializer):
     """Admin serializer for curated homepage product rows."""
     products = HomepageSectionProductSerializer(source='section_products', many=True, read_only=True)
     banner_image = RelativeImageField(required=False, allow_null=True)
+    # CharField child: FormData often sends "" for an empty list; UUIDField rejects
+    # that before validate_product_ids can normalize it.
     product_ids = serializers.ListField(
-        child=serializers.UUIDField(),
+        child=serializers.CharField(allow_blank=True),
         required=False,
         write_only=True,
+        allow_empty=True,
     )
     clear_banner_image = serializers.BooleanField(required=False, write_only=True, default=False)
 
@@ -544,7 +547,18 @@ class HomepageSectionSerializer(serializers.ModelSerializer):
                     value = json.loads(raw)
                 except json.JSONDecodeError as exc:
                     raise serializers.ValidationError('Invalid product_ids.') from exc
-        unique = list(dict.fromkeys(value))
+
+        cleaned = []
+        for item in value:
+            raw = str(item).strip() if item is not None else ''
+            if not raw:
+                continue
+            try:
+                cleaned.append(serializers.UUIDField().to_internal_value(raw))
+            except serializers.ValidationError as exc:
+                raise serializers.ValidationError('Must be a valid UUID.') from exc
+
+        unique = list(dict.fromkeys(cleaned))
         found = set(
             Product.objects.filter(id__in=unique).values_list('id', flat=True)
         )
