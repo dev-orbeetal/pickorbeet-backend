@@ -28,6 +28,10 @@ export default function SettingsPage() {
   const [logoFile, setLogoFile] = useState(null);
   const [logoPreview, setLogoPreview] = useState(null);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [directoryBannerFile, setDirectoryBannerFile] = useState(null);
+  const [directoryBannerPreview, setDirectoryBannerPreview] = useState(null);
+  const [uploadingDirectoryBanner, setUploadingDirectoryBanner] = useState(false);
+  const [clearingDirectoryBanner, setClearingDirectoryBanner] = useState(false);
   const [slideForm, setSlideForm] = useState({ title: '', link: '', image: null, preview: '' });
   const [sideForm, setSideForm] = useState({ title: '', link: '', image: null, preview: '' });
 
@@ -178,6 +182,48 @@ export default function SettingsPage() {
     }
   };
 
+  const handleDirectoryBannerFile = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setDirectoryBannerFile(file);
+    const reader = new FileReader();
+    reader.onloadend = () => setDirectoryBannerPreview(reader.result);
+    reader.readAsDataURL(file);
+  };
+
+  const handleDirectoryBannerUpload = async () => {
+    if (!directoryBannerFile) return;
+    const body = new FormData();
+    body.append('default_directory_banner', directoryBannerFile);
+    setUploadingDirectoryBanner(true);
+    try {
+      await updateSettings(body).unwrap();
+      setDirectoryBannerFile(null);
+      setDirectoryBannerPreview(null);
+      toast.success('Directory banner updated');
+    } catch (err) {
+      toast.error(err?.data?.detail || 'Failed to upload directory banner');
+    } finally {
+      setUploadingDirectoryBanner(false);
+    }
+  };
+
+  const handleDirectoryBannerClear = async () => {
+    const body = new FormData();
+    body.append('clear_default_directory_banner', 'true');
+    setClearingDirectoryBanner(true);
+    try {
+      await updateSettings(body).unwrap();
+      setDirectoryBannerFile(null);
+      setDirectoryBannerPreview(null);
+      toast.success('Directory banner cleared');
+    } catch (err) {
+      toast.error(err?.data?.detail || 'Failed to clear directory banner');
+    } finally {
+      setClearingDirectoryBanner(false);
+    }
+  };
+
   const handleSlideImage = (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -320,6 +366,63 @@ export default function SettingsPage() {
                   {uploadingLogo ? 'Uploading...' : 'Upload logo'}
                 </button>
                 <p className="mt-2 text-xs text-gray-500">Shown in the shop header and footer. A wide transparent PNG works best.</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm border p-6">
+            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-1">
+              <ImageIcon className="w-5 h-5 text-primary-600" />
+              Default directory banner
+            </h2>
+            <p className="text-sm text-gray-500 mb-4">
+              Hero image for pages like Products, categories, and Home &gt; page lists when that page has no
+              category or section banner of its own. Leave empty to keep the blue–orange gradient.
+            </p>
+            <div className="flex flex-wrap items-start gap-4">
+              {directoryBannerPreview || settings?.default_directory_banner ? (
+                <img
+                  src={directoryBannerPreview || getMediaUrl(settings.default_directory_banner)}
+                  alt="Default directory banner"
+                  className="h-28 w-48 rounded-lg object-cover bg-gray-100"
+                />
+              ) : (
+                <div className="flex h-28 w-48 items-center justify-center rounded-lg bg-gradient-to-br from-[#2F6BFF] via-[#5B8CFF] to-[#FF8A3D] text-xs font-medium text-white">
+                  Gradient fallback
+                </div>
+              )}
+              <div>
+                <input
+                  id="directory-banner"
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleDirectoryBannerFile}
+                />
+                <label htmlFor="directory-banner" className="btn btn-secondary cursor-pointer">
+                  <Upload className="w-4 h-4 mr-2" /> Choose image
+                </label>
+                <button
+                  type="button"
+                  onClick={handleDirectoryBannerUpload}
+                  disabled={!directoryBannerFile || uploadingDirectoryBanner}
+                  className="btn bg-primary-600 text-white hover:bg-primary-700 ml-2"
+                >
+                  {uploadingDirectoryBanner ? 'Uploading...' : 'Upload banner'}
+                </button>
+                {(settings?.default_directory_banner || directoryBannerPreview) && (
+                  <button
+                    type="button"
+                    onClick={handleDirectoryBannerClear}
+                    disabled={clearingDirectoryBanner}
+                    className="btn btn-secondary ml-2 text-red-600"
+                  >
+                    {clearingDirectoryBanner ? 'Clearing...' : 'Clear'}
+                  </button>
+                )}
+                <p className="mt-2 text-xs text-gray-500">
+                  Wide landscape image works best (about 2:1). Category and homepage-section banners still override this.
+                </p>
               </div>
             </div>
           </div>

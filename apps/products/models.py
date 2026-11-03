@@ -287,6 +287,45 @@ class ProductImage(models.Model):
         super().save(*args, **kwargs)
 
 
+class ProductVideo(models.Model):
+    """YouTube link for a product gallery. Optionally scoped to one variant."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='videos')
+    variant = models.ForeignKey(
+        'ProductVariant',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='videos',
+        help_text='When set, the store shows this video for that variant. Empty means shared.',
+    )
+    youtube_url = models.URLField(max_length=500)
+    youtube_id = models.CharField(max_length=32, blank=True)
+    title = models.CharField(max_length=255, blank=True, default='')
+    is_primary = models.BooleanField(default=False)
+    display_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Product Video'
+        verbose_name_plural = 'Product Videos'
+        ordering = ['display_order', 'created_at']
+
+    def __str__(self):
+        return f"{self.product.name} - Video {self.youtube_id or self.pk}"
+
+    def save(self, *args, **kwargs):
+        from apps.products.youtube import extract_youtube_id
+
+        extracted = extract_youtube_id(self.youtube_url)
+        if extracted:
+            self.youtube_id = extracted
+        if self.is_primary:
+            ProductVideo.objects.filter(product=self.product, is_primary=True).update(is_primary=False)
+        super().save(*args, **kwargs)
+
+
 class ProductOption(models.Model):
     """A shopper choice on one product, such as Size, Color, or Storage."""
 
@@ -470,6 +509,16 @@ class StoreSettings(models.Model):
         blank=True,
         null=True,
         help_text='Store logo shown in the shop header and footer.',
+    )
+    default_directory_banner = models.ImageField(
+        upload_to='store/directory/',
+        blank=True,
+        null=True,
+        help_text=(
+            'Fallback hero image for product list, category, and similar directory pages '
+            '(Home > page). Used when the page has no category or section banner. '
+            'Leave empty to keep the default gradient.'
+        ),
     )
 
     OFFICIAL_BADGE_SIZES = [

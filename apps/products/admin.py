@@ -4,7 +4,7 @@ Admin configuration for products app.
 from django.contrib import admin
 from django.utils.html import format_html
 from .models import (
-    Category, SubCategory, Product, ProductImage, ProductVariant, ProductSpecification,
+    Category, SubCategory, Product, ProductImage, ProductVideo, ProductVariant, ProductSpecification,
     ProductReview, ProductReviewImage, StoreSettings, HomepageBanner, HomepageSection,
     HomepageSectionProduct, HomepageBenefit,
 )
@@ -67,6 +67,13 @@ class ProductImageInline(admin.TabularInline):
     extra = 1
 
 
+class ProductVideoInline(admin.TabularInline):
+    model = ProductVideo
+    extra = 0
+    fields = ['youtube_url', 'youtube_id', 'title', 'variant', 'is_primary', 'display_order']
+    readonly_fields = ['youtube_id']
+
+
 class ProductVariantInline(admin.TabularInline):
     model = ProductVariant
     extra = 1
@@ -87,7 +94,7 @@ class ProductAdmin(admin.ModelAdmin):
     prepopulated_fields = {'slug': ('name',)}
     readonly_fields = ['barcode_image']
     ordering = ['-created_at']
-    inlines = [ProductImageInline, ProductVariantInline, ProductSpecificationInline]
+    inlines = [ProductImageInline, ProductVideoInline, ProductVariantInline, ProductSpecificationInline]
     
     fieldsets = (
         ('Basic Info', {
@@ -139,6 +146,14 @@ class ProductImageAdmin(admin.ModelAdmin):
             return format_html('<img src="{}" width="50" height="50" />', obj.image.url)
         return '-'
     image_preview.short_description = 'Preview'
+
+
+@admin.register(ProductVideo)
+class ProductVideoAdmin(admin.ModelAdmin):
+    list_display = ['product', 'youtube_id', 'title', 'is_primary', 'display_order', 'variant']
+    list_filter = ['is_primary']
+    search_fields = ['product__name', 'youtube_url', 'youtube_id', 'title']
+    readonly_fields = ['youtube_id']
 
 
 @admin.register(ProductVariant)
@@ -214,6 +229,22 @@ class HomepageBenefitAdmin(admin.ModelAdmin):
 @admin.register(StoreSettings)
 class StoreSettingsAdmin(admin.ModelAdmin):
     list_display = ['barcode_prefix', 'updated_at']
+    fields = [
+        'logo',
+        'default_directory_banner',
+        'official_badge_size',
+        'official_badge_color',
+        'official_badge_position',
+        'barcode_prefix',
+        'popular_searches',
+        'contact_address',
+        'contact_phone_1',
+        'contact_phone_2',
+        'contact_email_1',
+        'contact_email_2',
+        'business_hours',
+        'map_embed_url',
+    ]
     
     def has_add_permission(self, request):
         # Only allow one instance

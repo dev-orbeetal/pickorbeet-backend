@@ -16,14 +16,14 @@ from django.db.models import Avg, Count, F, FloatField, IntegerField, OuterRef, 
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from .models import (
-    Category, SubCategory, Product, ProductImage, ProductVariant, ProductReview,
+    Category, SubCategory, Product, ProductImage, ProductVideo, ProductVariant, ProductReview,
     ProductReviewImage, ContactMessage, HomepageBanner, with_catalog_stats,
 )
 from .serializers import (
     CategorySerializer, CategoryListSerializer, SubCategorySerializer,
     ProductListSerializer, ProductDetailSerializer, ProductCreateUpdateSerializer,
     AdminProductListSerializer, AdminProductDetailSerializer,
-    ProductImageSerializer, ProductVariantSerializer, BarcodeProductSerializer,
+    ProductImageSerializer, ProductVideoSerializer, ProductVariantSerializer, BarcodeProductSerializer,
     ProductStockUpdateSerializer, StockTransferSerializer,
     ContactMessageSubmitSerializer, ContactMessageSerializer,
     HomepageBannerSerializer, HomepageSectionSerializer, ProductReviewSerializer,
@@ -233,7 +233,7 @@ class ProductDetailView(generics.RetrieveAPIView):
     
     def get_queryset(self):
         return with_catalog_stats(
-            Product.objects.filter(is_active=True).prefetch_related('images', 'variants')
+            Product.objects.filter(is_active=True).prefetch_related('images', 'videos', 'variants')
         )
 
 
@@ -448,13 +448,21 @@ class CatalogIndexView(APIView):
         return Response({'products': product_rows, 'categories': categories})
 
 
-def _logo_url(settings_obj, request):
-    if not settings_obj.logo:
+def _media_url(file_field, request):
+    if not file_field:
         return None
-    url = settings_obj.logo.url
+    url = file_field.url
     if request is not None:
         return request.build_absolute_uri(url)
     return url
+
+
+def _logo_url(settings_obj, request):
+    return _media_url(settings_obj.logo, request)
+
+
+def _directory_banner_url(settings_obj, request):
+    return _media_url(settings_obj.default_directory_banner, request)
 
 
 class AdminHomepageBannerListCreateView(generics.ListCreateAPIView):
@@ -596,7 +604,11 @@ class AdminProductDetailView(generics.RetrieveUpdateDestroyAPIView):
         return AdminProductDetailSerializer
 
     def get_queryset(self):
-        return Product.objects.all().select_related('supplied_by')
+        return (
+            Product.objects.all()
+            .select_related('supplied_by')
+            .prefetch_related('images', 'videos', 'variants')
+        )
 
     def destroy(self, request, *args, **kwargs):
         product = self.get_object()
@@ -638,6 +650,37 @@ class ProductImageDetailView(generics.RetrieveUpdateDestroyAPIView):
         image = ProductImage.objects.filter(pk=self.kwargs.get('pk')).select_related('product').first()
         if image:
             context['product'] = image.product
+        return context
+
+
+class ProductVideoCreateView(generics.CreateAPIView):
+    """Admin: Attach a YouTube link. Optional variant scopes the video to one SKU."""
+    serializer_class = ProductVideoSerializer
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        product_id = self.kwargs.get('product_id')
+        context['product'] = Product.objects.get(id=product_id)
+        return context
+
+    def perform_create(self, serializer):
+        product = self.get_serializer_context()['product']
+        serializer.save(product=product)
+
+
+class ProductVideoDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """Admin: Update assignment (variant / primary) or delete a product video."""
+    serializer_class = ProductVideoSerializer
+    permission_classes = [IsAuthenticated, IsStaffUser]
+    queryset = ProductVideo.objects.select_related('product', 'variant')
+    http_method_names = ['get', 'patch', 'delete', 'head', 'options']
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        video = ProductVideo.objects.filter(pk=self.kwargs.get('pk')).select_related('product').first()
+        if video:
+            context['product'] = video.product
         return context
 
 
@@ -1227,6 +1270,7 @@ class PublicStoreSettingsView(APIView):
         settings = StoreSettings.get_settings()
         return Response({
             'logo': _logo_url(settings, request),
+            'default_directory_banner': _directory_banner_url(settings, request),
             'popular_searches': settings.popular_searches,
             'contact_address': settings.contact_address,
             'contact_phone_1': settings.contact_phone_1,
@@ -1260,6 +1304,7 @@ class StoreSettingsView(APIView):
     def _payload(self, settings, request):
         data = {field: getattr(settings, field) for field in self.SETTINGS_FIELDS}
         data['logo'] = _logo_url(settings, request)
+        data['default_directory_banner'] = _directory_banner_url(settings, request)
         for field in self.BADGE_FIELDS:
             data[field] = getattr(settings, field)
         return data
@@ -1292,6 +1337,15 @@ class StoreSettingsView(APIView):
             updated = True
         if 'logo' in request.FILES:
             settings.logo = request.FILES['logo']
+            updated = True
+        if 'default_directory_banner' in request.FILES:
+            settings.default_directory_banner = request.FILES['default_directory_banner']
+            updated = True
+        clear_banner = str(request.data.get('clear_default_directory_banner') or '').lower()
+        if clear_banner in {'1', 'true', 'yes'}:
+            if settings.default_directory_banner:
+                settings.default_directory_banner.delete(save=False)
+            settings.default_directory_banner = None
             updated = True
         
         if updated:

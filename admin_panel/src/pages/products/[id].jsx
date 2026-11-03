@@ -22,6 +22,7 @@ import JsBarcode from 'jsbarcode';
 import { getMediaUrl, routeId } from '@/lib/utils';
 import SpecificationFields, { cleanSpecifications } from '@/components/products/SpecificationFields';
 import VariantOptions from '@/components/products/VariantOptions';
+import ProductVideosEditor from '@/components/products/ProductVideosEditor';
 
 function variantSelections(variant) {
   if (Array.isArray(variant?.options) && variant.options.length) {
@@ -708,6 +709,12 @@ export default function EditProductPage() {
               initialVariants={variantSnapshot?.variants || product.variants}
               productImages={allProductImages}
               onCount={(count) => setHasVariants(count > 0)}
+            />
+
+            <ProductVideosEditor
+              productId={id}
+              variants={variantSnapshot?.variants || product.variants || []}
+              initialVideos={product.videos || []}
             />
 
             {/* Images */}

@@ -10,6 +10,7 @@ import { useGetCategoriesQuery } from '@/store/api/categoriesApi';
 import {
   useCreateProductMutation,
   useUploadProductImageMutation,
+  useCreateProductVideoMutation,
   useSyncVariantSetupMutation,
   useGetStoreSettingsQuery,
   useGetSellersQuery,
@@ -17,6 +18,7 @@ import {
 import JsBarcode from 'jsbarcode';
 import SpecificationFields, { cleanSpecifications } from '@/components/products/SpecificationFields';
 import VariantOptions from '@/components/products/VariantOptions';
+import ProductVideosEditor from '@/components/products/ProductVideosEditor';
 
 function variantSelections(variant) {
   if (Array.isArray(variant?.options) && variant.options.length) {
@@ -46,6 +48,7 @@ export default function NewProductPage() {
   const { data: sellers = [] } = useGetSellersQuery();
   const [createProduct] = useCreateProductMutation();
   const [uploadProductImage] = useUploadProductImageMutation();
+  const [createProductVideo] = useCreateProductVideoMutation();
   const [syncVariantSetup] = useSyncVariantSetupMutation();
 
   const categories = Array.isArray(categoriesData?.results || categoriesData)
@@ -74,6 +77,7 @@ export default function NewProductPage() {
   });
 
   const [images, setImages] = useState([]);
+  const [videoDrafts, setVideoDrafts] = useState([]);
   const [subcategories, setSubcategories] = useState([]);
   const [specifications, setSpecifications] = useState([]);
 
@@ -306,6 +310,21 @@ export default function NewProductPage() {
         }
       }
 
+      let videoErrors = 0;
+      for (const [index, draft] of videoDrafts.entries()) {
+        try {
+          await createProductVideo({
+            productId,
+            youtube_url: draft.youtube_url,
+            title: draft.title || '',
+            is_primary: index === 0,
+          }).unwrap();
+        } catch (videoError) {
+          videoErrors++;
+          console.error('Video create error:', videoError);
+        }
+      }
+
       let variantErrors = 0;
       if (setup?.payload) {
         try {
@@ -333,7 +352,7 @@ export default function NewProductPage() {
         }
       }
 
-      if (imageErrors > 0 || variantErrors > 0) {
+      if (imageErrors > 0 || variantErrors > 0 || videoErrors > 0) {
         toast.success('Product created but some uploads failed. Please edit the product to retry.');
       } else {
         toast.success('Product created successfully!');
@@ -628,6 +647,11 @@ export default function NewProductPage() {
               productName={formData.name}
               productPrice={formData.price}
               onCount={(count) => setHasVariants(count > 0)}
+            />
+
+            <ProductVideosEditor
+              drafts={videoDrafts}
+              onDraftsChange={setVideoDrafts}
             />
 
             {/* Images */}

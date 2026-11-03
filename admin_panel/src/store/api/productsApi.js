@@ -99,6 +99,40 @@ export const productsApi = baseApi.injectEndpoints({
       invalidatesTags: [{ type: 'Products', id: 'LIST' }],
     }),
 
+    createProductVideo: builder.mutation({
+      query: ({ productId, ...data }) => ({
+        url: `/products/admin/products/${productId}/videos/`,
+        method: 'POST',
+        body: data,
+      }),
+      invalidatesTags: (result, error, { productId }) => [
+        { type: 'Products', id: productId },
+      ],
+    }),
+
+    updateProductVideo: builder.mutation({
+      query: ({ videoId, productId, ...data }) => ({
+        url: `/products/admin/videos/${videoId}/`,
+        method: 'PATCH',
+        body: data,
+      }),
+      invalidatesTags: (result, error, { productId }) => [
+        { type: 'Products', id: productId || 'LIST' },
+        { type: 'Products', id: 'LIST' },
+      ],
+    }),
+
+    deleteProductVideo: builder.mutation({
+      query: ({ videoId, productId }) => ({
+        url: `/products/admin/videos/${videoId}/`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: (result, error, { productId }) => [
+        { type: 'Products', id: productId || 'LIST' },
+        { type: 'Products', id: 'LIST' },
+      ],
+    }),
+
     createVariant: builder.mutation({
       query: ({ productId, ...data }) => ({
         url: `/products/admin/products/${productId}/variants/`,
@@ -287,6 +321,9 @@ export const {
   useUploadProductImageMutation,
   useUpdateProductImageMutation,
   useDeleteProductImageMutation,
+  useCreateProductVideoMutation,
+  useUpdateProductVideoMutation,
+  useDeleteProductVideoMutation,
   useCreateVariantMutation,
   useUpdateVariantMutation,
   useDeleteVariantMutation,

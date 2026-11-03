@@ -5,10 +5,11 @@ from django.db import transaction
 from django.db.models import Avg, Count
 from rest_framework import serializers
 from .models import (
-    Category, SubCategory, Product, ProductImage, ProductVariant, ProductSpecification,
+    Category, SubCategory, Product, ProductImage, ProductVideo, ProductVariant, ProductSpecification,
     ProductReview, ProductReviewImage, ContactMessage, HomepageBanner, HomepageSection,
     HomepageSectionProduct,
 )
+from .youtube import extract_youtube_id
 
 
 class RelativeImageField(serializers.ImageField):
@@ -35,6 +36,43 @@ class ProductImageSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductImage
         fields = ['id', 'image', 'alt_text', 'is_primary', 'display_order', 'variant']
+
+    def validate_variant(self, variant):
+        if variant is None:
+            return variant
+        product = None
+        if self.instance is not None:
+            product = self.instance.product
+        elif self.context.get('product') is not None:
+            product = self.context['product']
+        if product is not None and variant.product_id != product.id:
+            raise serializers.ValidationError('Variant must belong to this product.')
+        return variant
+
+
+class ProductVideoSerializer(serializers.ModelSerializer):
+    """YouTube gallery item. variant=null means shared across all variants."""
+    variant = serializers.PrimaryKeyRelatedField(
+        queryset=ProductVariant.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+    youtube_id = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = ProductVideo
+        fields = [
+            'id', 'youtube_url', 'youtube_id', 'title',
+            'is_primary', 'display_order', 'variant',
+        ]
+
+    def validate_youtube_url(self, value):
+        video_id = extract_youtube_id(value)
+        if not video_id:
+            raise serializers.ValidationError(
+                'Enter a valid YouTube link (watch, youtu.be, shorts, or embed).'
+            )
+        return value.strip()
 
     def validate_variant(self, variant):
         if variant is None:
@@ -194,6 +232,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
     category = CategoryListSerializer(read_only=True)
     subcategory = SubCategoryListSerializer(read_only=True)
     images = ProductImageSerializer(many=True, read_only=True)
+    videos = ProductVideoSerializer(many=True, read_only=True)
     variants = ProductVariantSerializer(many=True, read_only=True)
     primary_image = serializers.ReadOnlyField()
     discount_percentage = serializers.ReadOnlyField()
@@ -212,7 +251,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
                   'stock_quantity', 'is_low_stock', 'is_out_of_stock',
                   'discount_percentage', 'is_active', 'is_featured',
                   'is_official', 'warranty_period',
-                  'primary_image', 'images', 'variants', 'specifications',
+                  'primary_image', 'images', 'videos', 'variants', 'specifications',
                   'option_groups',
                   'rating_average', 'review_count', 'created_at', 'updated_at']
 
