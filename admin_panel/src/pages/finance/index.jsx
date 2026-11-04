@@ -201,9 +201,16 @@ export default function FinancePage() {
   const { data: income, isLoading: incomeLoading, isError: incomeError, refetch: refetchIncome } = useGetIncomeQuery(dateRange);
   const { data: expensesData, isLoading: expensesLoading, isError: expensesError, refetch: refetchExpenses } = useGetExpensesQuery(dateRange);
   const { data: byProduct = [], isLoading: byProductLoading } = useGetExpensesByProductQuery(dateRange);
-  const { data: productFinance = [], isLoading: productFinanceLoading, isError: productFinanceError, refetch: refetchProductFinance } = useGetProductFinanceQuery();
+  const { data: productFinance = [], isLoading: productFinanceLoading, isError: productFinanceError, refetch: refetchProductFinance } = useGetProductFinanceQuery(
+    undefined,
+    { refetchOnMountOrArgChange: true },
+  );
   const { data: settings } = useGetStoreSettingsQuery();
-  const { data: inventory } = useGetInventoryItemsQuery({}, { skip: !expenseFormOpen });
+  // Always load catalog for purchase lines so newly created products show without a hard refresh.
+  const { data: inventory, refetch: refetchInventory } = useGetInventoryItemsQuery(
+    {},
+    { refetchOnMountOrArgChange: true },
+  );
   const [createExpense, { isLoading: creatingExpense }] = useCreateExpenseMutation();
   const [updateExpense, { isLoading: updatingExpense }] = useUpdateExpenseMutation();
   const [deleteExpense] = useDeleteExpenseMutation();
@@ -255,6 +262,7 @@ export default function FinancePage() {
     setExpenseProofUrl('');
     setClearExpenseProof(false);
     setExpenseFormOpen(true);
+    refetchInventory();
   };
 
   const openEditExpense = (expense) => {
@@ -296,6 +304,7 @@ export default function FinancePage() {
     setExpenseProofUrl(expense.payment_proof || receipt?.payment_proof || '');
     setClearExpenseProof(false);
     setExpenseFormOpen(true);
+    refetchInventory();
   };
 
   const updatePurchaseLine = (key, patch) => {

@@ -25,9 +25,6 @@ export default function SettingsPage() {
   const [createBanner, { isLoading: creatingBanner }] = useCreateBannerMutation();
   const [updateBanner] = useUpdateBannerMutation();
   const [deleteBanner] = useDeleteBannerMutation();
-  const [logoFile, setLogoFile] = useState(null);
-  const [logoPreview, setLogoPreview] = useState(null);
-  const [uploadingLogo, setUploadingLogo] = useState(false);
   const [directoryBannerFile, setDirectoryBannerFile] = useState(null);
   const [directoryBannerPreview, setDirectoryBannerPreview] = useState(null);
   const [uploadingDirectoryBanner, setUploadingDirectoryBanner] = useState(false);
@@ -156,31 +153,6 @@ export default function SettingsPage() {
   const sideCards = allBanners
     .filter((banner) => banner.placement === 'promo')
     .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0));
-
-  const handleLogoFile = (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    setLogoFile(file);
-    const reader = new FileReader();
-    reader.onloadend = () => setLogoPreview(reader.result);
-    reader.readAsDataURL(file);
-  };
-
-  const handleLogoUpload = async () => {
-    if (!logoFile) return;
-    const body = new FormData();
-    body.append('logo', logoFile);
-    setUploadingLogo(true);
-    try {
-      await updateSettings(body).unwrap();
-      setLogoFile(null);
-      toast.success('Logo updated');
-    } catch (err) {
-      toast.error(err?.data?.detail || 'Failed to upload logo');
-    } finally {
-      setUploadingLogo(false);
-    }
-  };
 
   const handleDirectoryBannerFile = (event) => {
     const file = event.target.files?.[0];
@@ -337,39 +309,6 @@ export default function SettingsPage() {
         </div>
 
         <div className="space-y-6">
-          <div className="bg-white rounded-xl shadow-sm border p-6">
-            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
-              <ImageIcon className="w-5 h-5 text-primary-600" />
-              Store logo
-            </h2>
-            <div className="flex flex-wrap items-center gap-4">
-              {logoPreview || settings?.logo ? (
-                <img
-                  src={logoPreview || settings.logo}
-                  alt="Store logo"
-                  className="h-16 w-auto rounded-md bg-gray-900 p-2"
-                />
-              ) : (
-                <div className="flex h-16 w-16 items-center justify-center rounded-md bg-gray-100 text-xs text-gray-400">No logo</div>
-              )}
-              <div>
-                <input id="store-logo" type="file" accept="image/*" className="hidden" onChange={handleLogoFile} />
-                <label htmlFor="store-logo" className="btn btn-secondary cursor-pointer">
-                  <Upload className="w-4 h-4 mr-2" /> Choose logo
-                </label>
-                <button
-                  type="button"
-                  onClick={handleLogoUpload}
-                  disabled={!logoFile || uploadingLogo}
-                  className="btn bg-primary-600 text-white hover:bg-primary-700 ml-2"
-                >
-                  {uploadingLogo ? 'Uploading...' : 'Upload logo'}
-                </button>
-                <p className="mt-2 text-xs text-gray-500">Shown in the shop header and footer. A wide transparent PNG works best.</p>
-              </div>
-            </div>
-          </div>
-
           <div className="bg-white rounded-xl shadow-sm border p-6">
             <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-1">
               <ImageIcon className="w-5 h-5 text-primary-600" />

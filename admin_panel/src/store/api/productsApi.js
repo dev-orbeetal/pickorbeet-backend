@@ -27,7 +27,11 @@ export const productsApi = baseApi.injectEndpoints({
         method: 'POST',
         body: data,
       }),
-      invalidatesTags: [{ type: 'Products', id: 'LIST' }, 'Inventory', 'Finance'],
+      invalidatesTags: [
+        { type: 'Products', id: 'LIST' },
+        'Inventory',
+        'Finance',
+      ],
     }),
 
     updateProduct: builder.mutation({
@@ -39,6 +43,8 @@ export const productsApi = baseApi.injectEndpoints({
       invalidatesTags: (result, error, { id }) => [
         { type: 'Products', id },
         { type: 'Products', id: 'LIST' },
+        'Inventory',
+        'Finance',
       ],
     }),
 
@@ -47,7 +53,11 @@ export const productsApi = baseApi.injectEndpoints({
         url: `/products/admin/products/${id}/`,
         method: 'DELETE',
       }),
-      invalidatesTags: [{ type: 'Products', id: 'LIST' }],
+      invalidatesTags: [
+        { type: 'Products', id: 'LIST' },
+        'Inventory',
+        'Finance',
+      ],
     }),
 
     updateStock: builder.mutation({
@@ -164,6 +174,9 @@ export const productsApi = baseApi.injectEndpoints({
       }),
       invalidatesTags: (result, error, { productId }) => [
         { type: 'Products', id: productId },
+        { type: 'Products', id: 'LIST' },
+        'Inventory',
+        'Finance',
       ],
     }),
 
