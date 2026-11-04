@@ -69,6 +69,42 @@ def option_groups(product):
     ]
 
 
+def public_option_groups(product):
+    """Option groups limited to values that appear on dealer-available variants."""
+    sellable = [
+        variant
+        for variant in product.variants.all()
+        if variant.is_active and variant.dealer_available
+    ]
+    if not sellable:
+        return []
+    allowed = {}
+    for variant in sellable:
+        for choice in variant_options(variant):
+            name = choice['name']
+            label = choice['label']
+            bucket = allowed.setdefault(name, {'kind': choice['kind'], 'labels': {}})
+            bucket['kind'] = choice['kind'] or bucket['kind']
+            if label not in bucket['labels']:
+                bucket['labels'][label] = choice.get('color_hex') or ''
+    groups = []
+    for option in product.options.all():
+        entry = allowed.get(option.name)
+        if not entry:
+            continue
+        values = [
+            {'label': value.label, 'color_hex': entry['labels'].get(value.label, value.color_hex or '')}
+            for value in option.values.all()
+            if value.label in entry['labels']
+        ]
+        if values:
+            groups.append({'name': option.name, 'kind': option.kind, 'values': values})
+    if groups:
+        return groups
+    # Legacy products without ProductOption rows still expose size/color.
+    return option_groups(product)
+
+
 def legacy_fields(groups, selections):
     size = None
     color = None
@@ -185,6 +221,7 @@ def _clean_rows(groups, rows):
             # stock_quantity is ignored — quantities come from purchase receipts only.
             'low_stock_threshold': _clean_count(row.get('low_stock_threshold', 10), 'low stock alert'),
             'is_active': bool(row.get('is_active', True)),
+            'dealer_available': bool(row.get('dealer_available', False)),
             'barcode': barcode,
         })
     return cleaned
@@ -297,6 +334,7 @@ def sync_variant_setup(product, groups, rows):
             variant.dealer_stock = 0
         variant.low_stock_threshold = row['low_stock_threshold']
         variant.is_active = row['is_active']
+        variant.dealer_available = row['dealer_available']
         variant.size = size
         variant.color = color
         if not variant.sku:

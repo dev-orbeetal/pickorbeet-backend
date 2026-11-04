@@ -134,10 +134,32 @@ class AddToCartView(APIView):
                     {'error': 'Variant not found'},
                     status=status.HTTP_404_NOT_FOUND
                 )
-        
-        # Check stock
+
+        # Public cart: only dealer-available items are sellable.
+        if variant is not None:
+            if not variant.is_active or not variant.dealer_available:
+                return Response(
+                    {'error': 'This option is not available'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        elif not product.dealer_available and product.variants.filter(is_active=True).exists():
+            return Response(
+                {'error': 'Choose an available option'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        elif not product.dealer_available and not product.variants.filter(is_active=True).exists():
+            return Response(
+                {'error': 'This product is not available'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Warehouse stock still caps quantity when present; dealer-available
+        # items may be ordered even when recorded stock is zero.
         available_stock = variant.stock_quantity if variant else product.stock_quantity
-        if available_stock < quantity:
+        dealer_ok = (
+            variant.dealer_available if variant is not None else product.dealer_available
+        )
+        if available_stock < quantity and not dealer_ok:
             return Response(
                 {'error': 'Insufficient stock'},
                 status=status.HTTP_400_BAD_REQUEST

@@ -625,7 +625,7 @@ export default function NewProductPage() {
                     <span>
                       <span className="block text-sm font-medium text-gray-700">Dealer availability</span>
                       <span className="block text-xs text-gray-500">
-                        Allow dealer fulfillment even when warehouse stock is empty. Yes/no only — not a stock quantity.
+                        Shows this product on the public store and allows dealer fulfillment when warehouse stock is empty. For variants, set availability on each combination instead.
                       </span>
                     </span>
                     <input
@@ -750,19 +750,9 @@ export default function NewProductPage() {
                   />
                 </label>
                 {hasVariants && (
-                  <label className="flex items-center justify-between cursor-pointer">
-                    <span>
-                      <span className="block text-gray-700">Dealer availability</span>
-                      <span className="block text-xs text-gray-500">Independent of warehouse stock</span>
-                    </span>
-                    <input
-                      type="checkbox"
-                      name="dealer_available"
-                      checked={formData.dealer_available}
-                      onChange={handleInputChange}
-                      className="toggle"
-                    />
-                  </label>
+                  <p className="text-xs text-gray-500 border border-gray-100 rounded-lg p-3 bg-gray-50">
+                    Dealer availability is set on each variant combination above. Only available variants appear on the public store.
+                  </p>
                 )}
               </div>
             </div>

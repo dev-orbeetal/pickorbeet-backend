@@ -14,6 +14,7 @@ import {
   useGetProductsQuery,
   useDeleteProductMutation,
   useUpdateProductMutation,
+  useUpdateVariantMutation,
 } from '@/store/api/productsApi';
 import { useGetCategoriesQuery } from '@/store/api/categoriesApi';
 import { getMediaUrl } from '@/lib/utils';
@@ -84,6 +85,7 @@ export default function ProductsPage() {
   const { data: productsData, isLoading: loading, isError, refetch } = useGetProductsQuery(queryParams);
   const [deleteProduct] = useDeleteProductMutation();
   const [updateProduct] = useUpdateProductMutation();
+  const [updateVariant] = useUpdateVariantMutation();
 
   const categories = Array.isArray(categoriesData?.results || categoriesData)
     ? (categoriesData?.results || categoriesData)
@@ -113,6 +115,23 @@ export default function ProductsPage() {
     }
   };
 
+  const handleVariantDealerAvailability = async (product, variant) => {
+    const next = !variant.dealer_available;
+    setTogglingKey(`${variant.id}:dealer`);
+    try {
+      await updateVariant({
+        productId: product.id,
+        variantId: variant.id,
+        dealer_available: next,
+      }).unwrap();
+      toast.success(next ? 'Variant available on store' : 'Variant hidden from store');
+    } catch (error) {
+      toast.error(error?.data?.detail || 'Could not update variant availability');
+    } finally {
+      setTogglingKey(null);
+    }
+  };
+
   const handleFeatured = async (product) => {
     const next = !product.is_featured;
     setTogglingKey(`${product.id}:featured`);
@@ -137,7 +156,7 @@ export default function ProductsPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-gray-900">Products</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Manage products, view stock from purchase records, and set dealer availability.
+          Manage products, view stock from purchase records, and set dealer availability per product or variant. Only dealer-available items appear on the public store.
         </p>
       </div>
 
@@ -199,7 +218,6 @@ export default function ProductsPage() {
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="w-8 py-3 px-3" />
                 <th className="text-left py-3 px-4 text-xs font-semibold text-gray-600 uppercase">
                   Product
                 </th>
@@ -240,9 +258,8 @@ export default function ProductsPage() {
               {loading ? (
                 [...Array(6)].map((_, i) => (
                   <tr key={i} className="border-b border-gray-100">
-                    <td colSpan={10} className="py-5 px-4">
+                    <td colSpan={9} className="py-5 px-4">
                       <div className="flex items-center gap-4">
-                        <div className="w-8" />
                         <div className="w-12 h-12 bg-gray-100 rounded-lg animate-pulse" />
                         <div className="flex-1 space-y-2">
                           <div className="h-4 bg-gray-100 rounded w-40 animate-pulse" />
@@ -254,13 +271,13 @@ export default function ProductsPage() {
                 ))
               ) : isError ? (
                 <tr>
-                  <td colSpan={10} className="py-4">
+                  <td colSpan={9} className="py-4">
                     <LoadError title="Could not load products" onRetry={refetch} />
                   </td>
                 </tr>
               ) : products.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="text-center py-16">
+                  <td colSpan={9} className="text-center py-16">
                     <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                     <p className="text-gray-500 font-medium">No products found</p>
                     <p className="text-gray-400 text-sm mt-1">Try adjusting your search or filters</p>
@@ -272,25 +289,11 @@ export default function ProductsPage() {
                   const hasVariants = variants.length > 0;
                   const isExpanded = expandedProducts[product.id];
                   const { warehouse } = stockTotals(product);
+                  const availableVariantCount = variants.filter((variant) => variant.dealer_available).length;
 
                   return (
                     <Fragment key={product.id}>
                       <tr className="border-b border-gray-100 hover:bg-gray-50/70 transition-colors">
-                        <td className="py-3 px-3">
-                          {hasVariants ? (
-                            <button
-                              type="button"
-                              onClick={() => toggleExpand(product.id)}
-                              className="p-1.5 hover:bg-gray-200 rounded-lg transition-colors"
-                              title={`${variants.length} variant${variants.length > 1 ? 's' : ''}`}
-                            >
-                              {isExpanded
-                                ? <ChevronDown className="w-4 h-4 text-gray-600" />
-                                : <ChevronRight className="w-4 h-4 text-gray-400" />}
-                            </button>
-                          ) : <span className="w-7" />}
-                        </td>
-
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-3">
                             <div className="w-12 h-12 bg-gray-100 rounded-xl flex-shrink-0 overflow-hidden border border-gray-200">
@@ -344,14 +347,31 @@ export default function ProductsPage() {
                         </td>
 
                         <td className="py-3 px-4">
-                          <FlagToggle
-                            checked={Boolean(product.dealer_available)}
-                            onToggle={() => handleDealerAvailability(product)}
-                            disabled={togglingKey === `${product.id}:dealer`}
-                            ariaLabel={`Dealer availability for ${product.name}`}
-                            onLabel="Available"
-                            offLabel="Not Available"
-                          />
+                          {hasVariants ? (
+                            <button
+                              type="button"
+                              onClick={() => toggleExpand(product.id)}
+                              className="mx-auto flex items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700"
+                              aria-expanded={Boolean(isExpanded)}
+                              title={`${availableVariantCount}/${variants.length} variants available — click to ${isExpanded ? 'collapse' : 'expand'}`}
+                            >
+                              {isExpanded
+                                ? <ChevronDown className="w-3.5 h-3.5 shrink-0" />
+                                : <ChevronRight className="w-3.5 h-3.5 shrink-0" />}
+                              <span>
+                                {availableVariantCount}/{variants.length} available
+                              </span>
+                            </button>
+                          ) : (
+                            <FlagToggle
+                              checked={Boolean(product.dealer_available)}
+                              onToggle={() => handleDealerAvailability(product)}
+                              disabled={togglingKey === `${product.id}:dealer`}
+                              ariaLabel={`Dealer availability for ${product.name}`}
+                              onLabel="Available"
+                              offLabel="Not Available"
+                            />
+                          )}
                         </td>
 
                         <td className="py-3 px-4">
@@ -397,7 +417,6 @@ export default function ProductsPage() {
                         const vWarehouse = Number(variant.warehouse_stock || 0);
                         return (
                           <tr key={variant.id} className="border-b border-gray-50 bg-blue-50/30 transition-colors hover:bg-blue-50/50">
-                            <td className="py-2.5 px-3" />
                             <td className="py-2.5 px-4 pl-16">
                               <div className="flex items-center gap-2">
                                 <span className="w-2 h-2 bg-primary-400 rounded-full flex-shrink-0" />
@@ -412,7 +431,16 @@ export default function ProductsPage() {
                               ৳{parseFloat(variant.effective_price || variant.price).toLocaleString()}
                             </td>
                             <td className="py-2.5 px-4 text-center text-sm tabular-nums text-gray-700 font-semibold">{vWarehouse}</td>
-                            <td className="py-2.5 px-4 text-center text-xs text-gray-400">—</td>
+                            <td className="py-2.5 px-4">
+                              <FlagToggle
+                                checked={Boolean(variant.dealer_available)}
+                                onToggle={() => handleVariantDealerAvailability(product, variant)}
+                                disabled={togglingKey === `${variant.id}:dealer`}
+                                ariaLabel={`Dealer availability for ${product.name} ${vLabel}`}
+                                onLabel="Available"
+                                offLabel="Not Available"
+                              />
+                            </td>
                             <td className="py-2.5 px-4 text-center text-xs text-gray-400">—</td>
                             <td className="py-2.5 px-4 text-center">
                               <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${variant.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>

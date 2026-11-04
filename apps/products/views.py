@@ -17,7 +17,8 @@ from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from .models import (
     Category, SubCategory, Product, ProductImage, ProductVideo, ProductVariant, ProductReview,
-    ProductReviewImage, ContactMessage, HomepageBanner, with_catalog_stats,
+    ProductReviewImage, ContactMessage, HomepageBanner, publicly_sellable_q, public_variant_queryset,
+    with_catalog_stats, with_public_catalog,
 )
 from .serializers import (
     CategorySerializer, CategoryListSerializer, SubCategorySerializer,
@@ -44,21 +45,22 @@ REVIEW_IMAGE_CONTENT_TYPES = {
 
 
 def public_categories():
-    """Active categories/subcategories that have at least one active product."""
-    has_active_products = Count(
+    """Active categories/subcategories that have at least one dealer-available product."""
+    sellable_products = Product.objects.filter(is_active=True).filter(publicly_sellable_q())
+    has_sellable_products = Count(
         'products',
-        filter=Q(products__is_active=True),
+        filter=Q(products__in=sellable_products),
         distinct=True,
     )
     active_subcategories = (
         SubCategory.objects.filter(is_active=True)
-        .annotate(_active_product_count=has_active_products)
+        .annotate(_active_product_count=has_sellable_products)
         .filter(_active_product_count__gt=0)
         .order_by('display_order', 'name')
     )
     return (
         Category.objects.filter(is_active=True)
-        .annotate(_active_product_count=has_active_products)
+        .annotate(_active_product_count=has_sellable_products)
         .filter(_active_product_count__gt=0)
         .prefetch_related(Prefetch('subcategories', queryset=active_subcategories))
     )
@@ -72,11 +74,8 @@ def catalog_price(amount):
 
 
 def catalog_in_stock(product):
-    """True when the product, or any active variant, can still be sold."""
-    variants = [variant for variant in product.variants.all() if variant.is_active]
-    if variants:
-        return any(variant.stock_quantity > 0 for variant in variants)
-    return product.stock_quantity > 0
+    """True when dealers can fulfill the product (public sellability)."""
+    return product.is_dealer_sellable
 
 
 def catalog_image(product):
@@ -128,6 +127,7 @@ class SubCategoryListView(generics.ListAPIView):
 
     def get_queryset(self):
         category_slug = self.kwargs.get('category_slug')
+        sellable_products = Product.objects.filter(is_active=True).filter(publicly_sellable_q())
         return (
             SubCategory.objects.filter(
                 category__slug=category_slug,
@@ -136,7 +136,7 @@ class SubCategoryListView(generics.ListAPIView):
             .annotate(
                 _active_product_count=Count(
                     'products',
-                    filter=Q(products__is_active=True),
+                    filter=Q(products__in=sellable_products),
                     distinct=True,
                 )
             )
@@ -160,8 +160,8 @@ class ProductListView(generics.ListAPIView):
     ordering_fields = ['price', 'created_at', 'name']
 
     def get_queryset(self):
-        queryset = with_catalog_stats(
-            Product.objects.filter(is_active=True).select_related('category', 'subcategory')
+        queryset = with_public_catalog(
+            Product.objects.select_related('category', 'subcategory')
         )
         
         # Multi-value category filter (comma-separated IDs)
@@ -232,8 +232,8 @@ class ProductDetailView(generics.RetrieveAPIView):
     lookup_field = 'slug'
     
     def get_queryset(self):
-        return with_catalog_stats(
-            Product.objects.filter(is_active=True).prefetch_related('images', 'videos', 'variants')
+        return with_public_catalog(
+            Product.objects.prefetch_related('images', 'videos')
         )
 
 
@@ -383,7 +383,9 @@ class FeaturedProductsView(generics.ListAPIView):
     permission_classes = [AllowAny]
     
     def get_queryset(self):
-        return with_catalog_stats(Product.objects.filter(is_active=True, is_featured=True))[:12]
+        return with_public_catalog(
+            Product.objects.filter(is_featured=True)
+        )[:12]
 
 
 class HomepageConfigView(APIView):
@@ -405,12 +407,17 @@ class CatalogIndexView(APIView):
         total = reviews.values('product_id').annotate(total=Count('pk')).values('total')[:1]
         products = (
             Product.objects.filter(is_active=True)
+            .filter(publicly_sellable_q())
             .select_related('category')
             .annotate(
                 rating_average=Subquery(average, output_field=FloatField()),
                 review_count=Coalesce(Subquery(total, output_field=IntegerField()), Value(0)),
             )
-            .prefetch_related('specifications', 'images', 'variants')
+            .prefetch_related(
+                'specifications',
+                'images',
+                Prefetch('variants', queryset=public_variant_queryset()),
+            )
             .order_by('slug')
         )
         product_rows = []
@@ -522,8 +529,8 @@ class CategoryProductsView(generics.ListAPIView):
     def get(self, request):
         result = []
         for category in public_categories()[:6]:
-            products = with_catalog_stats(Product.objects.filter(
-                category=category, is_active=True
+            products = with_public_catalog(Product.objects.filter(
+                category=category,
             ))[:4]
             if not products:
                 continue
