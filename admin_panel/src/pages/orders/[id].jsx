@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import {
   ArrowLeft, Printer, Package, Truck, CheckCircle,
-  XCircle, Clock, MapPin, Phone, Mail, User,
+  XCircle, Clock, MapPin, Phone, Mail, MessageCircle,
   RotateCcw, AlertTriangle, X, ChevronRight,
   ShoppingBag, BoxIcon, Send, CircleDot, Ban, RefreshCw, Pencil,
 } from 'lucide-react';
@@ -10,10 +10,17 @@ import toast from 'react-hot-toast';
 import { useReactToPrint } from 'react-to-print';
 import AdminLayout from '@/components/layout/AdminLayout';
 import { useGetOrderQuery, useUpdateOrderStatusMutation, useBookShipmentMutation, useRefreshShipmentMutation } from '@/store/api/ordersApi';
+import { useOpenSupportInboxMutation } from '@/store/api/supportApi';
 import SteadfastCard from '@/components/orders/SteadfastCard';
 import ExternalOrderEditModal from '@/components/orders/ExternalOrderEditModal';
 import { getMediaUrl, routeId } from '@/lib/utils';
 import { statusLabel } from '@/lib/labels';
+
+function customerInitials(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean).slice(0, 2);
+  if (!parts.length) return '?';
+  return parts.map((part) => part[0]).join('').toUpperCase();
+}
 
 const ALL_STATUSES = [
   { key: 'pending', label: 'Pending', icon: Clock, color: 'yellow', ring: 'ring-yellow-400', bg: 'bg-yellow-50', text: 'text-yellow-700', border: 'border-yellow-200', activeBg: 'bg-yellow-500', activeText: 'text-white' },
@@ -157,11 +164,22 @@ export default function OrderDetailPage() {
   const [updateOrderStatus, { isLoading: updating }] = useUpdateOrderStatusMutation();
   const [bookShipment, { isLoading: booking }] = useBookShipmentMutation();
   const [refreshShipment, { isLoading: refreshingCourier }] = useRefreshShipmentMutation();
+  const [openSupportInbox, { isLoading: openingChat }] = useOpenSupportInboxMutation();
 
   if (error) {
     toast.error('Failed to fetch order');
     router.push('/orders');
   }
+
+  const openCustomerChat = async () => {
+    if (!order?.user || openingChat) return;
+    try {
+      const thread = await openSupportInbox(order.user).unwrap();
+      router.push(`/support?customer=${order.user}&conversation=${thread.id}`);
+    } catch {
+      toast.error('Could not open customer chat');
+    }
+  };
 
   const handleStatusClick = (statusKey) => {
     if (statusKey === order?.order_status) return;
@@ -447,12 +465,47 @@ export default function OrderDetailPage() {
 
           {/* Customer Info */}
           <div className="card p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Customer</h2>
-            <div className="space-y-3">
-              <div className="flex items-center gap-3">
-                <User className="w-4 h-4 text-gray-400" />
-                <span className="text-gray-700">{order.customer_name}</span>
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold text-gray-900">Customer</h2>
+              {order.user ? (
+                <button
+                  type="button"
+                  onClick={openCustomerChat}
+                  disabled={openingChat}
+                  title="Open support chat"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 text-primary-600 hover:bg-primary-50 disabled:opacity-50"
+                >
+                  <MessageCircle className="h-4 w-4" />
+                </button>
+              ) : (
+                <span
+                  title="Guest order — no account chat"
+                  className="inline-flex h-9 w-9 cursor-not-allowed items-center justify-center rounded-full border border-gray-100 text-gray-300"
+                >
+                  <MessageCircle className="h-4 w-4" />
+                </span>
+              )}
+            </div>
+            <div className="mb-4 flex items-center gap-3">
+              {order.customer_avatar ? (
+                <img
+                  src={getMediaUrl(order.customer_avatar)}
+                  alt={order.customer_name || 'Customer'}
+                  className="h-12 w-12 rounded-full object-cover"
+                />
+              ) : (
+                <span className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-primary-100 text-sm font-semibold text-primary-700">
+                  {customerInitials(order.customer_name)}
+                </span>
+              )}
+              <div className="min-w-0">
+                <p className="truncate font-medium text-gray-900">{order.customer_name}</p>
+                {!order.user && (
+                  <p className="text-xs text-gray-500">Guest checkout</p>
+                )}
               </div>
+            </div>
+            <div className="space-y-3">
               {order.customer_phone && (
                 <div className="flex items-center gap-3">
                   <Phone className="w-4 h-4 text-gray-400" />

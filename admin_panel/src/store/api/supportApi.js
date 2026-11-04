@@ -18,6 +18,14 @@ const supportApi = baseApi.injectEndpoints({
         dispatch(supportApi.util.invalidateTags(['Support']));
       },
     }),
+    openSupportInbox: builder.mutation({
+      query: (customerId) => ({
+        url: '/support/inbox/open/',
+        method: 'POST',
+        body: { customer_id: customerId },
+      }),
+      invalidatesTags: ['Support'],
+    }),
     markSupportRead: builder.mutation({
       query: (id) => ({
         url: `/support/inbox/${id}/read/`,
@@ -39,6 +47,7 @@ const supportApi = baseApi.injectEndpoints({
 export const {
   useGetSupportInboxQuery,
   useGetSupportThreadQuery,
+  useOpenSupportInboxMutation,
   useMarkSupportReadMutation,
   useReplySupportMutation,
 } = supportApi;

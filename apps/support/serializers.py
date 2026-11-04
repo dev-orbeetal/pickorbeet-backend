@@ -52,6 +52,15 @@ def profile_payload():
     }
 
 
+def customer_avatar_url(user):
+    if user is None or not getattr(user, 'avatar', None):
+        return ''
+    try:
+        return user.avatar.url or ''
+    except ValueError:
+        return ''
+
+
 def conversation_payload(conversation, *, include_customer=False):
     payload = {
         'id': str(conversation.id),
@@ -66,7 +75,9 @@ def conversation_payload(conversation, *, include_customer=False):
     }
     if include_customer:
         customer = conversation.customer
+        payload['customer_id'] = str(customer.id)
         payload['customer_name'] = customer_name(customer)
         payload['customer_email'] = customer.email or ''
+        payload['customer_avatar'] = customer_avatar_url(customer)
     return payload
 

@@ -567,7 +567,7 @@ class AdminOrderDetailView(generics.RetrieveDestroyAPIView):
     """Admin: Get or delete single order."""
     serializer_class = OrderDetailSerializer
     permission_classes = [IsAuthenticated, IsStaffUser]
-    queryset = Order.objects.all()
+    queryset = Order.objects.select_related('user', 'shipment', 'processed_by')
 
     def destroy(self, request, *args, **kwargs):
         order = self.get_object()

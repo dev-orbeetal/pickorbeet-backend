@@ -341,6 +341,7 @@ class OrderDetailSerializer(serializers.ModelSerializer):
     customer_name = serializers.ReadOnlyField()
     customer_email = serializers.ReadOnlyField()
     customer_phone = serializers.ReadOnlyField()
+    customer_avatar = serializers.SerializerMethodField()
     processed_by_name = serializers.CharField(source='processed_by.full_name', read_only=True)
     item_count = serializers.ReadOnlyField()
     shipment = serializers.SerializerMethodField()
@@ -349,7 +350,7 @@ class OrderDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = ['id', 'order_number', 'tracking_number', 'user',
-                  'customer_name', 'customer_email', 'customer_phone',
+                  'customer_name', 'customer_email', 'customer_phone', 'customer_avatar',
                   'guest_email', 'guest_phone', 'guest_name',
                   'order_type', 'order_status', 'payment_status',
                   'shipping_name', 'shipping_phone', 'shipping_address_line1',
@@ -364,6 +365,19 @@ class OrderDetailSerializer(serializers.ModelSerializer):
                   'processed_by', 'processed_by_name', 'notes', 'stock_location',
                   'item_count', 'items', 'status_history', 'shipment', 'can_edit_delivery',
                   'created_at', 'updated_at', 'confirmed_at', 'shipped_at', 'delivered_at']
+
+    def get_customer_avatar(self, obj):
+        user = obj.user
+        if user is None or not user.avatar:
+            return None
+        try:
+            url = user.avatar.url
+        except ValueError:
+            return None
+        request = self.context.get('request')
+        if request is not None:
+            return request.build_absolute_uri(url)
+        return url
 
     def get_shipment(self, obj):
         return serialize_shipment(obj, self.context)

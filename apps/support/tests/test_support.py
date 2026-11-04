@@ -94,3 +94,76 @@ class SupportThreadTests(ShopTestCase):
         self.assertEqual(note.title, 'Nadia Rahman')
         self.assertEqual(note.data['target'], 'support')
         self.assertFalse(Notification.objects.filter(recipient=stranger, kind='support.reply').exists())
+
+        read = customer_api.post('/api/v1/support/read/')
+        self.assertEqual(read.status_code, 200, read.content)
+        note.refresh_from_db()
+        self.assertIsNotNone(note.read_at)
+
+    def test_staff_can_open_inbox_by_customer_and_see_avatar_fields(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from io import BytesIO
+        from PIL import Image
+
+        customer = make_user(first_name='Farhana')
+        buf = BytesIO()
+        Image.new('RGB', (8, 8), color=(20, 120, 80)).save(buf, format='PNG')
+        customer.avatar.save(
+            'farhana.png',
+            SimpleUploadedFile('farhana.png', buf.getvalue(), content_type='image/png'),
+            save=True,
+        )
+        seller = make_user(role='seller')
+        staff_api = APIClient()
+        staff_api.force_authenticate(seller)
+
+        opened = staff_api.post(
+            '/api/v1/support/inbox/open/',
+            {'customer_id': str(customer.id)},
+            format='json',
+        )
+        self.assertEqual(opened.status_code, 200, opened.content)
+        body = opened.json()
+        self.assertEqual(body['customer_id'], str(customer.id))
+        self.assertEqual(body['customer_name'], 'Farhana Hasan')
+        self.assertTrue(body['customer_avatar'])
+        self.assertIn('messages', body)
+
+        again = staff_api.post(
+            '/api/v1/support/inbox/open/',
+            {'customer_id': str(customer.id)},
+            format='json',
+        )
+        self.assertEqual(again.status_code, 200, again.content)
+        self.assertEqual(again.json()['id'], body['id'])
+
+        inbox = staff_api.get('/api/v1/support/inbox/')
+        self.assertEqual(inbox.status_code, 200, inbox.content)
+        row = next(r for r in inbox.json()['results'] if r['id'] == body['id'])
+        self.assertEqual(row['customer_id'], str(customer.id))
+        self.assertTrue(row['customer_avatar'])
+
+        missing = staff_api.post('/api/v1/support/inbox/open/', {}, format='json')
+        self.assertEqual(missing.status_code, 400)
+
+    def test_admin_order_detail_includes_customer_avatar(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from io import BytesIO
+        from PIL import Image
+
+        customer = make_user()
+        buf = BytesIO()
+        Image.new('RGB', (8, 8), color=(10, 10, 10)).save(buf, format='PNG')
+        customer.avatar.save(
+            'cust.png',
+            SimpleUploadedFile('cust.png', buf.getvalue(), content_type='image/png'),
+            save=True,
+        )
+        order = make_order(user=customer)
+        staff = make_user(role='seller', is_staff=True)
+        api = APIClient()
+        api.force_authenticate(staff)
+        detail = api.get(f'/api/v1/orders/admin/{order.id}/')
+        self.assertEqual(detail.status_code, 200, detail.content)
+        self.assertEqual(detail.json()['user'], str(customer.id))
+        self.assertTrue(detail.json()['customer_avatar'])

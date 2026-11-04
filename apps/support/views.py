@@ -1,4 +1,5 @@
 """Customer chat and the staff inbox. Each side only sees its own thread."""
+from django.contrib.auth import get_user_model
 from django.db.models import OuterRef, Subquery
 from django.shortcuts import get_object_or_404
 from PIL import Image, UnidentifiedImageError
@@ -12,8 +13,10 @@ from apps.accounts.permissions import IsSeller
 
 from .models import Conversation, Message
 from .presence import online
-from .serializers import MessageSerializer, conversation_payload
+from .serializers import MessageSerializer, conversation_payload, customer_avatar_url
 from .services import customer_name, mark_read, open_conversation, post_customer_message, post_staff_reply
+
+User = get_user_model()
 
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 MAX_BODY = 2000
@@ -92,8 +95,10 @@ class StaffInboxView(APIView):
                 preview = Message.TOPIC_LABELS.get(row.preview_topic or '', '')
             results.append({
                 'id': str(row.id),
+                'customer_id': str(row.customer_id),
                 'customer_name': customer_name(row.customer),
                 'customer_email': row.customer.email or '',
+                'customer_avatar': customer_avatar_url(row.customer),
                 'topic': row.topic,
                 'topic_label': Message.TOPIC_LABELS.get(row.topic, ''),
                 'preview': preview,
@@ -101,6 +106,28 @@ class StaffInboxView(APIView):
                 'last_message_at': row.last_message_at,
             })
         return Response({'agent_online': online(), 'results': results})
+
+
+class StaffOpenInboxView(APIView):
+    """Get or create the support thread for a customer (from order detail chat)."""
+
+    permission_classes = [IsSeller]
+
+    def post(self, request):
+        customer_id = (request.data.get('customer_id') or '').strip()
+        if not customer_id:
+            return Response(
+                {'customer_id': ['Customer id is required.']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        customer = User.objects.filter(pk=customer_id, is_active=True).first()
+        if customer is None:
+            return Response(
+                {'customer_id': ['Customer not found.']},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        conversation = open_conversation(customer)
+        return Response(conversation_payload(conversation, include_customer=True))
 
 
 class StaffThreadView(APIView):

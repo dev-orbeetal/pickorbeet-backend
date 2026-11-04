@@ -134,6 +134,25 @@ def post_staff_reply(staff, conversation, body):
     return message
 
 
+def clear_support_reply_notifications(user):
+    """Clear inbox bell rows for staff replies once the customer opens the chat."""
+    from django.db import transaction
+
+    from apps.notifications.delivery import publish_read as publish_notification_read
+    from apps.notifications.models import Notification
+
+    now = timezone.now()
+    cleared = Notification.objects.filter(
+        recipient=user,
+        kind='support.reply',
+        read_at__isnull=True,
+    ).update(read_at=now)
+    if cleared:
+        user_id = user.id
+        transaction.on_commit(lambda: publish_notification_read(user_id))
+    return cleared
+
+
 def mark_read(conversation, *, by_staff):
     """The side that opened the thread has seen the other side's messages."""
     author = Message.CUSTOMER if by_staff else Message.AGENT
@@ -146,11 +165,15 @@ def mark_read(conversation, *, by_staff):
     unread_field = 'staff_unread' if by_staff else 'customer_unread'
     had_unread = getattr(conversation, unread_field)
     if not updated and not had_unread:
+        if not by_staff:
+            clear_support_reply_notifications(conversation.customer)
         return
     Conversation.objects.filter(pk=conversation.pk).update(**{unread_field: 0})
     setattr(conversation, unread_field, 0)
     if updated:
         publish_read(conversation, author=author, read_at=now)
+    if not by_staff:
+        clear_support_reply_notifications(conversation.customer)
 
 
 def customer_name(user):

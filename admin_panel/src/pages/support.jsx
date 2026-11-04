@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/router';
 import { Headphones, Send } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '@/components/layout/AdminLayout';
@@ -7,6 +8,7 @@ import { sendSupportTyping, startSupportSocket, stopSupportSocket } from '@/lib/
 import {
   useGetSupportInboxQuery,
   useGetSupportThreadQuery,
+  useOpenSupportInboxMutation,
   useMarkSupportReadMutation,
   useReplySupportMutation,
   supportApi,
@@ -20,7 +22,27 @@ function when(value) {
   return date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
+function customerInitials(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean).slice(0, 2);
+  if (!parts.length) return '?';
+  return parts.map((part) => part[0]).join('').toUpperCase();
+}
+
+function CustomerAvatar({ name, avatar, size = 'md' }) {
+  const dim = size === 'sm' ? 'h-9 w-9 text-[11px]' : 'h-10 w-10 text-xs';
+  const src = getMediaUrl(avatar);
+  if (src) {
+    return <img src={src} alt={name || 'Customer'} className={`${dim} shrink-0 rounded-full object-cover`} />;
+  }
+  return (
+    <span className={`inline-flex ${dim} shrink-0 items-center justify-center rounded-full bg-primary-100 font-semibold text-primary-700`}>
+      {customerInitials(name)}
+    </span>
+  );
+}
+
 export default function SupportPage() {
+  const router = useRouter();
   const dispatch = useDispatch();
   const [selected, setSelected] = useState(null);
   const [draft, setDraft] = useState('');
@@ -28,10 +50,12 @@ export default function SupportPage() {
   const selectedRef = useRef(null);
   const endRef = useRef(null);
   const typingTimer = useRef(null);
+  const deepLinkHandled = useRef('');
   const refetchRef = useRef(() => {});
   const markReadRef = useRef(() => {});
   const { data: inbox, refetch } = useGetSupportInboxQuery();
   const { data: thread } = useGetSupportThreadQuery(selected, { skip: !selected });
+  const [openSupportInbox] = useOpenSupportInboxMutation();
   const [markRead] = useMarkSupportReadMutation();
   const [reply, { isLoading: sending }] = useReplySupportMutation();
 
@@ -44,6 +68,34 @@ export default function SupportPage() {
     refetchRef.current = refetch;
     markReadRef.current = markRead;
   }, [refetch, markRead]);
+
+  useEffect(() => {
+    if (!router.isReady) return;
+    const conversation = typeof router.query.conversation === 'string' ? router.query.conversation : '';
+    const customer = typeof router.query.customer === 'string' ? router.query.customer : '';
+    const key = `${conversation}|${customer}`;
+    if (!conversation && !customer) return;
+    if (deepLinkHandled.current === key) return;
+    deepLinkHandled.current = key;
+
+    let cancelled = false;
+    (async () => {
+      if (conversation) {
+        if (!cancelled) setSelected(conversation);
+        return;
+      }
+      try {
+        const opened = await openSupportInbox(customer).unwrap();
+        if (!cancelled) setSelected(opened.id);
+      } catch {
+        if (!cancelled) toast.error('Could not open that customer chat.');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router.isReady, router.query.conversation, router.query.customer, openSupportInbox]);
 
   useEffect(() => {
     startSupportSocket({
@@ -129,6 +181,7 @@ export default function SupportPage() {
                       onClick={() => setSelected(row.id)}
                       className={`flex w-full items-start gap-3 px-4 py-3 text-left ${active ? 'bg-primary-50' : 'hover:bg-slate-50'}`}
                     >
+                      <CustomerAvatar name={row.customer_name} avatar={row.customer_avatar} size="sm" />
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center justify-between gap-2">
                           <span className="truncate text-sm font-semibold text-slate-900">{row.customer_name}</span>
@@ -158,9 +211,12 @@ export default function SupportPage() {
             </div>
           ) : (
             <>
-              <header className="border-b border-slate-100 px-5 py-4">
-                <h2 className="text-base font-semibold text-slate-900">{thread.customer_name}</h2>
-                <p className="text-xs text-slate-500">{thread.customer_email}</p>
+              <header className="flex items-center gap-3 border-b border-slate-100 px-5 py-4">
+                <CustomerAvatar name={thread.customer_name} avatar={thread.customer_avatar} />
+                <div className="min-w-0">
+                  <h2 className="truncate text-base font-semibold text-slate-900">{thread.customer_name}</h2>
+                  <p className="truncate text-xs text-slate-500">{thread.customer_email}</p>
+                </div>
               </header>
               <div className="flex-1 space-y-3 overflow-y-auto bg-slate-50 px-5 py-4">
                 {messages.map((message) => (
