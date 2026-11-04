@@ -535,7 +535,7 @@ def with_catalog_stats(queryset, *, variants_queryset=None):
     reviews = ProductReview.objects.filter(product_id=OuterRef('pk')).order_by()
     average = reviews.values('product_id').annotate(avg=Avg('rating')).values('avg')[:1]
     total = reviews.values('product_id').annotate(total=Count('pk')).values('total')[:1]
-    related = ['specifications', 'options__values']
+    related = ['specifications', 'options__values', 'images']
     if variants_queryset is None:
         related.append('variants__values__option')
     else:

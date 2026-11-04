@@ -203,6 +203,7 @@ class ProductListSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source='category.name', read_only=True)
     subcategory_name = serializers.CharField(source='subcategory.name', read_only=True)
     primary_image = serializers.ReadOnlyField()
+    gallery_images = serializers.SerializerMethodField()
     discount_percentage = serializers.ReadOnlyField()
     is_low_stock = serializers.ReadOnlyField()
     is_out_of_stock = serializers.SerializerMethodField()
@@ -215,7 +216,7 @@ class ProductListSerializer(serializers.ModelSerializer):
         model = Product
         fields = ['id', 'name', 'slug', 'sku', 'barcode', 'category', 'category_name', 
                   'subcategory', 'subcategory_name', 'short_description', 'price', 'compare_price',
-                  'primary_image', 'discount_percentage', 'stock_quantity',
+                  'primary_image', 'gallery_images', 'discount_percentage', 'stock_quantity',
                   'low_stock_threshold',
                   'is_low_stock', 'is_out_of_stock', 'is_featured', 'is_active',
                   'is_official', 'warranty_period',
@@ -224,6 +225,31 @@ class ProductListSerializer(serializers.ModelSerializer):
     def get_is_out_of_stock(self, obj):
         # Public storefront: dealer availability is the sellability signal.
         return not obj.is_dealer_sellable
+
+    def get_gallery_images(self, obj):
+        """Up to six unique photo URLs for list/card autoplay (primary first)."""
+        rows = sorted(
+            obj.images.all(),
+            key=lambda image: (0 if image.is_primary else 1, getattr(image, 'display_order', 0) or 0),
+        )
+        urls = []
+        seen = set()
+        for row in rows:
+            try:
+                url = row.image.url if row.image else None
+            except (ValueError, AttributeError):
+                url = None
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            urls.append(url)
+            if len(urls) >= 6:
+                break
+        if not urls:
+            primary = obj.primary_image
+            if primary:
+                urls.append(primary)
+        return urls
 
     def get_rating_average(self, obj):
         return review_stats(obj)['rating_average']
