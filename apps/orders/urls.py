@@ -8,7 +8,7 @@ from .views import (
     CustomerOrderSummaryView, CustomerOrderDeliveryView, CustomerCancelOrderView,
     TrackOrderView, AdminOrderListView, AdminOrderDetailView,
     UpdateOrderStatusView, ExternalOrderView, ExternalOrderUpdateView,
-    ValidateCouponView, ApplyCouponToCartView,
+    CustomerCouponListView, ValidateCouponView, ApplyCouponToCartView,
     AdminCouponListCreateView, AdminCouponDetailView, AdminCouponStatsView,
     PublicDeliveryOptionsView, AdminDeliveryOptionListCreateView, AdminDeliveryOptionDetailView
 )
@@ -22,6 +22,7 @@ urlpatterns = [
     path('cart/clear/', ClearCartView.as_view(), name='clear_cart'),
     
     # Coupon endpoints (public)
+    path('coupons/', CustomerCouponListView.as_view(), name='customer_coupons'),
     path('coupons/validate/', ValidateCouponView.as_view(), name='validate_coupon'),
     path('coupons/apply/', ApplyCouponToCartView.as_view(), name='apply_coupon'),
     

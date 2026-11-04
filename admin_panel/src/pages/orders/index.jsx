@@ -17,6 +17,7 @@ export default function OrdersPage() {
     order_status: '',
     payment_status: '',
     order_type: '',
+    platform: '',
     search: '',
   });
 
@@ -31,6 +32,7 @@ export default function OrdersPage() {
     if (filters.order_status) params.order_status = filters.order_status;
     if (filters.payment_status) params.payment_status = filters.payment_status;
     if (filters.order_type) params.order_type = filters.order_type;
+    if (filters.platform) params.platform = filters.platform;
     if (filters.search) params.search = filters.search;
     return params;
   }, [filters, page]);
@@ -153,6 +155,18 @@ export default function OrdersPage() {
             <option value="online">Online</option>
             <option value="external">External</option>
           </select>
+
+          <select
+            value={filters.platform}
+            onChange={(e) => updateFilters({ platform: e.target.value })}
+            className="input w-auto"
+          >
+            <option value="">All Platforms</option>
+            <option value="web">Web</option>
+            <option value="app">App</option>
+            <option value="admin">Admin</option>
+            <option value="unknown">Unknown</option>
+          </select>
         </div>
       </div>
 
@@ -165,6 +179,7 @@ export default function OrdersPage() {
                 <th className="text-left py-4 px-4 table-header">Order</th>
                 <th className="text-left py-4 px-4 table-header">Customer</th>
                 <th className="text-left py-4 px-4 table-header">Type</th>
+                <th className="text-left py-4 px-4 table-header">Platform</th>
                 <th className="text-left py-4 px-4 table-header">Items</th>
                 <th className="text-left py-4 px-4 table-header">Total</th>
                 <th className="text-left py-4 px-4 table-header">Status</th>
@@ -177,19 +192,19 @@ export default function OrdersPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="10" className="text-center py-8 text-gray-500">
+                  <td colSpan="11" className="text-center py-8 text-gray-500">
                     Loading...
                   </td>
                 </tr>
               ) : isError ? (
                 <tr>
-                  <td colSpan="10" className="py-4">
+                  <td colSpan="11" className="py-4">
                     <LoadError title="Could not load orders" onRetry={refetch} />
                   </td>
                 </tr>
               ) : orders.length === 0 ? (
                 <tr>
-                  <td colSpan="10" className="text-center py-8 text-gray-500">
+                  <td colSpan="11" className="text-center py-8 text-gray-500">
                     No orders found
                   </td>
                 </tr>
@@ -213,6 +228,19 @@ export default function OrdersPage() {
                             : 'badge-success'
                       }`}>
                         {statusLabel(order.order_type)}
+                      </span>
+                    </td>
+                    <td className="py-4 px-4">
+                      <span className={`badge ${
+                        order.platform === 'web'
+                          ? 'badge-info'
+                          : order.platform === 'app'
+                            ? 'badge-success'
+                            : order.platform === 'admin'
+                              ? 'badge-warning'
+                              : 'badge-gray'
+                      }`}>
+                        {statusLabel(order.platform || 'unknown')}
                       </span>
                     </td>
                     <td className="py-4 px-4 text-gray-600">{order.item_count}</td>

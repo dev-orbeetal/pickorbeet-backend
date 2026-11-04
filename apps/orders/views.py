@@ -17,7 +17,7 @@ from .serializers import (
     ExternalOrderSerializer, ExternalOrderUpdateSerializer, OrderStatusUpdateSerializer,
     TrackOrderSerializer, OrderStatusHistorySerializer, CouponSerializer,
     CouponCreateSerializer, ValidateCouponSerializer, ApplyCouponSerializer,
-    DeliveryOptionSerializer, DeliveryUpdateSerializer,
+    CustomerCouponSerializer, DeliveryOptionSerializer, DeliveryUpdateSerializer,
 )
 from apps.products.costing import StockError
 from apps.products.models import Product, ProductVariant
@@ -28,6 +28,7 @@ from apps.shipping.services import status_group
 from apps.notifications.services import notify_order_placed
 from apps.orders.emails import notify_order_placed_email
 from .services import (
+    resolve_customer_platform,
     STOCK_DEDUCTED_STATUSES,
     DeliveryUpdateError,
     ExternalOrderUpdateError,
@@ -291,6 +292,11 @@ class CheckoutView(APIView):
             except Coupon.DoesNotExist:
                 return Response({'error': 'Invalid coupon code.'}, status=status.HTTP_400_BAD_REQUEST)
         
+        platform = resolve_customer_platform(
+            request,
+            data['platform'] if 'platform' in data else None,
+        )
+
         with transaction.atomic():
             # Create order
             order = Order.objects.create(
@@ -299,6 +305,7 @@ class CheckoutView(APIView):
                 guest_phone=data.get('guest_phone'),
                 guest_name=data.get('guest_name'),
                 order_type='online',
+                platform=platform,
                 shipping_name=data['shipping_name'],
                 shipping_phone=data['shipping_phone'],
                 shipping_address_line1=data['shipping_address_line1'],
@@ -550,7 +557,7 @@ class AdminOrderListView(generics.ListAPIView):
     serializer_class = OrderListSerializer
     permission_classes = [IsAuthenticated, IsStaffUser]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['order_status', 'payment_status', 'order_type']
+    filterset_fields = ['order_status', 'payment_status', 'order_type', 'platform']
     search_fields = ['order_number', 'tracking_number', 'shipping_name', 'shipping_phone',
                      'shipment__tracking_code', 'shipment__consignment_id']
     ordering_fields = ['created_at', 'total']
@@ -661,6 +668,7 @@ class ExternalOrderView(APIView):
                 guest_phone=data['customer_phone'],
                 guest_email=data.get('customer_email') or '',
                 order_type='external',
+                platform='admin',
                 order_status=order_status_value,
                 payment_status=payment_status_value,
                 shipping_name=data['customer_name'],
@@ -751,6 +759,62 @@ class ExternalOrderUpdateView(APIView):
 
 
 # Coupon Views
+class CustomerCouponListView(APIView):
+    """Shopper wallet: available, used, and expired coupons."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        user = request.user if request.user.is_authenticated else None
+        rows = []
+        used_ids = set()
+
+        if user is not None:
+            usages = (
+                CouponUsage.objects.filter(user=user)
+                .select_related('coupon')
+                .order_by('-used_at')
+            )
+            seen = set()
+            for usage in usages:
+                coupon = usage.coupon
+                if coupon.id in seen:
+                    continue
+                seen.add(coupon.id)
+                used_ids.add(coupon.id)
+                rows.append(_wallet_row(coupon, state='used', used_at=usage.used_at))
+
+        for coupon in Coupon.objects.order_by('-created_at'):
+            if coupon.id in used_ids:
+                continue
+            if coupon.is_valid:
+                # Pass at least the min spend so wallet rows stay "available"
+                # even when the cart is empty; checkout still enforces the floor.
+                subtotal = coupon.minimum_order_amount or Decimal('0')
+                can_use, _message = coupon.can_be_used_by(user, subtotal)
+                if can_use:
+                    rows.append(_wallet_row(coupon, state='available', used_at=None))
+                continue
+            rows.append(_wallet_row(coupon, state='expired', used_at=None))
+
+        return Response(CustomerCouponSerializer(rows, many=True).data)
+
+
+def _wallet_row(coupon, *, state, used_at):
+    return {
+        'id': coupon.id,
+        'code': coupon.code,
+        'name': coupon.name,
+        'description': coupon.description or '',
+        'discount_type': coupon.discount_type,
+        'discount_value': coupon.discount_value,
+        'minimum_order_amount': coupon.minimum_order_amount,
+        'valid_until': coupon.valid_until,
+        'state': state,
+        'used_at': used_at,
+    }
+
+
 class ValidateCouponView(APIView):
     """Validate a coupon code for the current cart."""
     permission_classes = [AllowAny]

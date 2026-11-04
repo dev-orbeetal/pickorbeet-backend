@@ -21,6 +21,34 @@ class ExternalOrderUpdateError(Exception):
         super().__init__(message)
         self.message = message
 
+
+CUSTOMER_PLATFORMS = frozenset({'web', 'app'})
+
+
+def resolve_customer_platform(request, body_platform=None):
+    """
+    Resolve web/app for storefront checkout.
+
+    Body wins when present (including invalid values, which become unknown).
+    Otherwise fall back to X-Client-Platform. Only web and app are accepted;
+    admin must be set server-side for external orders.
+    """
+    if body_platform is not None:
+        value = str(body_platform).strip().lower()
+        if value in CUSTOMER_PLATFORMS:
+            return value
+        if value:
+            return 'unknown'
+    header = (
+        request.headers.get('X-Client-Platform')
+        or request.META.get('HTTP_X_CLIENT_PLATFORM')
+        or ''
+    ).strip().lower()
+    if header in CUSTOMER_PLATFORMS:
+        return header
+    return 'unknown'
+
+
 # Statuses where stock should be deducted
 STOCK_DEDUCTED_STATUSES = {'confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered'}
 

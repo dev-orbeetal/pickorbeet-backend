@@ -123,6 +123,21 @@ class CouponUsageSerializer(serializers.ModelSerializer):
                   'order', 'order_number', 'discount_amount', 'used_at']
 
 
+class CustomerCouponSerializer(serializers.Serializer):
+    """One row in the shopper vouchers wallet."""
+
+    id = serializers.UUIDField()
+    code = serializers.CharField()
+    name = serializers.CharField()
+    description = serializers.CharField(allow_blank=True)
+    discount_type = serializers.CharField()
+    discount_value = serializers.DecimalField(max_digits=10, decimal_places=2)
+    minimum_order_amount = serializers.DecimalField(max_digits=10, decimal_places=2)
+    valid_until = serializers.DateTimeField()
+    state = serializers.ChoiceField(choices=['available', 'used', 'expired'])
+    used_at = serializers.DateTimeField(allow_null=True)
+
+
 class CartItemSerializer(serializers.ModelSerializer):
     """Serializer for cart items."""
     product_name = serializers.CharField(source='product.name', read_only=True)
@@ -264,7 +279,7 @@ class OrderListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = ['id', 'order_number', 'tracking_number', 'customer_name',
-                  'order_type', 'order_status', 'payment_status', 'total',
+                  'order_type', 'platform', 'order_status', 'payment_status', 'total',
                   'item_count', 'extra_item_count', 'created_at', 'updated_at',
                   'shipped_at', 'delivered_at', 'is_inside_dhaka',
                   'shipment_status', 'shipment_status_group', 'shipment_status_label',
@@ -352,7 +367,7 @@ class OrderDetailSerializer(serializers.ModelSerializer):
         fields = ['id', 'order_number', 'tracking_number', 'user',
                   'customer_name', 'customer_email', 'customer_phone', 'customer_avatar',
                   'guest_email', 'guest_phone', 'guest_name',
-                  'order_type', 'order_status', 'payment_status',
+                  'order_type', 'platform', 'order_status', 'payment_status',
                   'shipping_name', 'shipping_phone', 'shipping_address_line1',
                   'shipping_address_line2', 'shipping_division', 'shipping_city',
                   'shipping_district', 'shipping_post_office', 'shipping_postal_code',
@@ -418,6 +433,9 @@ class CheckoutSerializer(serializers.Serializer):
     
     # Coupon
     coupon_code = serializers.CharField(required=False, allow_blank=True, max_length=50)
+
+    # Storefront client: web or app. Invalid values are coerced in the view.
+    platform = serializers.CharField(required=False, allow_blank=True, max_length=20)
     
     notes = serializers.CharField(required=False, allow_blank=True)
 

@@ -215,6 +215,13 @@ class Order(models.Model):
         ('external', 'External / Admin Order'),
     ]
 
+    PLATFORM_CHOICES = [
+        ('web', 'Web'),
+        ('app', 'App'),
+        ('admin', 'Admin'),
+        ('unknown', 'Unknown'),
+    ]
+
     STOCK_LOCATION_CHOICES = [
         ('warehouse', 'Warehouse'),
         ('dealer', 'Dealer'),
@@ -257,6 +264,13 @@ class Order(models.Model):
     guest_name = models.CharField(max_length=200, blank=True, null=True)
     
     order_type = models.CharField(max_length=20, choices=ORDER_TYPE_CHOICES, default='online')
+    platform = models.CharField(
+        max_length=20,
+        choices=PLATFORM_CHOICES,
+        default='unknown',
+        db_index=True,
+        help_text='Client surface that placed the order: web, app, or admin.',
+    )
     order_status = models.CharField(max_length=20, choices=ORDER_STATUS_CHOICES, default='pending')
     payment_status = models.CharField(max_length=20, choices=PAYMENT_STATUS_CHOICES, default='pending')
     

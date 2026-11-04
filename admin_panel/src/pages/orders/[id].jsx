@@ -543,6 +543,10 @@ export default function OrderDetailPage() {
                 <dt className="text-gray-500">Type</dt>
                 <dd className="font-medium text-gray-900">{statusLabel(order.order_type)}</dd>
               </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-gray-500">Platform</dt>
+                <dd className="font-medium text-gray-900">{statusLabel(order.platform || 'unknown')}</dd>
+              </div>
               {order.processed_by_name ? (
                 <div className="flex justify-between gap-3">
                   <dt className="text-gray-500">Created / processed by</dt>
