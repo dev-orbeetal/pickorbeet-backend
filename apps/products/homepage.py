@@ -3,7 +3,7 @@ from django.db.models import F, Prefetch
 
 from .models import (
     HomepageBanner, HomepageBenefit, HomepageSection, HomepageSectionProduct,
-    Product, with_catalog_stats,
+    Product, with_public_catalog,
 )
 from .serializers import HomepageBannerSerializer, ProductListSerializer
 
@@ -77,10 +77,11 @@ def curated_product_sections_queryset():
 
 
 def _ordered_products(products, limit):
-    ids = [product.id for product in products[:limit]]
+    sellable = [product for product in products if product.is_active and product.is_dealer_sellable]
+    ids = [product.id for product in sellable[:limit]]
     indexed = {
         product.id: product
-        for product in with_catalog_stats(Product.objects.filter(id__in=ids))
+        for product in with_public_catalog(Product.objects.filter(id__in=ids))
     }
     return [indexed[product_id] for product_id in ids if product_id in indexed]
 
@@ -101,7 +102,7 @@ def _products_for(section):
     if assigned:
         return _ordered_products(assigned, section.item_limit)
 
-    queryset = with_catalog_stats(Product.objects.filter(is_active=True))
+    queryset = with_public_catalog(Product.objects.all())
     if source == 'on_sale':
         queryset = queryset.filter(compare_price__isnull=False, compare_price__gt=F('price'))
     elif source == 'featured':

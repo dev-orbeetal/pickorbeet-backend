@@ -89,6 +89,7 @@ class ProductVariantSerializer(serializers.ModelSerializer):
         model = ProductVariant
         fields = ['id', 'sku', 'barcode', 'size', 'color', 'price',
                   'stock_quantity', 'warehouse_stock', 'dealer_stock',
+                  'dealer_available',
                   'low_stock_threshold', 'is_active', 'effective_price',
                   'options']
         read_only_fields = ['warehouse_stock', 'dealer_stock']
@@ -165,7 +166,7 @@ class ProductListSerializer(serializers.ModelSerializer):
     primary_image = serializers.ReadOnlyField()
     discount_percentage = serializers.ReadOnlyField()
     is_low_stock = serializers.ReadOnlyField()
-    is_out_of_stock = serializers.ReadOnlyField()
+    is_out_of_stock = serializers.SerializerMethodField()
     variants = ProductVariantSerializer(many=True, read_only=True)
     specifications = ProductSpecificationSerializer(many=True, read_only=True)
     rating_average = serializers.SerializerMethodField()
@@ -180,6 +181,10 @@ class ProductListSerializer(serializers.ModelSerializer):
                   'is_low_stock', 'is_out_of_stock', 'is_featured', 'is_active',
                   'is_official', 'warranty_period',
                   'variants', 'specifications', 'rating_average', 'review_count']
+
+    def get_is_out_of_stock(self, obj):
+        # Public storefront: dealer availability is the sellability signal.
+        return not obj.is_dealer_sellable
 
     def get_rating_average(self, obj):
         return review_stats(obj)['rating_average']
@@ -197,7 +202,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
     primary_image = serializers.ReadOnlyField()
     discount_percentage = serializers.ReadOnlyField()
     is_low_stock = serializers.ReadOnlyField()
-    is_out_of_stock = serializers.ReadOnlyField()
+    is_out_of_stock = serializers.SerializerMethodField()
     specifications = ProductSpecificationSerializer(many=True, read_only=True)
     option_groups = serializers.SerializerMethodField()
     rating_average = serializers.SerializerMethodField()
@@ -215,9 +220,12 @@ class ProductDetailSerializer(serializers.ModelSerializer):
                   'option_groups',
                   'rating_average', 'review_count', 'created_at', 'updated_at']
 
+    def get_is_out_of_stock(self, obj):
+        return not obj.is_dealer_sellable
+
     def get_option_groups(self, obj):
-        from apps.products.variants import option_groups
-        return option_groups(obj)
+        from apps.products.variants import public_option_groups
+        return public_option_groups(obj)
 
     def get_rating_average(self, obj):
         return review_stats(obj)['rating_average']
@@ -231,6 +239,7 @@ class AdminProductListSerializer(ProductListSerializer):
     supplied_by_name = serializers.SerializerMethodField()
     warehouse_stock = serializers.SerializerMethodField()
     dealer_stock = serializers.SerializerMethodField()
+    is_out_of_stock = serializers.ReadOnlyField()
 
     class Meta(ProductListSerializer.Meta):
         fields = ProductListSerializer.Meta.fields + [
@@ -267,12 +276,17 @@ class AdminProductListSerializer(ProductListSerializer):
 class AdminProductDetailSerializer(ProductDetailSerializer):
     """Admin detail payload. Adds internal supply fields the public detail omits."""
     supplied_by_name = serializers.SerializerMethodField()
+    is_out_of_stock = serializers.ReadOnlyField()
 
     class Meta(ProductDetailSerializer.Meta):
         fields = ProductDetailSerializer.Meta.fields + [
             'supply_type', 'supplied_by', 'supplied_by_name', 'cost_price',
             'low_stock_threshold', 'warehouse_stock', 'dealer_stock', 'dealer_available',
         ]
+
+    def get_option_groups(self, obj):
+        from apps.products.variants import option_groups
+        return option_groups(obj)
 
     def get_supplied_by_name(self, obj):
         seller = getattr(obj, 'supplied_by', None)

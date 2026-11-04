@@ -2,7 +2,7 @@
 Product models for Pickorbeet E-commerce.
 """
 from django.db import models
-from django.db.models import Avg, Count, FloatField, IntegerField, OuterRef, Subquery, Value
+from django.db.models import Avg, Count, Exists, FloatField, IntegerField, OuterRef, Q, Subquery, Value
 from django.db.models.functions import Coalesce, Lower
 from django.conf import settings
 from django.utils.text import slugify
@@ -238,6 +238,13 @@ class Product(models.Model):
         return self.stock_quantity == 0
 
     @property
+    def is_dealer_sellable(self):
+        """True when the public store may offer this product (dealer availability)."""
+        if self.variants.filter(is_active=True).exists():
+            return self.variants.filter(is_active=True, dealer_available=True).exists()
+        return bool(self.dealer_available)
+
+    @property
     def discount_percentage(self):
         if self.compare_price and self.compare_price > self.price:
             return int(((self.compare_price - self.price) / self.compare_price) * 100)
@@ -369,6 +376,14 @@ class ProductVariant(models.Model):
         default=0,
         help_text='Units currently at dealer locations.',
     )
+    dealer_available = models.BooleanField(
+        default=False,
+        help_text=(
+            'Manual flag: this variant is sellable on the public store and '
+            'dealers can fulfill it even when warehouse stock is zero. '
+            'Independent of calculated dealer_stock.'
+        ),
+    )
     low_stock_threshold = models.PositiveIntegerField(default=10)
     
     is_active = models.BooleanField(default=True)
@@ -433,15 +448,58 @@ class ProductReview(models.Model):
         return f'{self.product.name} ({self.rating})'
 
 
-def with_catalog_stats(queryset):
+def publicly_sellable_q():
+    """Products the storefront may list: dealer-available, or with a dealer-available variant."""
+    has_active_variant = ProductVariant.objects.filter(
+        product_id=OuterRef('pk'),
+        is_active=True,
+    )
+    has_sellable_variant = ProductVariant.objects.filter(
+        product_id=OuterRef('pk'),
+        is_active=True,
+        dealer_available=True,
+    )
+    return Q(Exists(has_sellable_variant)) | (
+        Q(dealer_available=True) & ~Exists(has_active_variant)
+    )
+
+
+def public_variant_queryset():
+    """Variants shoppers may see and buy."""
+    return ProductVariant.objects.filter(is_active=True, dealer_available=True).order_by(
+        'size', 'color', 'sku'
+    )
+
+
+def with_catalog_stats(queryset, *, variants_queryset=None):
     """Attach average rating, review count, and specification rows without join inflation."""
+    from django.db.models import Prefetch
+
     reviews = ProductReview.objects.filter(product_id=OuterRef('pk')).order_by()
     average = reviews.values('product_id').annotate(avg=Avg('rating')).values('avg')[:1]
     total = reviews.values('product_id').annotate(total=Count('pk')).values('total')[:1]
+    related = ['specifications', 'options__values']
+    if variants_queryset is None:
+        related.append('variants__values__option')
+    else:
+        related.append(
+            Prefetch(
+                'variants',
+                queryset=variants_queryset.prefetch_related('values__option'),
+            )
+        )
     return queryset.annotate(
         rating_average=Subquery(average, output_field=FloatField()),
         review_count=Coalesce(Subquery(total, output_field=IntegerField()), Value(0)),
-    ).prefetch_related('specifications', 'options__values', 'variants__values__option')
+    ).prefetch_related(*related)
+
+
+def with_public_catalog(queryset):
+    """Public catalog queryset: dealer-available products and only their sellable variants."""
+    return with_catalog_stats(
+        queryset.filter(is_active=True).filter(publicly_sellable_q()),
+        variants_queryset=public_variant_queryset(),
+    )
 
 
 class StoreSettings(models.Model):

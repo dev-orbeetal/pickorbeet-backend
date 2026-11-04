@@ -135,7 +135,12 @@ def reduce_stock(order, user=None):
                 location=location,
             )
         except StockError:
-            if location == 'dealer' and item.product.dealer_available:
+            # Dealer-available items can proceed without warehouse deduction.
+            dealer_ok = bool(
+                (variant and variant.dealer_available)
+                or item.product.dealer_available
+            )
+            if dealer_ok:
                 unit_cost, cost_total = Decimal('0.00'), Decimal('0.00')
             else:
                 raise

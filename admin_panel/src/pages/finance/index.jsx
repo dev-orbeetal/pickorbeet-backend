@@ -8,6 +8,7 @@ import toast from 'react-hot-toast';
 import { useReactToPrint } from 'react-to-print';
 import AdminLayout from '@/components/layout/AdminLayout';
 import LoadError from '@/components/ui/LoadError';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 import { getMediaUrl } from '@/lib/utils';
 import { useGetInventoryItemsQuery, useGetStoreSettingsQuery } from '@/store/api/productsApi';
 import {
@@ -1393,38 +1394,42 @@ export default function FinancePage() {
                             const product = products.find((item) => item.id === line.product);
                             const amounts = lineAmounts(line);
                             const qty = Math.max(1, parseInt(line.quantity, 10) || 1);
+                            const productOptions = products.map((item) => ({
+                              value: item.id,
+                              label: item.name,
+                              keywords: `${item.sku || ''} ${item.barcode || ''}`,
+                            }));
+                            const variantOptions = (product?.variants || []).map((variant) => ({
+                              value: variant.id,
+                              label: [variant.size, variant.color].filter(Boolean).join(' / ') || variant.sku || 'Variant',
+                              keywords: `${variant.sku || ''} ${variant.barcode || ''}`,
+                            }));
                             return (
                               <tr key={line.key} className="align-top">
                                 <td className="px-3 py-3 text-sm text-gray-500 pt-5">{index + 1}</td>
                                 <td className="px-3 py-3 space-y-2">
-                                  <select
-                                    className="input"
+                                  <SearchableSelect
                                     required
                                     value={line.product}
-                                    onChange={(event) => updatePurchaseLine(line.key, {
-                                      product: event.target.value,
+                                    options={productOptions}
+                                    placeholder="Select product"
+                                    searchPlaceholder="Search product or SKU…"
+                                    emptyLabel="No products match"
+                                    onChange={(next) => updatePurchaseLine(line.key, {
+                                      product: next,
                                       variant: '',
                                     })}
-                                  >
-                                    <option value="">Select product</option>
-                                    {products.map((item) => (
-                                      <option key={item.id} value={item.id}>{item.name}</option>
-                                    ))}
-                                  </select>
+                                  />
                                   {product?.has_variants ? (
-                                    <select
-                                      className="input"
+                                    <SearchableSelect
                                       required
                                       value={line.variant}
-                                      onChange={(event) => updatePurchaseLine(line.key, { variant: event.target.value })}
-                                    >
-                                      <option value="">Select variant</option>
-                                      {(product.variants || []).map((variant) => (
-                                        <option key={variant.id} value={variant.id}>
-                                          {[variant.size, variant.color].filter(Boolean).join(' / ') || variant.sku}
-                                        </option>
-                                      ))}
-                                    </select>
+                                      options={variantOptions}
+                                      placeholder="Select variant"
+                                      searchPlaceholder="Search variant…"
+                                      emptyLabel="No variants match"
+                                      onChange={(next) => updatePurchaseLine(line.key, { variant: next })}
+                                    />
                                   ) : null}
                                 </td>
                                 <td className="px-3 py-3">

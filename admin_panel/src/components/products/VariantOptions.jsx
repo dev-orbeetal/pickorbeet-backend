@@ -107,6 +107,7 @@ function reconcile(groups, rows, productSku, prefix) {
       stock: 0,
       lowStock: 10,
       isActive: true,
+      dealerAvailable: false,
       selections,
       imageFile: null,
       imagePreview: '',
@@ -210,6 +211,7 @@ function rowsFromProduct(variants, productImages) {
       stock: variant.warehouse_stock ?? variant.stock_quantity ?? 0,
       lowStock: variant.low_stock_threshold ?? 10,
       isActive: variant.is_active !== false,
+      dealerAvailable: Boolean(variant.dealer_available),
       selections: rowSelections(variant),
       imageId: linked?.id || null,
       imageUrl: linked?.url || linked?.image || '',
@@ -298,6 +300,7 @@ const VariantOptions = forwardRef(function VariantOptions({
             stock_quantity: 0,
             low_stock_threshold: Number(row.lowStock) || 0,
             is_active: row.isActive,
+            dealer_available: Boolean(row.dealerAvailable),
             selections: row.selections,
           })),
         },
@@ -567,7 +570,25 @@ const VariantOptions = forwardRef(function VariantOptions({
                   <p className="text-sm font-medium text-gray-800">
                     {row.selections.map((item) => item.label).join(' / ')}
                   </p>
-                  <p className="font-mono text-xs text-gray-500">SKU {row.sku}</p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="toggle"
+                        checked={Boolean(row.dealerAvailable)}
+                        onChange={(event) => setRows(rows.map((item) => (
+                          item.key === row.key
+                            ? { ...item, dealerAvailable: event.target.checked }
+                            : item
+                        )))}
+                        aria-label={`Dealer availability for ${row.selections.map((item) => item.label).join(' / ')}`}
+                      />
+                      <span className={`text-xs font-medium ${row.dealerAvailable ? 'text-green-700' : 'text-gray-500'}`}>
+                        {row.dealerAvailable ? 'Dealer available' : 'Not on store'}
+                      </span>
+                    </label>
+                    <p className="font-mono text-xs text-gray-500">SKU {row.sku}</p>
+                  </div>
                 </div>
                 <div className="mb-3 flex items-center gap-3">
                   <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-white">

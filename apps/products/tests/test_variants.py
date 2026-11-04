@@ -30,6 +30,7 @@ class VariantOptionTests(ShopTestCase):
                 'stock_quantity': 4,
                 'low_stock_threshold': 2,
                 'is_active': True,
+                'dealer_available': True,
                 'selections': [
                     {'name': 'Size', 'label': 'M'},
                     {'name': 'Color', 'label': 'Midnight'},

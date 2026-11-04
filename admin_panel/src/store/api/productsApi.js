@@ -117,6 +117,7 @@ export const productsApi = baseApi.injectEndpoints({
         body: data,
       }),
       invalidatesTags: (result, error, { productId }) => [
+        { type: 'Products', id: 'LIST' },
         { type: 'Products', id: productId },
       ],
     }),
