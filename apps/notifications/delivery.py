@@ -111,11 +111,16 @@ def send_push(notification):
     data = {key: '' if value is None else str(value) for key, value in (notification.data or {}).items()}
     data['notification_id'] = str(notification.id)
     data['kind'] = notification.kind
+    data['title'] = notification.title or ''
+    data['body'] = notification.body or ''
     message = messaging.MulticastMessage(
         tokens=tokens,
         notification=messaging.Notification(title=notification.title, body=notification.body),
         data=data,
-        android=messaging.AndroidConfig(priority='high'),
+        android=messaging.AndroidConfig(
+            priority='high',
+            notification=messaging.AndroidNotification(channel_id='orders'),
+        ),
         apns=messaging.APNSConfig(
             payload=messaging.APNSPayload(aps=messaging.Aps(sound='default')),
         ),
