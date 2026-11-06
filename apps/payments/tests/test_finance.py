@@ -185,7 +185,7 @@ class FinanceApiTests(ShopTestCase):
         self.assertEqual(changed.status_code, 400, changed.content)
         self.assertTrue(Expense.objects.filter(pk=first['id']).exists())
 
-    def test_opening_stock_is_a_purchase_and_later_edits_do_not_rewrite_it(self):
+    def test_stock_comes_only_from_purchases_and_edits_do_not_rewrite_it(self):
         created = self.api.post('/api/v1/products/admin/products/', {
             'name': 'Opening Scarf',
             'category': str(self.category.id),
@@ -195,15 +195,15 @@ class FinanceApiTests(ShopTestCase):
         }, format='json')
         self.assertEqual(created.status_code, 201, created.content)
         product_id = created.json()['id']
-        self.assertEqual(created.json()['stock_quantity'], 4)
-        self.assertEqual(Expense.objects.filter(product_id=product_id).count(), 1)
+        self.assertEqual(created.json()['stock_quantity'], 0)
+        self.assertEqual(Expense.objects.filter(product_id=product_id).count(), 0)
 
         updated = self.api.patch(f'/api/v1/products/admin/products/{product_id}/', {
             'stock_quantity': 99,
             'cost_price': '1.00',
         }, format='json')
         self.assertEqual(updated.status_code, 200, updated.content)
-        self.assertEqual(updated.json()['stock_quantity'], 4)
+        self.assertEqual(updated.json()['stock_quantity'], 0)
         self.assertEqual(updated.json()['cost_price'], '25.00')
 
     def test_sale_refund_and_unpaid_orders_keep_one_cost_snapshot(self):
@@ -270,8 +270,11 @@ class FinanceApiTests(ShopTestCase):
             'customer_name': 'Walk-in Buyer',
             'customer_phone': '+8801700000000',
             'shipping_address_line1': 'Shop counter',
+            'shipping_division': 'Dhaka',
             'shipping_city': 'Dhaka',
             'shipping_district': 'Dhaka',
+            'shipping_post_office': 'Dhaka GPO',
+            'shipping_postal_code': '1000',
             'items': [{'product_id': str(self.product.id), 'quantity': 2, 'unit_price': '500.00'}],
             'stock_location': 'warehouse',
             'delivery_charge': '0',
@@ -380,18 +383,18 @@ class FinanceApiTests(ShopTestCase):
         variant = self.api.post(f'/api/v1/products/admin/products/{product_id}/variants/', {
             'sku': 'SHAWL-M',
             'size': 'M',
-            'stock_quantity': 4,
         }, format='json')
         self.assertEqual(variant.status_code, 201, variant.content)
-        self.assertEqual(variant.json()['stock_quantity'], 4)
+        self.assertEqual(variant.json()['stock_quantity'], 0)
 
-        added = self.api.post(f"/api/v1/products/admin/variants/{variant.json()['id']}/stock/", {
-            'quantity': 4,
-            'operation': 'add',
-            'reason': 'purchase',
-            'unit_cost': '80.00',
-        }, format='json')
-        self.assertEqual(added.status_code, 200, added.content)
+        for unit_cost in ('40.00', '80.00'):
+            added = self.api.post(f"/api/v1/products/admin/variants/{variant.json()['id']}/stock/", {
+                'quantity': 4,
+                'operation': 'add',
+                'reason': 'purchase',
+                'unit_cost': unit_cost,
+            }, format='json')
+            self.assertEqual(added.status_code, 200, added.content)
         product = Category.objects.get(pk=self.category.id).products.get(pk=product_id)
         self.assertEqual(product.inventory_cost_value, Decimal('480.00'))
         self.assertEqual(product.cost_price, Decimal('60.00'))

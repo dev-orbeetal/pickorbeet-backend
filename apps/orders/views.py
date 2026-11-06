@@ -32,6 +32,7 @@ from .services import (
     STOCK_DEDUCTED_STATUSES,
     DeliveryUpdateError,
     ExternalOrderUpdateError,
+    cart_line_error,
     change_order_status,
     reduce_stock,
     update_delivery_details,
@@ -136,36 +137,13 @@ class AddToCartView(APIView):
                     status=status.HTTP_404_NOT_FOUND
                 )
 
-        # Public cart: only dealer-available items are sellable.
-        if variant is not None:
-            if not variant.is_active or not variant.dealer_available:
-                return Response(
-                    {'error': 'This option is not available'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-        elif not product.dealer_available and product.variants.filter(is_active=True).exists():
-            return Response(
-                {'error': 'Choose an available option'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        elif not product.dealer_available and not product.variants.filter(is_active=True).exists():
-            return Response(
-                {'error': 'This product is not available'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Warehouse stock still caps quantity when present; dealer-available
-        # items may be ordered even when recorded stock is zero.
-        available_stock = variant.stock_quantity if variant else product.stock_quantity
-        dealer_ok = (
-            variant.dealer_available if variant is not None else product.dealer_available
+        in_cart = CartItem.objects.filter(cart=cart, product=product, variant=variant).first()
+        error = cart_line_error(
+            product, variant, quantity + (in_cart.quantity if in_cart else 0)
         )
-        if available_stock < quantity and not dealer_ok:
-            return Response(
-                {'error': 'Insufficient stock'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
+        if error:
+            return Response({'error': error}, status=status.HTTP_400_BAD_REQUEST)
+
         # Add or update cart item
         cart_item, created = CartItem.objects.get_or_create(
             cart=cart,
@@ -185,34 +163,46 @@ class UpdateCartItemView(APIView):
     """Update cart item quantity."""
     permission_classes = [AllowAny]
 
+    def get_item(self, request, item_id):
+        """The line, only if it sits in this shopper's own cart."""
+        items = CartItem.objects.select_related('cart', 'product', 'variant').filter(id=item_id)
+        if request.user.is_authenticated:
+            return items.filter(cart__user=request.user).first()
+        session_key = request.session.session_key
+        return items.filter(cart__session_key=session_key).first() if session_key else None
+
     def patch(self, request, item_id):
         serializer = UpdateCartItemSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        try:
-            cart_item = CartItem.objects.get(id=item_id)
-        except CartItem.DoesNotExist:
+        cart_item = self.get_item(request, item_id)
+        if cart_item is None:
             return Response(
                 {'error': 'Cart item not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
-        
+
+        error = cart_line_error(
+            cart_item.product, cart_item.variant, serializer.validated_data['quantity']
+        )
+        if error:
+            return Response({'error': error}, status=status.HTTP_400_BAD_REQUEST)
+
         cart_item.quantity = serializer.validated_data['quantity']
         cart_item.save()
         
         return Response(CartSerializer(cart_item.cart, context={'request': request}).data)
 
     def delete(self, request, item_id):
-        try:
-            cart_item = CartItem.objects.get(id=item_id)
-            cart = cart_item.cart
-            cart_item.delete()
-            return Response(CartSerializer(cart, context={'request': request}).data)
-        except CartItem.DoesNotExist:
+        cart_item = self.get_item(request, item_id)
+        if cart_item is None:
             return Response(
                 {'error': 'Cart item not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
+        cart = cart_item.cart
+        cart_item.delete()
+        return Response(CartSerializer(cart, context={'request': request}).data)
 
 
 class ClearCartView(APIView):
@@ -271,6 +261,13 @@ class CheckoutView(APIView):
                 {'error': 'Cart is empty'},
                 status=status.HTTP_400_BAD_REQUEST
             )
+        for item in cart_items:
+            error = cart_line_error(item.product, item.variant, item.quantity)
+            if error:
+                return Response(
+                    {'error': f'{item.product.name}: {error}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
         subtotal = sum((item.total_price for item in cart_items), Decimal('0'))
         
         # Validate coupon if provided

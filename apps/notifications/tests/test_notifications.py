@@ -16,8 +16,11 @@ ADDRESS = {
     'shipping_name': 'Guest Buyer',
     'shipping_phone': '01712345678',
     'shipping_address_line1': 'House 12, Road 4',
+    'shipping_division': 'Dhaka',
     'shipping_city': 'Dhaka',
     'shipping_district': 'Dhaka',
+    'shipping_post_office': 'Dhaka GPO',
+    'shipping_postal_code': '1000',
 }
 
 

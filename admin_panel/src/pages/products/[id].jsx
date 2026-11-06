@@ -684,7 +684,7 @@ export default function EditProductPage() {
                   <span>
                     <span className="block text-sm font-medium text-gray-700">Dealer availability</span>
                     <span className="block text-xs text-gray-500">
-                      Shows this product on the public store and allows dealer fulfillment when warehouse stock is empty. For products with variants, set availability on each variant instead.
+                      Keeps this product In Stock on the public store and allows dealer fulfillment when warehouse stock is empty. For products with variants, set availability on each variant instead.
                     </span>
                   </span>
                   <input
@@ -878,7 +878,7 @@ export default function EditProductPage() {
                 </label>
                 {hasVariants && (
                   <p className="text-xs text-gray-500 border border-gray-100 rounded-lg p-3 bg-gray-50">
-                    Dealer availability is set on each variant combination above. Only available variants appear on the public store.
+                    Dealer availability is set on each variant combination above. Variants with no stock and no dealer availability show as Out of Stock on the public store.
                   </p>
                 )}
               </div>

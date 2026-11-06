@@ -1,3 +1,4 @@
+from django.conf import settings
 from rest_framework.test import APIClient
 
 from apps.orders.models import Cart, CartItem, Order
@@ -108,3 +109,14 @@ class OrderPlatformAdminTests(ShopTestCase):
         rows = response.json().get('results', response.json())
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]['platform'], 'app')
+
+
+class ClientPlatformCorsTests(ShopTestCase):
+    def test_browsers_may_send_the_platform_header(self):
+        response = APIClient().options(
+            '/api/v1/orders/cart/',
+            HTTP_ORIGIN=settings.CORS_ALLOWED_ORIGINS[0],
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD='POST',
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS='x-client-platform',
+        )
+        self.assertIn('x-client-platform', response['access-control-allow-headers'])

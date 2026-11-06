@@ -375,8 +375,9 @@ export default function NewProductPage() {
           <div className="flex items-center gap-4">
             <button
               type="button"
-              onClick={() => router.back()}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              onClick={() => router.push('/products')}
+              disabled={loading}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
@@ -385,7 +386,8 @@ export default function NewProductPage() {
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() => router.back()}
+              onClick={() => router.push('/products')}
+              disabled={loading}
               className="btn btn-secondary"
             >
               Cancel
@@ -625,7 +627,7 @@ export default function NewProductPage() {
                     <span>
                       <span className="block text-sm font-medium text-gray-700">Dealer availability</span>
                       <span className="block text-xs text-gray-500">
-                        Shows this product on the public store and allows dealer fulfillment when warehouse stock is empty. For variants, set availability on each combination instead.
+                        Keeps this product In Stock on the public store and allows dealer fulfillment when warehouse stock is empty. For variants, set availability on each combination instead.
                       </span>
                     </span>
                     <input
@@ -751,7 +753,7 @@ export default function NewProductPage() {
                 </label>
                 {hasVariants && (
                   <p className="text-xs text-gray-500 border border-gray-100 rounded-lg p-3 bg-gray-50">
-                    Dealer availability is set on each variant combination above. Only available variants appear on the public store.
+                    Dealer availability is set on each variant combination above. Variants with no stock and no dealer availability show as Out of Stock on the public store.
                   </p>
                 )}
               </div>

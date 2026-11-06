@@ -198,6 +198,15 @@ class CategoryListSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'slug', 'tagline', 'image', 'banner_image', 'is_featured', 'featured_order']
 
 
+class PublicProductVariantSerializer(ProductVariantSerializer):
+    """Customer-facing variant: availability only, never stock counts."""
+    availability = serializers.ReadOnlyField()
+
+    class Meta(ProductVariantSerializer.Meta):
+        fields = ['id', 'sku', 'barcode', 'size', 'color', 'price', 'availability',
+                  'is_active', 'effective_price', 'options']
+
+
 class ProductListSerializer(serializers.ModelSerializer):
     """Serializer for product lists (minimal data)."""
     category_name = serializers.CharField(source='category.name', read_only=True)
@@ -205,9 +214,9 @@ class ProductListSerializer(serializers.ModelSerializer):
     primary_image = serializers.ReadOnlyField()
     gallery_images = serializers.SerializerMethodField()
     discount_percentage = serializers.ReadOnlyField()
-    is_low_stock = serializers.ReadOnlyField()
+    availability = serializers.ReadOnlyField()
     is_out_of_stock = serializers.SerializerMethodField()
-    variants = ProductVariantSerializer(many=True, read_only=True)
+    variants = PublicProductVariantSerializer(many=True, read_only=True)
     specifications = ProductSpecificationSerializer(many=True, read_only=True)
     rating_average = serializers.SerializerMethodField()
     review_count = serializers.SerializerMethodField()
@@ -216,15 +225,13 @@ class ProductListSerializer(serializers.ModelSerializer):
         model = Product
         fields = ['id', 'name', 'slug', 'sku', 'barcode', 'category', 'category_name', 
                   'subcategory', 'subcategory_name', 'short_description', 'price', 'compare_price',
-                  'primary_image', 'gallery_images', 'discount_percentage', 'stock_quantity',
-                  'low_stock_threshold',
-                  'is_low_stock', 'is_out_of_stock', 'is_featured', 'is_active',
+                  'primary_image', 'gallery_images', 'discount_percentage', 'availability',
+                  'is_out_of_stock', 'is_featured', 'is_active',
                   'is_official', 'warranty_period',
                   'variants', 'specifications', 'rating_average', 'review_count']
 
     def get_is_out_of_stock(self, obj):
-        # Public storefront: dealer availability is the sellability signal.
-        return not obj.is_dealer_sellable
+        return not obj.is_available
 
     def get_gallery_images(self, obj):
         """Up to six unique photo URLs for list/card autoplay (primary first)."""
@@ -264,10 +271,10 @@ class ProductDetailSerializer(serializers.ModelSerializer):
     subcategory = SubCategoryListSerializer(read_only=True)
     images = ProductImageSerializer(many=True, read_only=True)
     videos = ProductVideoSerializer(many=True, read_only=True)
-    variants = ProductVariantSerializer(many=True, read_only=True)
+    variants = PublicProductVariantSerializer(many=True, read_only=True)
     primary_image = serializers.ReadOnlyField()
     discount_percentage = serializers.ReadOnlyField()
-    is_low_stock = serializers.ReadOnlyField()
+    availability = serializers.ReadOnlyField()
     is_out_of_stock = serializers.SerializerMethodField()
     specifications = ProductSpecificationSerializer(many=True, read_only=True)
     option_groups = serializers.SerializerMethodField()
@@ -279,7 +286,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'slug', 'sku', 'barcode', 'barcode_image',
                   'category', 'subcategory', 'description', 'short_description',
                   'price', 'compare_price', 'size', 'color', 'material',
-                  'stock_quantity', 'is_low_stock', 'is_out_of_stock',
+                  'availability', 'is_out_of_stock',
                   'discount_percentage', 'is_active', 'is_featured',
                   'is_official', 'warranty_period',
                   'primary_image', 'images', 'videos', 'variants', 'specifications',
@@ -287,7 +294,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
                   'rating_average', 'review_count', 'created_at', 'updated_at']
 
     def get_is_out_of_stock(self, obj):
-        return not obj.is_dealer_sellable
+        return not obj.is_available
 
     def get_option_groups(self, obj):
         from apps.products.variants import public_option_groups
@@ -301,14 +308,17 @@ class ProductDetailSerializer(serializers.ModelSerializer):
 
 
 class AdminProductListSerializer(ProductListSerializer):
-    """Admin list payload. Adds internal supply fields the public list omits."""
+    """Admin list payload. Adds stock and supply fields the public list omits."""
     supplied_by_name = serializers.SerializerMethodField()
     warehouse_stock = serializers.SerializerMethodField()
     dealer_stock = serializers.SerializerMethodField()
+    is_low_stock = serializers.ReadOnlyField()
     is_out_of_stock = serializers.ReadOnlyField()
+    variants = ProductVariantSerializer(many=True, read_only=True)
 
     class Meta(ProductListSerializer.Meta):
         fields = ProductListSerializer.Meta.fields + [
+            'stock_quantity', 'low_stock_threshold', 'is_low_stock',
             'supply_type', 'supplied_by', 'supplied_by_name',
             'warehouse_stock', 'dealer_stock', 'dealer_available',
         ]
@@ -340,12 +350,15 @@ class AdminProductListSerializer(ProductListSerializer):
 
 
 class AdminProductDetailSerializer(ProductDetailSerializer):
-    """Admin detail payload. Adds internal supply fields the public detail omits."""
+    """Admin detail payload. Adds stock and supply fields the public detail omits."""
     supplied_by_name = serializers.SerializerMethodField()
+    is_low_stock = serializers.ReadOnlyField()
     is_out_of_stock = serializers.ReadOnlyField()
+    variants = ProductVariantSerializer(many=True, read_only=True)
 
     class Meta(ProductDetailSerializer.Meta):
         fields = ProductDetailSerializer.Meta.fields + [
+            'stock_quantity', 'is_low_stock',
             'supply_type', 'supplied_by', 'supplied_by_name', 'cost_price',
             'low_stock_threshold', 'warehouse_stock', 'dealer_stock', 'dealer_available',
         ]

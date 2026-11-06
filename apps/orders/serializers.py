@@ -149,7 +149,6 @@ class CartItemSerializer(serializers.ModelSerializer):
     compare_price = serializers.DecimalField(source='product.compare_price', max_digits=10,
                                              decimal_places=2, read_only=True)
     discount_percentage = serializers.SerializerMethodField()
-    stock_quantity = serializers.SerializerMethodField()
     is_out_of_stock = serializers.SerializerMethodField()
     size = serializers.SerializerMethodField()
     color = serializers.SerializerMethodField()
@@ -159,7 +158,7 @@ class CartItemSerializer(serializers.ModelSerializer):
         model = CartItem
         fields = ['id', 'product', 'variant', 'product_name', 'product_slug', 'product_image',
                   'short_description', 'quantity', 'unit_price', 'total_price', 'compare_price',
-                  'discount_percentage', 'stock_quantity', 'is_out_of_stock', 'size', 'color',
+                  'discount_percentage', 'is_out_of_stock', 'size', 'color',
                   'options']
 
     def get_size(self, obj):
@@ -175,13 +174,8 @@ class CartItemSerializer(serializers.ModelSerializer):
     def get_discount_percentage(self, obj):
         return discount_percent(obj.product.compare_price, obj.unit_price)
 
-    def get_stock_quantity(self, obj):
-        return obj.variant.stock_quantity if obj.variant else obj.product.stock_quantity
-
     def get_is_out_of_stock(self, obj):
-        if obj.variant:
-            return obj.variant.stock_quantity == 0 or not obj.variant.is_active
-        return obj.product.is_out_of_stock
+        return not (obj.variant or obj.product).is_available
 
     def get_product_image(self, obj):
         if obj.product.primary_image:
@@ -472,10 +466,7 @@ class DeliveryUpdateSerializer(serializers.Serializer):
     shipping_postal_code = serializers.CharField(max_length=20, required=False, allow_blank=True)
 
     def validate_shipping_phone(self, value):
-        try:
-            return normalize_phone(value)
-        except ShipmentError as exc:
-            raise serializers.ValidationError(exc.message)
+        return validated_phone(value)
 
     def validate(self, attrs):
         if not attrs:
@@ -497,6 +488,13 @@ class DeliveryUpdateSerializer(serializers.Serializer):
             validate_bd_location(merged, require_cascade=True, prefix='shipping_')
             attrs.update(merged)
         return attrs
+
+
+def validated_phone(value):
+    try:
+        return normalize_phone(value)
+    except ShipmentError as exc:
+        raise serializers.ValidationError(exc.message)
 
 
 class ExternalOrderItemSerializer(serializers.Serializer):
@@ -539,6 +537,9 @@ class ExternalOrderSerializer(serializers.Serializer):
     order_status = serializers.ChoiceField(choices=Order.ORDER_STATUS_CHOICES, default='confirmed')
     payment_status = serializers.ChoiceField(choices=Order.PAYMENT_STATUS_CHOICES, default='pending')
     notes = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_customer_phone(self, value):
+        return validated_phone(value)
 
     def validate_items(self, items):
         if not items:
@@ -589,6 +590,9 @@ class ExternalOrderUpdateSerializer(serializers.Serializer):
         choices=Order.PAYMENT_STATUS_CHOICES, required=False,
     )
     notes = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_customer_phone(self, value):
+        return validated_phone(value)
 
     def validate_items(self, items):
         if items is not None and not items:

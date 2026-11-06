@@ -24,7 +24,7 @@ function variantLabel(variant) {
 export default function ProductVideosEditor({
   productId = null,
   variants = [],
-  initialVideos = [],
+  initialVideos,
   drafts = [],
   onDraftsChange,
 }) {

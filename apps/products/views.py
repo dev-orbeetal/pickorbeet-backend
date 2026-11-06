@@ -17,7 +17,7 @@ from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from .models import (
     Category, SubCategory, Product, ProductImage, ProductVideo, ProductVariant, ProductReview,
-    ProductReviewImage, ContactMessage, HomepageBanner, publicly_sellable_q, public_variant_queryset,
+    ProductReviewImage, ContactMessage, HomepageBanner, public_variant_queryset,
     with_catalog_stats, with_public_catalog,
 )
 from .serializers import (
@@ -45,11 +45,10 @@ REVIEW_IMAGE_CONTENT_TYPES = {
 
 
 def public_categories():
-    """Active categories/subcategories that have at least one dealer-available product."""
-    sellable_products = Product.objects.filter(is_active=True).filter(publicly_sellable_q())
+    """Active categories/subcategories that have at least one active product."""
     has_sellable_products = Count(
         'products',
-        filter=Q(products__in=sellable_products),
+        filter=Q(products__is_active=True),
         distinct=True,
     )
     active_subcategories = (
@@ -74,8 +73,8 @@ def catalog_price(amount):
 
 
 def catalog_in_stock(product):
-    """True when dealers can fulfill the product (public sellability)."""
-    return product.is_dealer_sellable
+    """True when a customer can buy the product."""
+    return product.is_available
 
 
 def catalog_image(product):
@@ -127,7 +126,6 @@ class SubCategoryListView(generics.ListAPIView):
 
     def get_queryset(self):
         category_slug = self.kwargs.get('category_slug')
-        sellable_products = Product.objects.filter(is_active=True).filter(publicly_sellable_q())
         return (
             SubCategory.objects.filter(
                 category__slug=category_slug,
@@ -136,7 +134,7 @@ class SubCategoryListView(generics.ListAPIView):
             .annotate(
                 _active_product_count=Count(
                     'products',
-                    filter=Q(products__in=sellable_products),
+                    filter=Q(products__is_active=True),
                     distinct=True,
                 )
             )
@@ -407,7 +405,6 @@ class CatalogIndexView(APIView):
         total = reviews.values('product_id').annotate(total=Count('pk')).values('total')[:1]
         products = (
             Product.objects.filter(is_active=True)
-            .filter(publicly_sellable_q())
             .select_related('category')
             .annotate(
                 rating_average=Subquery(average, output_field=FloatField()),
@@ -1022,6 +1019,7 @@ class InventoryItemsView(APIView):
                 'sku': product.sku,
                 'category': product.category.name if product.category else None,
                 'price': float(product.price),
+                'cost_price': float(product.cost_price) if product.cost_price is not None else None,
                 'stock_quantity': product.stock_quantity,
                 'warehouse_stock': total_warehouse,
                 'dealer_stock': total_dealer,
@@ -1156,7 +1154,7 @@ class InventoryUploadView(APIView):
 
 class LowStockProductsView(generics.ListAPIView):
     """List products with low stock (including variant-level low stock)."""
-    serializer_class = ProductListSerializer
+    serializer_class = AdminProductListSerializer
     permission_classes = [IsAuthenticated, IsStaffUser]
 
     def get_queryset(self):

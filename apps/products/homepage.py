@@ -81,8 +81,7 @@ def curated_product_sections_queryset():
 
 
 def _ordered_products(products, limit):
-    sellable = [product for product in products if product.is_active and product.is_dealer_sellable]
-    ids = [product.id for product in sellable[:limit]]
+    ids = [product.id for product in products[:limit]]
     indexed = {
         product.id: product
         for product in with_public_catalog(Product.objects.filter(id__in=ids))

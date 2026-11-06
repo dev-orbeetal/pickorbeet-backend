@@ -1,9 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, Search, X } from 'lucide-react';
+
+const PANEL_GAP = 4;
+const VIEWPORT_MARGIN = 8;
+const PANEL_MIN_WIDTH = 320;
+const PANEL_MAX_HEIGHT = 300;
+
+function panelPlacement(trigger) {
+  const rect = trigger.getBoundingClientRect();
+  const { innerWidth, innerHeight } = window;
+  const width = Math.min(Math.max(rect.width, PANEL_MIN_WIDTH), innerWidth - VIEWPORT_MARGIN * 2);
+  const spaceBelow = innerHeight - rect.bottom - PANEL_GAP - VIEWPORT_MARGIN;
+  const spaceAbove = rect.top - PANEL_GAP - VIEWPORT_MARGIN;
+  const above = spaceBelow < PANEL_MAX_HEIGHT && spaceAbove > spaceBelow;
+  return {
+    left: Math.max(VIEWPORT_MARGIN, Math.min(rect.left, innerWidth - width - VIEWPORT_MARGIN)),
+    width,
+    maxHeight: Math.min(PANEL_MAX_HEIGHT, above ? spaceAbove : spaceBelow),
+    ...(above ? { bottom: innerHeight - rect.top + PANEL_GAP } : { top: rect.bottom + PANEL_GAP }),
+  };
+}
 
 /**
  * Compact searchable dropdown for dense forms (e.g. purchase lines).
  * options: [{ value, label, keywords? }]
+ * The panel renders in a portal so scrolling tables and modals cannot clip it.
  */
 export default function SearchableSelect({
   options = [],
@@ -17,8 +39,11 @@ export default function SearchableSelect({
   className = '',
 }) {
   const rootRef = useRef(null);
+  const triggerRef = useRef(null);
+  const panelRef = useRef(null);
   const searchRef = useRef(null);
   const [open, setOpen] = useState(false);
+  const [placement, setPlacement] = useState(null);
   const [query, setQuery] = useState('');
 
   const selected = useMemo(
@@ -40,19 +65,35 @@ export default function SearchableSelect({
     setQuery('');
     const timer = window.setTimeout(() => searchRef.current?.focus(), 0);
     const onPointer = (event) => {
-      if (!rootRef.current?.contains(event.target)) setOpen(false);
+      if (!rootRef.current?.contains(event.target) && !panelRef.current?.contains(event.target)) {
+        setOpen(false);
+      }
     };
     const onKey = (event) => {
       if (event.key === 'Escape') setOpen(false);
     };
+    const onResize = () => setPlacement(panelPlacement(triggerRef.current));
+    const onScroll = (event) => {
+      if (!panelRef.current?.contains(event.target)) onResize();
+    };
     document.addEventListener('mousedown', onPointer);
     document.addEventListener('keydown', onKey);
+    window.addEventListener('resize', onResize);
+    window.addEventListener('scroll', onScroll, true);
     return () => {
       window.clearTimeout(timer);
       document.removeEventListener('mousedown', onPointer);
       document.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('scroll', onScroll, true);
     };
   }, [open]);
+
+  const toggle = () => {
+    if (disabled) return;
+    setPlacement(panelPlacement(triggerRef.current));
+    setOpen((current) => !current);
+  };
 
   const pick = (next) => {
     onChange?.(next);
@@ -62,11 +103,12 @@ export default function SearchableSelect({
   return (
     <div ref={rootRef} className={`relative ${className}`}>
       <button
+        ref={triggerRef}
         type="button"
         disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={open}
-        onClick={() => !disabled && setOpen((current) => !current)}
+        onClick={toggle}
         className={`input flex w-full items-center justify-between gap-2 text-left ${
           disabled ? 'cursor-not-allowed opacity-60' : ''
         } ${!selected ? 'text-gray-400' : 'text-gray-900'}`}
@@ -96,9 +138,13 @@ export default function SearchableSelect({
         </select>
       ) : null}
 
-      {open && (
-        <div className="absolute left-0 right-0 z-40 mt-1 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg">
-          <div className="border-b border-gray-100 p-2">
+      {open && createPortal(
+        <div
+          ref={panelRef}
+          style={placement}
+          className="fixed z-[90] flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg"
+        >
+          <div className="shrink-0 border-b border-gray-100 p-2">
             <div className="relative">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
               <input
@@ -121,7 +167,7 @@ export default function SearchableSelect({
               ) : null}
             </div>
           </div>
-          <ul role="listbox" className="max-h-52 overflow-y-auto py-1">
+          <ul role="listbox" className="min-h-0 overflow-y-auto py-1">
             {filtered.length === 0 ? (
               <li className="px-3 py-2.5 text-sm text-gray-500">{emptyLabel}</li>
             ) : (
@@ -145,7 +191,8 @@ export default function SearchableSelect({
               })
             )}
           </ul>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

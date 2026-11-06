@@ -64,7 +64,7 @@ class BookShipmentTests(ShopTestCase):
         sent = client.created[0]
         self.assertEqual(sent['invoice'], self.order.order_number)
         self.assertEqual(sent['recipient_phone'], '01712345678')
-        self.assertEqual(sent['recipient_address'], 'House 12, Road 4, Malibagh, Dhaka, 1217')
+        self.assertEqual(sent['recipient_address'], 'House 12, Road 4, Malibagh, Dhaka, 1212')
         self.assertEqual(sent['cod_amount'], 1659)  # 1599 + 60 delivery, unpaid
         self.assertEqual(sent['note'], 'Handle with care')
 

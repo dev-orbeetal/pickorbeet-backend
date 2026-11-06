@@ -156,7 +156,7 @@ export default function ProductsPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-gray-900">Products</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Manage products, view stock from purchase records, and set dealer availability per product or variant. Only dealer-available items appear on the public store.
+          Manage products, view stock from purchase records, and set dealer availability per product or variant. Items show In Stock on the public store when they have stock or are dealer-available.
         </p>
       </div>
 

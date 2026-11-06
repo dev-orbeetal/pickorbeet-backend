@@ -584,7 +584,7 @@ const VariantOptions = forwardRef(function VariantOptions({
                         aria-label={`Dealer availability for ${row.selections.map((item) => item.label).join(' / ')}`}
                       />
                       <span className={`text-xs font-medium ${row.dealerAvailable ? 'text-green-700' : 'text-gray-500'}`}>
-                        {row.dealerAvailable ? 'Dealer available' : 'Not on store'}
+                        {row.dealerAvailable ? 'Dealer available' : 'Not dealer available'}
                       </span>
                     </label>
                     <p className="font-mono text-xs text-gray-500">SKU {row.sku}</p>

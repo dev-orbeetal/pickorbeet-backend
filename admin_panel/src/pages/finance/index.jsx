@@ -93,6 +93,11 @@ function lineAmounts(line) {
   return { quantity, subtotal, discountAmount, total };
 }
 
+// Buying price comes from cost_price; selling price is never a stand-in for it.
+function defaultUnitCost(product) {
+  return Number(product?.cost_price) > 0 ? String(product.cost_price) : '';
+}
+
 function RequiredMark() {
   return <span className="text-red-500"> *</span>;
 }
@@ -1386,11 +1391,11 @@ export default function FinancePage() {
                       </button>
                     </div>
                     <div className="overflow-x-auto">
-                      <table className="w-full min-w-[760px]">
+                      <table className="w-full min-w-[940px]">
                         <thead className="bg-gray-50 border-b">
                           <tr className="text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
                             <th className="px-3 py-3 w-12">#</th>
-                            <th className="px-3 py-3">Product</th>
+                            <th className="px-3 py-3 min-w-[220px]">Product</th>
                             <th className="px-3 py-3 w-36">Qty</th>
                             <th className="px-3 py-3 w-40">Unit Price</th>
                             <th className="px-3 py-3 w-48">Discount</th>
@@ -1424,10 +1429,14 @@ export default function FinancePage() {
                                     placeholder="Select product"
                                     searchPlaceholder="Search product or SKU…"
                                     emptyLabel="No products match"
-                                    onChange={(next) => updatePurchaseLine(line.key, {
-                                      product: next,
-                                      variant: '',
-                                    })}
+                                    onChange={(next) => {
+                                      if (next === line.product) return;
+                                      updatePurchaseLine(line.key, {
+                                        product: next,
+                                        variant: '',
+                                        unit_cost: defaultUnitCost(products.find((item) => item.id === next)),
+                                      });
+                                    }}
                                   />
                                   {product?.has_variants ? (
                                     <SearchableSelect

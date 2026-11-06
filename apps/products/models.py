@@ -2,7 +2,7 @@
 Product models for Pickorbeet E-commerce.
 """
 from django.db import models
-from django.db.models import Avg, Count, Exists, FloatField, IntegerField, OuterRef, Q, Subquery, Value
+from django.db.models import Avg, Count, FloatField, IntegerField, OuterRef, Subquery, Value
 from django.db.models.functions import Coalesce, Lower
 from django.conf import settings
 from django.utils.text import slugify
@@ -238,11 +238,16 @@ class Product(models.Model):
         return self.stock_quantity == 0
 
     @property
-    def is_dealer_sellable(self):
-        """True when the public store may offer this product (dealer availability)."""
-        if self.variants.filter(is_active=True).exists():
-            return self.variants.filter(is_active=True, dealer_available=True).exists()
-        return bool(self.dealer_available)
+    def is_available(self):
+        """True when a customer can buy this: stock on hand, or a dealer can source it."""
+        variants = [variant for variant in self.variants.all() if variant.is_active]
+        if variants:
+            return any(variant.is_available for variant in variants)
+        return self.stock_quantity > 0 or self.dealer_available
+
+    @property
+    def availability(self):
+        return 'in_stock' if self.is_available else 'out_of_stock'
 
     @property
     def discount_percentage(self):
@@ -441,6 +446,14 @@ class ProductVariant(models.Model):
     def effective_price(self):
         return self.price if self.price else self.product.price
 
+    @property
+    def is_available(self):
+        return self.is_active and (self.stock_quantity > 0 or self.dealer_available)
+
+    @property
+    def availability(self):
+        return 'in_stock' if self.is_available else 'out_of_stock'
+
 
 class ProductSpecification(models.Model):
     """Ordered name/value rows shown on the product page."""
@@ -505,27 +518,9 @@ class ProductReviewImage(models.Model):
         return f'Review photo {self.sort_order} for {self.review_id}'
 
 
-def publicly_sellable_q():
-    """Products the storefront may list: dealer-available, or with a dealer-available variant."""
-    has_active_variant = ProductVariant.objects.filter(
-        product_id=OuterRef('pk'),
-        is_active=True,
-    )
-    has_sellable_variant = ProductVariant.objects.filter(
-        product_id=OuterRef('pk'),
-        is_active=True,
-        dealer_available=True,
-    )
-    return Q(Exists(has_sellable_variant)) | (
-        Q(dealer_available=True) & ~Exists(has_active_variant)
-    )
-
-
 def public_variant_queryset():
-    """Variants shoppers may see and buy."""
-    return ProductVariant.objects.filter(is_active=True, dealer_available=True).order_by(
-        'size', 'color', 'sku'
-    )
+    """Variants shoppers may see. Unavailable ones show as Out of Stock."""
+    return ProductVariant.objects.filter(is_active=True).order_by('size', 'color', 'sku')
 
 
 def with_catalog_stats(queryset, *, variants_queryset=None):
@@ -552,9 +547,9 @@ def with_catalog_stats(queryset, *, variants_queryset=None):
 
 
 def with_public_catalog(queryset):
-    """Public catalog queryset: dealer-available products and only their sellable variants."""
+    """Public catalog queryset: active products and their active variants."""
     return with_catalog_stats(
-        queryset.filter(is_active=True).filter(publicly_sellable_q()),
+        queryset.filter(is_active=True),
         variants_queryset=public_variant_queryset(),
     )
 

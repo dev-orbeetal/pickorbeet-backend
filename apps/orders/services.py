@@ -128,6 +128,32 @@ def find_variant(item):
     return None
 
 
+# Dealers source beyond recorded stock, so that quantity needs its own ceiling.
+MAX_DEALER_QUANTITY = 99
+
+
+def cart_line_error(product, variant, quantity):
+    """Why a customer can't buy this quantity, or None. Never reveals the stock count."""
+    if not product.is_active:
+        return 'This product is not available'
+    if variant is None and product.variants.filter(is_active=True).exists():
+        return 'Choose an available option'
+    if variant is not None and not variant.is_active:
+        return 'This option is not available'
+    # Warehouse stock caps quantity; dealer-available items can be sourced
+    # even when recorded stock is short or zero.
+    item = variant or product
+    if item.stock_quantity >= quantity:
+        return None
+    if item.dealer_available:
+        if quantity <= MAX_DEALER_QUANTITY:
+            return None
+        return f'You can order up to {MAX_DEALER_QUANTITY} of this item'
+    if item.stock_quantity > 0:
+        return 'Insufficient stock'
+    return 'This option is not available' if variant else 'This product is not available'
+
+
 def reduce_stock(order, user=None):
     """Reduce stock for all items in the order and snapshot their cost once.
 

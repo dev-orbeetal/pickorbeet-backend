@@ -81,6 +81,39 @@ class ExternalOrderApiTests(ShopTestCase):
         self.assertEqual(movement.location, 'warehouse')
         self.assertEqual(movement.quantity, -2)
 
+    def test_custom_price_stays_on_the_order_and_off_the_catalog(self):
+        response = self.api.post('/api/v1/orders/admin/external/', self._payload(), format='json')
+        self.assertEqual(response.status_code, 201, response.content)
+        body = response.json()['order']
+        self.assertEqual(body['items'][0]['unit_price'], '1200.00')
+        self.assertEqual(body['items'][0]['compare_price'], '1999.00')
+        self.assertEqual(body['guest_name'], 'Nadia Rahman')
+        self.assertIn('From Facebook page inbox', body['notes'])
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.price, Decimal('1500.00'))
+
+    def test_order_requires_items_prices_and_a_valid_phone(self):
+        url = '/api/v1/orders/admin/external/'
+        no_price = [{'product_id': str(self.product.id), 'quantity': 1}]
+        for name, overrides in (
+            ('no items', {'items': []}),
+            ('no unit price', {'items': no_price}),
+            ('no division', {'shipping_division': ''}),
+            ('bad phone', {'customer_phone': '123'}),
+        ):
+            with self.subTest(name):
+                response = self.api.post(url, self._payload(**overrides), format='json')
+                self.assertEqual(response.status_code, 400, response.content)
+        self.assertFalse(Order.objects.exists())
+
+    def test_edit_rejects_an_invalid_phone(self):
+        created = self.api.post('/api/v1/orders/admin/external/', self._payload(), format='json')
+        order_id = created.json()['order']['id']
+        response = self.api.patch(
+            f'/api/v1/orders/admin/{order_id}/external/', {'customer_phone': '123'}, format='json',
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+
     def test_external_order_can_deduct_from_dealer_stock(self):
         response = self.api.post(
             '/api/v1/orders/admin/external/',

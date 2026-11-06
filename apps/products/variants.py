@@ -70,16 +70,12 @@ def option_groups(product):
 
 
 def public_option_groups(product):
-    """Option groups limited to values that appear on dealer-available variants."""
-    sellable = [
-        variant
-        for variant in product.variants.all()
-        if variant.is_active and variant.dealer_available
-    ]
-    if not sellable:
+    """Option groups limited to values that appear on active variants."""
+    active = [variant for variant in product.variants.all() if variant.is_active]
+    if not active:
         return []
     allowed = {}
-    for variant in sellable:
+    for variant in active:
         for choice in variant_options(variant):
             name = choice['name']
             label = choice['label']

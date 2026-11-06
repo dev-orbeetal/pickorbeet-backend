@@ -5,6 +5,7 @@ import os
 import sys
 from pathlib import Path
 from datetime import timedelta
+from corsheaders.defaults import default_headers
 from decouple import config
 
 # Load environment variables from .env file
@@ -201,6 +202,7 @@ CORS_ALLOWED_ORIGINS = config(
     cast=lambda v: [s.strip() for s in v.split(',')]
 )
 CORS_ALLOW_CREDENTIALS = config('CORS_ALLOW_CREDENTIALS', default=True, cast=bool)
+CORS_ALLOW_HEADERS = (*default_headers, 'x-client-platform')
 
 # CSRF Settings
 CSRF_TRUSTED_ORIGINS = config(
