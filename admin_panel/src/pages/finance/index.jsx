@@ -9,7 +9,7 @@ import { useReactToPrint } from 'react-to-print';
 import AdminLayout from '@/components/layout/AdminLayout';
 import LoadError from '@/components/ui/LoadError';
 import SearchableSelect from '@/components/ui/SearchableSelect';
-import { getMediaUrl } from '@/lib/utils';
+import { getMediaUrl, newIdempotencyKey } from '@/lib/utils';
 import { useGetInventoryItemsQuery, useGetStoreSettingsQuery } from '@/store/api/productsApi';
 import {
   useCreateExpenseMutation,
@@ -202,6 +202,7 @@ export default function FinancePage() {
   const [selectedIncomeIds, setSelectedIncomeIds] = useState([]);
   const [costForm, setCostForm] = useState(null);
   const printRef = useRef(null);
+  const purchaseKeyRef = useRef(null);
 
   const { data: income, isLoading: incomeLoading, isError: incomeError, refetch: refetchIncome } = useGetIncomeQuery(dateRange);
   const { data: expensesData, isLoading: expensesLoading, isError: expensesError, refetch: refetchExpenses } = useGetExpensesQuery(dateRange);
@@ -260,7 +261,16 @@ export default function FinancePage() {
     setSelectedIncomeIds([]);
   }, [dateRange.start_date, dateRange.end_date, incomeSource]);
 
+  // A product created in another tab should be selectable as soon as they come back.
+  useEffect(() => {
+    if (!expenseFormOpen) return undefined;
+    window.addEventListener('focus', refetchInventory);
+    return () => window.removeEventListener('focus', refetchInventory);
+  }, [expenseFormOpen, refetchInventory]);
+
   const openCreateExpense = () => {
+    // Stays the same for every submit of this form, so a retry cannot post stock twice.
+    purchaseKeyRef.current = newIdempotencyKey();
     setEditingExpense(null);
     setExpenseForm({ ...emptyExpenseForm, lines: [emptyPurchaseLine()] });
     setExpenseProofFile(null);
@@ -469,6 +479,7 @@ export default function FinancePage() {
         comments: expenseForm.comments || '',
         payment_method: expenseForm.payment_method || '',
         stock_location: 'warehouse',
+        idempotency_key: editingReceipt ? undefined : purchaseKeyRef.current,
         additional_discount_type: additionalDiscountValue > 0
           ? (expenseForm.additional_discount_type || 'percent')
           : 'none',
@@ -1381,14 +1392,23 @@ export default function FinancePage() {
                   <section className="rounded-xl border border-gray-200 overflow-hidden">
                     <div className="px-4 py-3 border-b bg-white flex items-center justify-between gap-3">
                       <h3 className="text-sm font-semibold text-gray-900">Purchase Items</h3>
-                      <button
-                        type="button"
-                        onClick={addPurchaseLine}
-                        className="inline-flex items-center rounded-lg bg-primary-600 px-3 py-2 text-sm font-medium text-white hover:bg-primary-700"
-                      >
-                        <Plus className="w-4 h-4 mr-1" />
-                        Add Product
-                      </button>
+                      <div className="flex items-center gap-3">
+                        <Link
+                          href="/products/new"
+                          target="_blank"
+                          className="text-sm font-medium text-primary-600 hover:text-primary-700"
+                        >
+                          Not in the list? Create product
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={addPurchaseLine}
+                          className="inline-flex items-center rounded-lg bg-primary-600 px-3 py-2 text-sm font-medium text-white hover:bg-primary-700"
+                        >
+                          <Plus className="w-4 h-4 mr-1" />
+                          Add Product
+                        </button>
+                      </div>
                     </div>
                     <div className="overflow-x-auto">
                       <table className="w-full min-w-[940px]">

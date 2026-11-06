@@ -277,21 +277,40 @@ def _apply_stock_lines(receipt, prepared_lines, user):
 
 def _reverse_stock_lines(receipt, user):
     note = f'Cancelled purchase receipt {receipt.receipt_number}'
-    for line in receipt.lines.select_related('product', 'variant').order_by('-sort_order'):
+    lines = receipt.lines.select_related('product', 'variant', 'stock_movement').order_by('-sort_order')
+    for line in lines:
+        # The movement holds the cost that entered the pool, after any receipt discount.
+        movement = line.stock_movement
         reverse_purchase(
             product=line.product,
             variant=line.variant,
             quantity=line.quantity,
-            total_cost=line.line_total,
+            total_cost=movement.total_cost if movement else line.line_total,
             user=user,
             note=note,
             location=receipt.stock_location,
         )
 
 
+def _lock_receipt(receipt):
+    """Serialize edits and cancels, so two requests cannot both reverse the same stock."""
+    return PurchaseReceipt.objects.select_for_update().get(pk=receipt.pk)
+
+
 def create_purchase_receipt(*, purchase_date, payee, lines, stock_location='warehouse',
                             invoice_number='', comments='', payment_method='', user=None,
-                            additional_discount_type='none', additional_discount_value=0):
+                            additional_discount_type='none', additional_discount_value=0,
+                            idempotency_key=None):
+    """Post a receipt, its stock, and its expense.
+
+    A repeated ``idempotency_key`` returns ``(receipt, None)`` for the receipt
+    already posted, and changes nothing.
+    """
+    if idempotency_key:
+        existing = PurchaseReceipt.objects.filter(idempotency_key=idempotency_key).first()
+        if existing is not None:
+            return existing, None
+
     payee = (payee or '').strip()
     if not payee:
         raise StockError('Dealer/seller name is required for Product Buying.')
@@ -315,6 +334,7 @@ def create_purchase_receipt(*, purchase_date, payee, lines, stock_location='ware
                 with transaction.atomic():
                     receipt = PurchaseReceipt.objects.create(
                         receipt_number=next_purchase_receipt_number(purchase_date),
+                        idempotency_key=idempotency_key,
                         purchase_date=purchase_date,
                         payee=payee,
                         invoice_number=(invoice_number or '').strip(),
@@ -333,6 +353,10 @@ def create_purchase_receipt(*, purchase_date, payee, lines, stock_location='ware
                     )
                 break
             except IntegrityError:
+                if idempotency_key:
+                    existing = PurchaseReceipt.objects.filter(idempotency_key=idempotency_key).first()
+                    if existing is not None:
+                        return existing, None
                 if _attempt == 4:
                     raise StockError('Could not assign a receipt number.')
                 continue
@@ -344,10 +368,12 @@ def create_purchase_receipt(*, purchase_date, payee, lines, stock_location='ware
         return receipt, expense
 
 
+@transaction.atomic
 def update_purchase_receipt(receipt, *, purchase_date=None, payee=None, lines=None,
                             stock_location=None, invoice_number=None, comments=None,
                             payment_method=None, user=None,
                             additional_discount_type=None, additional_discount_value=None):
+    receipt = _lock_receipt(receipt)
     if receipt.status != PurchaseReceipt.STATUS_POSTED:
         raise StockError('Only posted purchase receipts can be edited.')
     expense = getattr(receipt, 'expense', None)
@@ -430,7 +456,9 @@ def update_purchase_receipt(receipt, *, purchase_date=None, payee=None, lines=No
         return receipt, expense
 
 
+@transaction.atomic
 def cancel_purchase_receipt(receipt, *, user=None):
+    receipt = _lock_receipt(receipt)
     if receipt.status != PurchaseReceipt.STATUS_POSTED:
         raise StockError('This purchase receipt is already cancelled.')
 

@@ -272,6 +272,8 @@ class PurchaseReceiptSerializer(serializers.ModelSerializer):
     line_inputs = PurchaseReceiptLineInputSerializer(many=True, write_only=True, required=False)
     payment_proof_file = PaymentProofField(write_only=True, required=False, allow_null=True)
     clear_payment_proof = serializers.BooleanField(write_only=True, required=False, default=False)
+    # Declared so the model's unique check does not reject a retry before create() sees it.
+    idempotency_key = serializers.UUIDField(write_only=True, required=False, allow_null=True)
 
     class Meta:
         model = PurchaseReceipt
@@ -283,7 +285,7 @@ class PurchaseReceiptSerializer(serializers.ModelSerializer):
             'additional_discount_type', 'additional_discount_value', 'additional_discount',
             'grand_total',
             'lines', 'line_inputs', 'expense_id', 'voucher_number', 'payment_proof',
-            'payment_proof_file', 'clear_payment_proof',
+            'payment_proof_file', 'clear_payment_proof', 'idempotency_key',
             'created_by', 'created_by_name', 'cancelled_at', 'created_at', 'updated_at',
         ]
         read_only_fields = [
@@ -371,11 +373,12 @@ class PurchaseReceiptSerializer(serializers.ModelSerializer):
                     'additional_discount_type', PurchaseReceipt.DISCOUNT_NONE,
                 ),
                 additional_discount_value=validated_data.get('additional_discount_value', 0),
+                idempotency_key=validated_data.get('idempotency_key'),
                 user=self.context['request'].user,
             )
         except StockError as exc:
             raise serializers.ValidationError({'detail': exc.message}) from exc
-        if proof is not serializers.empty and proof is not None:
+        if expense is not None and proof is not serializers.empty and proof is not None:
             _apply_payment_proof(expense, proof)
         return (
             PurchaseReceipt.objects.select_related('expense', 'created_by')

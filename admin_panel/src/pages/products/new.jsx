@@ -80,6 +80,18 @@ export default function NewProductPage() {
   const [videoDrafts, setVideoDrafts] = useState([]);
   const [subcategories, setSubcategories] = useState([]);
   const [specifications, setSpecifications] = useState([]);
+  const prefilled = useRef(false);
+
+  useEffect(() => {
+    // Opened from a category or subcategory: start there. The selects stay editable.
+    if (prefilled.current || !router.isReady || categories.length === 0) return;
+    prefilled.current = true;
+    const category = categories.find((item) => item.id === router.query.category);
+    if (!category) return;
+    const subcategory = category.subcategories?.find((item) => item.id === router.query.subcategory);
+    setFormData((prev) => ({ ...prev, category: category.id, subcategory: subcategory?.id || '' }));
+    setSubcategories(category.subcategories || []);
+  }, [router.isReady, router.query, categories]);
 
   useEffect(() => {
     // Generate initial barcode when settings are loaded

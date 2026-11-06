@@ -143,6 +143,10 @@ class PurchaseReceipt(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     receipt_number = models.CharField(max_length=24, unique=True)
+    idempotency_key = models.UUIDField(
+        null=True, blank=True, unique=True, editable=False,
+        help_text='Sent by the purchase form so a retried submit cannot post stock twice.',
+    )
     purchase_date = models.DateField()
     payee = models.CharField(max_length=200, help_text='Dealer / seller name.')
     invoice_number = models.CharField(max_length=100, blank=True, default='')

@@ -188,6 +188,47 @@ class CategorySerializer(serializers.ModelSerializer):
         read_only_fields = ['slug']
 
 
+class AdminSubCategoryListSerializer(SubCategoryListSerializer):
+    """Subcategory row for the admin catalog. Counts inactive products too."""
+    product_count = serializers.SerializerMethodField()
+
+    class Meta(SubCategoryListSerializer.Meta):
+        fields = SubCategoryListSerializer.Meta.fields + ['category', 'is_active', 'product_count']
+
+    def get_product_count(self, obj):
+        count = getattr(obj, 'catalog_product_count', None)
+        if count is None:
+            count = obj.products.filter(category_id=obj.category_id).count()
+        return count
+
+
+class AdminCategorySerializer(CategorySerializer):
+    """Category for the admin catalog.
+
+    The shared ``product_count`` counts active products for the storefront. Here
+    it counts every product, so it matches the rows admins see. A product counts
+    once, through its category, however it is linked to a subcategory.
+    """
+    subcategories = AdminSubCategoryListSerializer(many=True, read_only=True)
+    product_count = serializers.SerializerMethodField()
+    direct_product_count = serializers.SerializerMethodField()
+
+    class Meta(CategorySerializer.Meta):
+        fields = CategorySerializer.Meta.fields + ['direct_product_count']
+
+    def get_product_count(self, obj):
+        count = getattr(obj, 'catalog_product_count', None)
+        return obj.products.count() if count is None else count
+
+    def get_direct_product_count(self, obj):
+        subcategories = self.fields['subcategories'].child
+        in_subcategories = sum(
+            subcategories.get_product_count(subcategory)
+            for subcategory in obj.subcategories.all()
+        )
+        return self.get_product_count(obj) - in_subcategories
+
+
 class CategoryListSerializer(serializers.ModelSerializer):
     """Minimal serializer for category lists."""
     image = RelativeImageField(required=False, allow_null=True)
@@ -434,6 +475,13 @@ class ProductCreateUpdateSerializer(serializers.ModelSerializer):
                     'supplied_by': 'Seller-provided products must be linked to a seller account.',
                 })
             attrs['supplied_by'] = seller
+        if 'category' in attrs or 'subcategory' in attrs:
+            category = attrs.get('category', getattr(self.instance, 'category', None))
+            subcategory = attrs.get('subcategory', getattr(self.instance, 'subcategory', None))
+            if subcategory is not None and category is not None and subcategory.category_id != category.pk:
+                raise serializers.ValidationError({
+                    'subcategory': 'Choose a subcategory that belongs to the selected category.',
+                })
         if self.instance is None:
             # Products created in admin are published to the storefront immediately.
             # Stock starts at 0 and is increased only via Finance purchase receipts.

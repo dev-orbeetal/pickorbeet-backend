@@ -12,7 +12,9 @@ from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import models
-from django.db.models import Avg, Count, F, FloatField, IntegerField, OuterRef, Prefetch, Q, Subquery, Value
+from django.db.models import (
+    Avg, Count, F, FloatField, IntegerField, OuterRef, Prefetch, ProtectedError, Q, Subquery, Value,
+)
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from .models import (
@@ -21,7 +23,7 @@ from .models import (
     with_catalog_stats, with_public_catalog,
 )
 from .serializers import (
-    CategorySerializer, CategoryListSerializer, SubCategorySerializer,
+    CategorySerializer, CategoryListSerializer, SubCategorySerializer, AdminCategorySerializer,
     ProductListSerializer, ProductDetailSerializer, ProductCreateUpdateSerializer,
     AdminProductListSerializer, AdminProductDetailSerializer,
     ProductImageSerializer, ProductVideoSerializer, ProductVariantSerializer, BarcodeProductSerializer,
@@ -538,19 +540,52 @@ class CategoryProductsView(generics.ListAPIView):
         return Response(result)
 
 
+def admin_categories():
+    """Categories with product counts for the admin catalog.
+
+    A subcategory counts only the products that share its category, so a stale
+    link cannot show one product in two categories. Ordering is explicit because
+    Django drops Meta.ordering from grouped queries.
+    """
+    return Category.objects.annotate(
+        catalog_product_count=Count('products', distinct=True),
+    ).order_by('display_order', 'name').prefetch_related(Prefetch(
+        'subcategories',
+        queryset=SubCategory.objects.annotate(catalog_product_count=Count(
+            'products', filter=Q(products__category=F('category')), distinct=True,
+        )).order_by('display_order', 'name'),
+    ))
+
+
 # Admin/Staff Views
 class AdminCategoryListCreateView(generics.ListCreateAPIView):
     """Admin: List and create categories."""
-    serializer_class = CategorySerializer
+    serializer_class = AdminCategorySerializer
     permission_classes = [IsAuthenticated, IsStaffUser]
-    queryset = Category.objects.all()
+    pagination_class = None
+
+    def get_queryset(self):
+        return admin_categories()
 
 
 class AdminCategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
     """Admin: Retrieve, update, delete category."""
-    serializer_class = CategorySerializer
+    serializer_class = AdminCategorySerializer
     permission_classes = [IsAuthenticated, IsStaffUser]
-    queryset = Category.objects.all()
+
+    def get_queryset(self):
+        return admin_categories()
+
+    def destroy(self, request, *args, **kwargs):
+        category = self.get_object()
+        try:
+            category.delete()
+        except ProtectedError:
+            return Response(
+                {'detail': f'{category.name} still has products. Move or delete them first.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class AdminSubCategoryListCreateView(generics.ListCreateAPIView):
@@ -581,9 +616,13 @@ class AdminProductListCreateView(generics.ListCreateAPIView):
         return AdminProductListSerializer
 
     def get_queryset(self):
-        return with_catalog_stats(Product.objects.all().select_related(
+        queryset = with_catalog_stats(Product.objects.all().select_related(
             'category', 'subcategory', 'supplied_by'
         ).prefetch_related('variants'))
+        if self.request.query_params.get('direct') == 'true':
+            # Keeps null subcategories, and stale links to another category's subcategory.
+            queryset = queryset.exclude(subcategory__category=F('category'))
+        return queryset
 
     def create(self, request, *args, **kwargs):
         try:
@@ -616,13 +655,19 @@ class AdminProductDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def destroy(self, request, *args, **kwargs):
         product = self.get_object()
-        # Delete product images from storage
-        for img in product.images.all():
-            if img.image:
-                img.image.delete(save=False)
+        files = [img.image for img in product.images.all() if img.image]
         if product.barcode_image:
-            product.barcode_image.delete(save=False)
-        product.delete()
+            files.append(product.barcode_image)
+        try:
+            product.delete()
+        except ProtectedError:
+            return Response(
+                {'detail': 'This product has purchase records, so it cannot be deleted. Set it to inactive instead.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Delete product images from storage only once the product is really gone.
+        for file in files:
+            file.delete(save=False)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

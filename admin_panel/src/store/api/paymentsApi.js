@@ -136,7 +136,7 @@ export const paymentsApi = baseApi.injectEndpoints({
         url: `/payments/admin/expenses/${id}/`,
         method: 'DELETE',
       }),
-      invalidatesTags: ['Expenses', 'Finance', 'Transactions', 'Inventory'],
+      invalidatesTags: ['Expenses', 'Finance', 'Transactions', 'Inventory', 'Products'],
     }),
 
     createPurchaseReceipt: builder.mutation({

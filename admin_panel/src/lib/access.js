@@ -13,7 +13,6 @@ export const MENU_GROUPS = [
     items: [
       { href: '/products', label: 'Products', icon: 'Package', roles: ['seller', 'accountant', 'super_admin'] },
       { href: '/homepage', label: 'Homepage', icon: 'LayoutTemplate', roles: ['seller', 'super_admin'] },
-      { href: '/categories', label: 'Categories', icon: 'Tag', roles: ['seller', 'super_admin'] },
       { href: '/coupons', label: 'Coupons', icon: 'Ticket', roles: ['seller', 'super_admin'] },
     ],
   },
@@ -46,6 +45,8 @@ const PAGE_ACCESS = MENU_GROUPS.flatMap((group) => group.items).concat([
   { href: '/low-stock', roles: ['seller', 'accountant', 'super_admin'] },
   // Legacy inventory URL redirects to Products; keep role access for bookmarks.
   { href: '/inventory', roles: ['seller', 'accountant', 'super_admin'] },
+  // Legacy categories URL redirects to Products, where categories are managed now.
+  { href: '/categories', roles: ['seller', 'accountant', 'super_admin'] },
   // Legacy external-orders URL redirects to Orders → Add Order.
   { href: '/external-orders', roles: ['seller', 'super_admin'] },
 ]);

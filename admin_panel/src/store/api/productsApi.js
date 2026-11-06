@@ -29,6 +29,7 @@ export const productsApi = baseApi.injectEndpoints({
       }),
       invalidatesTags: [
         { type: 'Products', id: 'LIST' },
+        { type: 'Categories', id: 'LIST' },
         'Inventory',
         'Finance',
       ],
@@ -43,6 +44,7 @@ export const productsApi = baseApi.injectEndpoints({
       invalidatesTags: (result, error, { id }) => [
         { type: 'Products', id },
         { type: 'Products', id: 'LIST' },
+        { type: 'Categories', id: 'LIST' },
         'Inventory',
         'Finance',
       ],
@@ -55,6 +57,7 @@ export const productsApi = baseApi.injectEndpoints({
       }),
       invalidatesTags: [
         { type: 'Products', id: 'LIST' },
+        { type: 'Categories', id: 'LIST' },
         'Inventory',
         'Finance',
       ],

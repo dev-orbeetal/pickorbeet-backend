@@ -25,3 +25,27 @@ export function routeId(router) {
   const last = parts[parts.length - 1];
   return last && last !== '_' ? last : undefined;
 }
+
+export function stockTotals(product) {
+  const variants = product.variants || [];
+  if (variants.length > 0) {
+    const warehouse = variants.reduce((sum, v) => sum + Number(v.warehouse_stock || 0), 0);
+    const dealer = variants.reduce((sum, v) => sum + Number(v.dealer_stock || 0), 0);
+    return { warehouse, dealer, total: warehouse + dealer };
+  }
+  const warehouse = Number(product.warehouse_stock || 0);
+  const dealer = Number(product.dealer_stock || 0);
+  return {
+    warehouse,
+    dealer,
+    total: warehouse + dealer || Number(product.stock_quantity || 0),
+  };
+}
+
+// crypto.randomUUID needs HTTPS or localhost; getRandomValues works everywhere.
+export function newIdempotencyKey() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (digit) => (
+    (Number(digit) ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (Number(digit) / 4)))).toString(16)
+  ));
+}

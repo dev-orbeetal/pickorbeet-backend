@@ -90,7 +90,7 @@ export const categoriesApi = baseApi.injectEndpoints({
         url: `/products/admin/subcategories/${id}/`,
         method: 'DELETE',
       }),
-      invalidatesTags: [{ type: 'Categories', id: 'LIST' }],
+      invalidatesTags: [{ type: 'Categories', id: 'LIST' }, { type: 'Products', id: 'LIST' }],
     }),
   }),
   overrideExisting: false,
