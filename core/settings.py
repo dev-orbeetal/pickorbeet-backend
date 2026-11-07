@@ -30,6 +30,8 @@ ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1').split(','
 INSTALLED_APPS = [
     # Daphne before staticfiles so `runserver` speaks WebSocket in development.
     'daphne',
+    # Before staticfiles so its collectstatic also rebuilds the admin panel on deploy.
+    'core',
     # Jazzmin must be before django.contrib.admin
     'jazzmin',
     
