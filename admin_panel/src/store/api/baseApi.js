@@ -130,6 +130,7 @@ export const baseApi = createApi({
     'Traffic',
     'Shipments',
     'SteadfastBalance',
+    'Campaigns',
   ],
   endpoints: () => ({}),
 });

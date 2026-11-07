@@ -61,6 +61,7 @@ INSTALLED_APPS = [
     'apps.shipping',
     'apps.notifications',
     'apps.support',
+    'apps.campaigns',
 ]
 
 MIDDLEWARE = [
@@ -396,6 +397,16 @@ CELERY_BEAT_SCHEDULE = {
     'steadfast-police-stations': {
         'task': 'apps.shipping.tasks.refresh_police_stations_task',
         'schedule': 7 * 24 * 60 * 60,
+    },
+    'campaigns-due': {
+        'task': 'apps.campaigns.tasks.send_due_campaigns',
+        'schedule': 60,
+        'options': {'expires': 60},
+    },
+    'campaigns-catalog-watch': {
+        'task': 'apps.campaigns.tasks.watch_catalog_task',
+        'schedule': 5 * 60,
+        'options': {'expires': 5 * 60},
     },
 }
 

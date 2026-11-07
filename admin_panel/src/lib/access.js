@@ -14,6 +14,7 @@ export const MENU_GROUPS = [
       { href: '/products', label: 'Products', icon: 'Package', roles: ['seller', 'accountant', 'super_admin'] },
       { href: '/homepage', label: 'Homepage', icon: 'LayoutTemplate', roles: ['seller', 'super_admin'] },
       { href: '/coupons', label: 'Coupons', icon: 'Ticket', roles: ['seller', 'super_admin'] },
+      { href: '/notifications', label: 'Notifications', icon: 'Bell', roles: ['seller', 'super_admin'] },
     ],
   },
   {

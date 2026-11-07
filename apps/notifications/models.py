@@ -54,6 +54,13 @@ class Notification(models.Model):
     dedupe_key = models.CharField(max_length=200)
     read_at = models.DateTimeField(blank=True, null=True)
     push_sent_at = models.DateTimeField(blank=True, null=True)
+    campaign = models.ForeignKey(
+        'campaigns.Campaign',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='notifications',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -73,3 +80,19 @@ class Notification(models.Model):
 
     def __str__(self):
         return f'{self.kind} → {self.recipient_id}'
+
+
+class NotificationPreference(models.Model):
+    """What a customer agreed to receive beyond their own orders and chats."""
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name='notification_preference',
+    )
+    offers = models.BooleanField(default=True, help_text='New arrivals, stock alerts, price drops and sales.')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'preferences:{self.user_id}'

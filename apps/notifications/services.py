@@ -162,6 +162,22 @@ def notify_support_reply(recipient, *, message_id, title, body, conversation_id)
     )
 
 
+def notify_parcel_update(order, *, title, body, dedupe_key, parcel_status=''):
+    """A courier update for the customer: a new Steadfast tracking step or parcel status."""
+    if not order.user_id:
+        return None
+    data = _order_data(order, 'order')
+    data['parcel_status'] = parcel_status
+    return _create(
+        order.user,
+        kind='parcel.update',
+        title=title,
+        body=body,
+        data=data,
+        dedupe_key=dedupe_key,
+    )
+
+
 def notify_courier_alert(shipment, *, title, body):
     """A parcel needs a person: Steadfast cancelled it or delivered only part of it."""
     order = shipment.order

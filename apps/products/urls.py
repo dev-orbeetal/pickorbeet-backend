@@ -20,6 +20,7 @@ from .views import (
     StoreSettingsView, PublicStoreSettingsView,
     PublicContactSubmitView, AdminContactMessageListView, AdminContactMessageDetailView
 )
+from apps.campaigns.views import WishlistItemView, WishlistView
 
 urlpatterns = [
     # Public endpoints
@@ -33,6 +34,8 @@ urlpatterns = [
     path('featured/', FeaturedProductsView.as_view(), name='featured_products'),
     path('by-category/', CategoryProductsView.as_view(), name='products_by_category'),
     path('settings/public/', PublicStoreSettingsView.as_view(), name='public_store_settings'),
+    path('wishlist/', WishlistView.as_view(), name='wishlist'),
+    path('wishlist/<uuid:pk>/', WishlistItemView.as_view(), name='wishlist_item'),
     path('<slug:slug>/reviews/', ProductReviewView.as_view(), name='product_reviews'),
     path('<slug:slug>/', ProductDetailView.as_view(), name='product_detail'),
     

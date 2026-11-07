@@ -49,6 +49,7 @@ urlpatterns = [
     path('api/v1/shipping/', include('apps.shipping.urls')),
     path('api/v1/notifications/', include('apps.notifications.urls')),
     path('api/v1/support/', include('apps.support.urls')),
+    path('api/v1/campaigns/', include('apps.campaigns.urls')),
     # Same templates the inbox receives. The view is 404 outside DEBUG, and the
     # motion stylesheet is added only for this browser preview.
     path('emails/preview/', email_preview_index, name='email_preview_index'),

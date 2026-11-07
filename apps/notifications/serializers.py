@@ -1,7 +1,7 @@
 """Shapes clients see for the inbox and device registration."""
 from rest_framework import serializers
 
-from .models import Device, Notification
+from .models import Device, Notification, NotificationPreference
 
 
 class NotificationSerializer(serializers.ModelSerializer):
@@ -22,3 +22,9 @@ class DeviceSerializer(serializers.ModelSerializer):
         model = Device
         fields = ['id', 'platform', 'device_id', 'is_active', 'last_seen']
         read_only_fields = fields
+
+
+class PreferenceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = NotificationPreference
+        fields = ['offers']

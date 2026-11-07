@@ -9,8 +9,8 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from .delivery import publish_read
-from .models import Device, Notification
-from .serializers import DeviceRegisterSerializer, DeviceSerializer, NotificationSerializer
+from .models import Device, Notification, NotificationPreference
+from .serializers import DeviceRegisterSerializer, DeviceSerializer, NotificationSerializer, PreferenceSerializer
 
 
 class NotificationListView(generics.ListAPIView):
@@ -93,6 +93,21 @@ class DeviceRegisterView(APIView):
                 },
             )
         return Response(DeviceSerializer(device).data)
+
+
+class PreferenceView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        preference, _ = NotificationPreference.objects.get_or_create(user=request.user)
+        return Response(PreferenceSerializer(preference).data)
+
+    def put(self, request):
+        preference, _ = NotificationPreference.objects.get_or_create(user=request.user)
+        serializer = PreferenceSerializer(preference, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
 
 
 class DeviceUnregisterView(APIView):

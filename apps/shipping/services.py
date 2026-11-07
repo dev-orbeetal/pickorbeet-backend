@@ -14,6 +14,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
+from django.db.models import Max
 from django.utils import timezone
 
 from apps.orders.models import Order
@@ -34,6 +35,16 @@ from .steadfast import (
 logger = logging.getLogger(__name__)
 
 REFRESH_COOLDOWN = timedelta(seconds=60)  # Steadfast caches status for 60 s
+PARCEL_NOTICE_MAX_AGE = timedelta(hours=24)
+
+# Customer copy per status group, used when Steadfast sent no words of its own.
+PARCEL_NOTICES = {
+    'pending': ('Parcel on the way', 'Steadfast has your parcel and is bringing it to you.'),
+    'hold': ('Parcel on hold', 'Delivery is on hold. Steadfast will call you to arrange it.'),
+    'delivered': ('Parcel delivered', 'Your parcel was delivered.'),
+    'partial_delivered': ('Parcel partly delivered', 'Part of your order was delivered. We will contact you about the rest.'),
+    'cancelled': ('Delivery cancelled', 'This delivery was cancelled. We will contact you about your order.'),
+}
 
 # Courier status -> the group clients colour and label by.
 STATUS_GROUPS = {
@@ -643,6 +654,9 @@ def apply_courier_status(shipment, raw_status, *, source, message='', payload=No
 
         if changed:
             _sync_order_status(locked)
+        # Polls tell the customer from refresh_shipment, once the tracking steps are in.
+        if source == 'webhook' and (changed or message):
+            notify_parcel_update(locked, message=message, status=status, occurred_at=occurred_at)
 
     return locked, changed
 
@@ -679,6 +693,45 @@ def _sync_order_status(shipment):
         change_order_status(order, 'delivered', note='Delivered by Steadfast Courier.')
 
 
+def notify_parcel_update(shipment, *, message='', status='', occurred_at=None):
+    """Tell the customer about one new courier update, in Steadfast's words when it sent any.
+
+    Updates older than a day (a first fetch after an import) are not sent, and neither
+    is the delivery once the order's own "delivered" notice has gone out. The same words
+    on the same day are sent once, so a step reported by both the webhook and a poll
+    with slightly different times does not arrive twice.
+    """
+    from apps.notifications.services import notify_parcel_update as notify
+
+    order = shipment.order
+    if not order.user_id or order.order_type != 'online':
+        return None
+    when = occurred_at or timezone.now()
+    if timezone.now() - when > PARCEL_NOTICE_MAX_AGE:
+        return None
+    group = status_group(status or shipment.status)
+    if group == 'delivered' and Order.objects.filter(pk=order.pk, order_status='delivered').exists():
+        return None
+    title, fallback = PARCEL_NOTICES.get(group, ('Parcel update', ''))
+    text = ' '.join((message or '').split()) or fallback
+    if not text:
+        return None
+    if message and 'out for delivery' in text.lower():
+        title = 'Out for delivery'
+    if message:
+        identity = f'{text}|{timezone.localdate(when).isoformat()}'
+    else:
+        identity = f'{group}|{when.isoformat()}'
+    digest = hashlib.sha256(identity.encode()).hexdigest()[:32]
+    return notify(
+        order,
+        title=title,
+        body=f'{text}\nOrder {order.order_number}',
+        dedupe_key=f'parcel:{shipment.pk}:{digest}',
+        parcel_status=group,
+    )
+
+
 def refresh_shipment(shipment, *, force=False, client=None, source='poll'):
     """Ask Steadfast for the current status. Returns ``(shipment, changed)``.
 
@@ -712,8 +765,11 @@ def refresh_shipment(shipment, *, force=False, client=None, source='poll'):
         occurred_at=now,
         checked_at=now,
     )
+    steps = 0
     if shipment.invoice and (changed or not is_final(shipment.status)):
-        fetch_tracking_steps(shipment, client=client)
+        steps = fetch_tracking_steps(shipment, client=client)
+    if changed and not steps:
+        notify_parcel_update(shipment, status=shipment.status, occurred_at=now)
     return shipment, changed
 
 
@@ -729,8 +785,14 @@ def record_tracking_steps(shipment, steps):
     """Save Steadfast's step-by-step updates as events. Steps already saved are skipped.
 
     A step matches an earlier event, including a webhook, when its text and time are the same.
-    Returns the number of new events.
+    The customer hears about the newest new step only, and only when it is newer than
+    everything already recorded. Returns the number of new events.
     """
+    latest_known = (
+        ShipmentEvent.objects.filter(shipment=shipment, occurred_at__isnull=False)
+        .exclude(message='')
+        .aggregate(latest=Max('occurred_at'))['latest']
+    )
     rows = []
     for step in steps or []:
         if not isinstance(step, dict):
@@ -741,6 +803,7 @@ def record_tracking_steps(shipment, steps):
     rows.sort(key=lambda row: row[0] or datetime.min.replace(tzinfo=timezone.get_current_timezone()))
 
     created = 0
+    newest = None
     for occurred_at, message, step in rows:
         raw_status = str(_pick(step, 'delivery_status', 'status') or '')
         status = normalize_status(raw_status) if raw_status else ''
@@ -752,7 +815,7 @@ def record_tracking_steps(shipment, steps):
         digest = hashlib.sha256(f'{shipment.pk}|{message}|{stamp}'.encode()).hexdigest()
         try:
             with transaction.atomic():
-                ShipmentEvent.objects.create(
+                event = ShipmentEvent.objects.create(
                     shipment=shipment,
                     source='poll',
                     status=status,
@@ -764,6 +827,11 @@ def record_tracking_steps(shipment, steps):
         except IntegrityError:
             continue
         created += 1
+        newest = event
+
+    if newest is not None and newest.occurred_at and (latest_known is None or newest.occurred_at > latest_known):
+        notify_parcel_update(
+            shipment, message=newest.message, status=newest.status, occurred_at=newest.occurred_at)
     return created
 
 

@@ -13,3 +13,4 @@ export * from './supportApi';
 export * from './trafficApi';
 export * from './shippingApi';
 export * from './geoApi';
+export * from './campaignsApi';
