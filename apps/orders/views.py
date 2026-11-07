@@ -26,7 +26,7 @@ from apps.products.models import Product, ProductVariant
 from apps.reports.models import StockMovement
 from apps.products.variants import variant_options
 from apps.accounts.permissions import IsStaffUser, IsSeller, IsSuperAdmin
-from apps.shipping.services import status_group
+from apps.shipping.services import status_group, visible_tracking_events
 from apps.notifications.services import notify_order_placed
 from apps.orders.emails import notify_order_placed_email
 from .services import (
@@ -87,7 +87,7 @@ def public_shipment_summary(order):
     if shipment is None or not shipment.consignment_id:
         return None
     events = []
-    for event in shipment.events.all()[:12]:
+    for event in visible_tracking_events(shipment.events.all(), limit=12):
         events.append({
             'source': event.source,
             'status': event.status,

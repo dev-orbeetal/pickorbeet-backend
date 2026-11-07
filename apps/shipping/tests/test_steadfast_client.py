@@ -147,3 +147,12 @@ class SteadfastClientTests(SimpleTestCase):
         }))
         self.assertEqual(client.trackings_by_invoice('ORD-1'), steps)
         self.assertTrue(session.calls[0]['url'].endswith('/trackings_by_invoice/ORD-1'))
+
+    def test_trackings_by_invoice_reads_the_live_tracking_list(self):
+        steps = [{
+            'text': 'Consignment sent to CUMILLA WAREHOUSE. Dispatch ID: 18983817',
+            'status': 1,
+            'created_at': '2026-11-07T15:47:21.000000Z',
+        }]
+        client, _ = self.client_with(FakeResponse(200, {'status': 200, 'tracking': steps}))
+        self.assertEqual(client.trackings_by_invoice('ORD-20261105-CCKHRH'), steps)

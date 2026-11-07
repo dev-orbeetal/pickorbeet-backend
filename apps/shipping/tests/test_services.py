@@ -167,6 +167,23 @@ class RefreshShipmentTests(ShopTestCase):
         self.assertFalse(changed)
         self.assertEqual(ShipmentEvent.objects.count(), before)
 
+    def test_refreshing_the_same_status_does_not_add_another_row(self):
+        self.age(120)
+        refresh_shipment(
+            self.shipment, force=True, client=FakeClient(status='pending', trackings=[]), source='manual',
+        )
+        pending = ShipmentEvent.objects.filter(shipment=self.shipment, status='pending', message='')
+        self.assertEqual(pending.count(), 1)
+        refresh_shipment(
+            self.shipment, force=True, client=FakeClient(status='pending', trackings=[]), source='manual',
+        )
+        refresh_shipment(
+            self.shipment, force=True, client=FakeClient(status='pending', trackings=[]), source='manual',
+        )
+        self.assertEqual(pending.count(), 1)
+        self.shipment.refresh_from_db()
+        self.assertEqual(self.shipment.status, 'pending')
+
     def test_courier_failure_still_starts_the_cooldown(self):
         self.age(120)
         with self.assertRaises(ShipmentError) as ctx:

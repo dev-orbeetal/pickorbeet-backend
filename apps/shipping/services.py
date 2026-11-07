@@ -192,10 +192,23 @@ def official_tracking_link(consignment):
 
 
 def parse_courier_time(value):
-    """Steadfast sends local (Asia/Dhaka) times such as ``2025-03-02 12:45:30``."""
+    """Steadfast sends local (Asia/Dhaka) times such as ``2025-03-02 12:45:30``.
+
+    Timeline rows use UTC, ``2026-11-05T19:57:04.000000Z``. Those stay in UTC so the
+    app shows the same Dhaka clock time as the Steadfast page.
+    """
     if not value:
         return None
-    text = str(value).strip().replace('T', ' ').rstrip('Z')
+    text = str(value).strip()
+    if text.endswith('Z') or '+' in text[10:]:
+        from django.utils.dateparse import parse_datetime
+
+        parsed = parse_datetime(text)
+        if parsed is not None:
+            if timezone.is_naive(parsed):
+                parsed = timezone.make_aware(parsed, timezone.utc)
+            return parsed
+    text = text.replace('T', ' ')
     for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M'):
         try:
             parsed = datetime.strptime(text[:26], fmt)
@@ -613,8 +626,11 @@ def apply_courier_status(shipment, raw_status, *, source, message='', payload=No
     """Record a status report. Returns ``(shipment, changed)``.
 
     Reports with an ``idempotency_key`` that was already stored are ignored.
+    A check that repeats the current status and brings no new sentence does not
+    add another timeline row. Staff refresh and the scheduled poll both do this.
     """
     status = normalize_status(raw_status) if raw_status else ''
+    message = ' '.join((message or '').split())
     occurred_at = occurred_at or timezone.now()
 
     with transaction.atomic():
@@ -623,7 +639,7 @@ def apply_courier_status(shipment, raw_status, *, source, message='', payload=No
             return locked, False
 
         changed = bool(status) and status != locked.status
-        if changed or message or source in {'webhook', 'manual'}:
+        if changed or message:
             ShipmentEvent.objects.create(
                 shipment=locked,
                 source=source,
@@ -779,6 +795,16 @@ def _step_message(step):
         if isinstance(value, str) and value.strip():
             return ' '.join(value.split())[:1000]
     return ''
+
+
+def visible_tracking_events(events, limit=20):
+    """The lines a customer should see, matching Steadfast's tracking page.
+
+    Status polls with no sentence are kept only when Steadfast has sent no timeline yet.
+    """
+    rows = list(events)
+    spoken = [event for event in rows if (getattr(event, 'message', '') or '').strip()]
+    return (spoken or rows)[:limit]
 
 
 def record_tracking_steps(shipment, steps):

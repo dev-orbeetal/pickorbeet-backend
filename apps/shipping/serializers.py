@@ -6,7 +6,9 @@ from rest_framework import serializers
 from core.mailer import track_url
 
 from .models import Shipment, ShipmentEvent
-from .services import cod_mismatch, is_final, portal_url_for, seconds_until_refresh, status_group
+from .services import (
+    cod_mismatch, is_final, portal_url_for, seconds_until_refresh, status_group, visible_tracking_events,
+)
 
 STAFF_ROLES = {'seller', 'accountant', 'super_admin'}
 
@@ -49,7 +51,7 @@ class ShipmentSerializer(serializers.ModelSerializer):
         return seconds_until_refresh(obj)
 
     def get_events(self, obj):
-        return ShipmentEventSerializer(obj.events.all()[:20], many=True).data
+        return ShipmentEventSerializer(visible_tracking_events(obj.events.all()), many=True).data
 
 
 class AdminShipmentSerializer(ShipmentSerializer):
@@ -74,6 +76,9 @@ class AdminShipmentSerializer(ShipmentSerializer):
 
     def get_track_page_url(self, obj):
         return track_url(obj.order) if obj.order_id else None
+
+    def get_events(self, obj):
+        return ShipmentEventSerializer(obj.events.all()[:40], many=True).data
 
 
 class AdminShipmentOrderSummarySerializer(serializers.Serializer):

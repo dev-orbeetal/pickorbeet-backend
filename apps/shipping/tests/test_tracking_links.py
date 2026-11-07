@@ -146,6 +146,30 @@ class TrackingStepTests(ShopTestCase):
 
         self.assertEqual(client.tracking_lookups, [])
 
+    def test_live_timeline_uses_text_and_utc(self):
+        steps = [{
+            'text': 'Consignment sent to CUMILLA WAREHOUSE. Dispatch ID: 18983817',
+            'status': 1,
+            'created_at': '2026-11-07T15:47:21.000000Z',
+        }]
+        self.assertEqual(record_tracking_steps(self.shipment, steps), 1)
+        event = self.step_events().get()
+        self.assertEqual(event.status, '')
+        self.assertEqual(event.message, steps[0]['text'])
+        self.assertEqual(timezone.localtime(event.occurred_at).strftime('%Y-%m-%d %H:%M'), '2026-11-07 21:47')
+
+    def test_customer_timeline_keeps_steadfast_sentences(self):
+        apply_courier_status(self.shipment, 'pending', source='manual', occurred_at=timezone.now())
+        record_tracking_steps(self.shipment, [{
+            'text': 'Status has been updated as pending',
+            'created_at': '2026-11-07T13:25:34.000000Z',
+        }])
+        customer = [row['message'] for row in ShipmentSerializer(self.shipment).data['events']]
+        staff = [row['message'] for row in AdminShipmentSerializer(self.shipment).data['events']]
+        self.assertIn('Status has been updated as pending', customer)
+        self.assertTrue(all(customer))
+        self.assertIn('', staff)
+
     def test_missing_steps_do_not_break_the_status_check(self):
         shipment, changed = refresh_shipment(
             self.shipment, force=True, client=StepsUnavailableClient(status='hold'))

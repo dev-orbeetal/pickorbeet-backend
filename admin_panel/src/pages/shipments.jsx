@@ -533,22 +533,21 @@ export default function ShipmentsPage() {
                   {!liveSteps.length ? (
                     <p className="text-gray-500">No live steps returned.</p>
                   ) : (
-                    liveSteps.map((step, index) => (
+                    liveSteps.map((step, index) => {
+                      const sentence = step.text || step.tracking_message || step.message || step.details || '';
+                      const label = sentence || step.delivery_status || (typeof step.status === 'string' ? step.status : '') || `Step ${index + 1}`;
+                      return (
                       <div key={index} className="flex gap-2">
                         <div className="w-1.5 h-1.5 mt-1.5 rounded-full bg-teal-500 shrink-0" />
                         <div>
-                          <p className="font-medium text-gray-900">
-                            {step.status || step.delivery_status || step.message || `Step ${index + 1}`}
-                          </p>
-                          {(step.message || step.tracking_message) && (
-                            <p className="text-gray-600">{step.message || step.tracking_message}</p>
-                          )}
+                          <p className="font-medium text-gray-900">{label}</p>
                           <p className="text-xs text-gray-400">
                             {when(step.updated_at || step.created_at || step.time)}
                           </p>
                         </div>
                       </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               )}

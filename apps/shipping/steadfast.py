@@ -206,11 +206,25 @@ class SteadfastClient:
         return payload
 
     def trackings_by_invoice(self, invoice):
-        """Return tracking timeline steps for an invoice (empty list if none)."""
+        """Return tracking timeline steps for an invoice (empty list if none).
+
+        Steadfast's live response is ``{"tracking": [{"text", "created_at"}, ...]}``.
+        Older examples used ``trackings``.
+        """
         payload = self._request('GET', f'/trackings_by_invoice/{invoice}')
-        steps = payload.get('trackings') or payload.get('data') or payload
-        if isinstance(steps, dict):
-            steps = steps.get('trackings') or steps.get('data') or []
+        steps = None
+        for key in ('tracking', 'trackings', 'data'):
+            value = payload.get(key)
+            if isinstance(value, list):
+                steps = value
+                break
+            if isinstance(value, dict):
+                nested = value.get('tracking') or value.get('trackings') or value.get('data')
+                if isinstance(nested, list):
+                    steps = nested
+                    break
+        if steps is None and isinstance(payload, list):
+            steps = payload
         if not isinstance(steps, list):
             raise SteadfastError('Steadfast did not return tracking steps.', payload=payload)
         return steps
