@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Bell, Send, Sparkles, Clock, History, Settings2, Search, X } from 'lucide-react';
+import { Bell, Send, Sparkles, Clock, History, Settings2, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '@/components/layout/AdminLayout';
 import { getMediaUrl } from '@/lib/utils';
@@ -104,6 +104,7 @@ function ComposePanel() {
   const [audience, setAudience] = useState('all');
   const [product, setProduct] = useState(null);
   const [query, setQuery] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [when, setWhen] = useState('');
   const [customerQuery, setCustomerQuery] = useState('');
   const [customers, setCustomers] = useState([]);
@@ -113,7 +114,7 @@ function ComposePanel() {
 
   const { data: productData } = useGetProductsQuery(
     { search: query, page_size: 8 },
-    { skip: query.trim().length < 2 },
+    { skip: !pickerOpen && query.trim().length < 1 },
   );
   const products = productData?.results || [];
 
@@ -227,8 +228,8 @@ function ComposePanel() {
   const kinds = useMemo(() => [...new Set(templates.map((row) => row.kind))], [templates]);
 
   return (
-    <div className="grid xl:grid-cols-[minmax(0,1fr)_360px] gap-6">
-      <div className="space-y-5">
+    <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,360px)]">
+      <div className="min-w-0 space-y-5">
         <section className="card p-5">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-3">Start from a template</p>
           <div className="flex flex-wrap gap-2 mb-4">
@@ -269,51 +270,29 @@ function ComposePanel() {
         </section>
 
         <section className="card p-5 space-y-4">
-          <label className="block">
-            <span className="text-xs font-semibold text-gray-500">Product</span>
-            <div className="relative mt-1">
-              <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
-              <input
-                className="input pl-9"
-                placeholder="Search by name or SKU"
-                value={product ? product.name : query}
-                onChange={(event) => {
-                  setProduct(null);
-                  setQuery(event.target.value);
-                }}
-              />
-              {product && (
-                <button type="button" className="absolute right-2 top-2 text-gray-400" onClick={() => setProduct(null)}>
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-            {!product && query.trim().length >= 2 && (
-              <ul className="mt-2 border border-[#E4E9F2] rounded-xl overflow-hidden bg-white">
-                {products.map((item) => (
-                  <li key={item.id}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setProduct(item);
-                        setQuery('');
-                      }}
-                      className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-gray-50"
-                    >
-                      <img
-                        src={productImage(item) || '/placeholder.png'}
-                        alt=""
-                        className="w-10 h-10 rounded-lg object-cover bg-gray-100"
-                      />
-                      <span className="text-sm font-medium">{item.name}</span>
-                    </button>
-                  </li>
-                ))}
-                {products.length === 0 && <li className="px-3 py-2 text-sm text-gray-500">No products match.</li>}
-              </ul>
-            )}
-          </label>
-
+          <ProductPicker
+            product={product}
+            query={query}
+            products={products}
+            open={pickerOpen}
+            onQuery={(value) => {
+              setProduct(null);
+              setQuery(value);
+              setPickerOpen(true);
+            }}
+            onOpen={() => setPickerOpen(true)}
+            onClose={() => setPickerOpen(false)}
+            onPick={(item) => {
+              setProduct(item);
+              setQuery('');
+              setPickerOpen(false);
+            }}
+            onClear={() => {
+              setProduct(null);
+              setQuery('');
+              setPickerOpen(true);
+            }}
+          />
           <label className="block">
             <span className="text-xs font-semibold text-gray-500">Title</span>
             <input className="input mt-1" maxLength={80} value={title} onChange={(event) => setTitle(event.target.value)} />
@@ -381,7 +360,7 @@ function ComposePanel() {
         </section>
       </div>
 
-      <div className="space-y-5">
+      <div className="min-w-0 space-y-5 xl:sticky xl:top-4">
         <PhonePreview title={previewTitle} body={previewBody} cta={cta} image={image} />
         <InAppPreview title={previewTitle} body={previewBody} image={image} kind={kind} />
 
@@ -390,11 +369,16 @@ function ComposePanel() {
             <Send className="w-4 h-4 mr-2" />
             {sending ? 'Sending…' : 'Send now'}
           </button>
-          <div className="flex gap-2">
-            <input type="datetime-local" className="input" value={when} onChange={(event) => setWhen(event.target.value)} />
-            <button type="button" onClick={onSchedule} disabled={scheduling} className="btn btn-secondary shrink-0">
+          <div className="space-y-2">
+            <input
+              type="datetime-local"
+              className="input w-full min-w-0 max-w-full"
+              value={when}
+              onChange={(event) => setWhen(event.target.value)}
+            />
+            <button type="button" onClick={onSchedule} disabled={scheduling} className="btn btn-secondary w-full">
               <Clock className="w-4 h-4 mr-1" />
-              Schedule
+              {scheduling ? 'Scheduling…' : 'Schedule'}
             </button>
           </div>
           <div className="border-t border-[#E4E9F2] pt-3 space-y-2">
@@ -433,6 +417,71 @@ function ComposePanel() {
           </div>
         </section>
       </div>
+    </div>
+  );
+}
+
+function ProductPicker({ product, query, products, open, onQuery, onOpen, onClose, onPick, onClear }) {
+  return (
+    <div>
+      <span className="text-xs font-semibold text-gray-500">Product</span>
+      {product ? (
+        <div className="mt-1 flex items-center gap-3 rounded-xl border border-[#E4E9F2] p-2">
+          <img
+            src={productImage(product) || '/placeholder.png'}
+            alt=""
+            className="h-12 w-12 shrink-0 rounded-lg bg-gray-100 object-cover"
+          />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-gray-900">{product.name}</p>
+            <p className="truncate text-xs text-gray-500">{product.sku || 'This product is used in the preview'}</p>
+          </div>
+          <button type="button" onClick={onClear} className="shrink-0 text-xs font-semibold text-primary-600">
+            Change
+          </button>
+        </div>
+      ) : (
+        <div className="relative mt-1">
+          <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+          <input
+            className="input w-full min-w-0 pl-9"
+            placeholder="Search by name or SKU"
+            value={query}
+            onFocus={onOpen}
+            onBlur={() => setTimeout(onClose, 180)}
+            onChange={(event) => onQuery(event.target.value)}
+          />
+          {open && (
+            <ul className="absolute z-20 mt-2 max-h-72 w-full overflow-y-auto rounded-xl border border-[#E4E9F2] bg-white shadow-lg">
+              {products.map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => onPick(item)}
+                    className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-gray-50"
+                  >
+                    <img
+                      src={productImage(item) || '/placeholder.png'}
+                      alt=""
+                      className="h-10 w-10 shrink-0 rounded-lg bg-gray-100 object-cover"
+                    />
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium">{item.name}</span>
+                      {item.sku && <span className="block truncate text-xs text-gray-500">{item.sku}</span>}
+                    </span>
+                  </button>
+                </li>
+              ))}
+              {products.length === 0 && (
+                <li className="px-3 py-2 text-sm text-gray-500">
+                  {query.trim() ? 'No products match.' : 'No products yet.'}
+                </li>
+              )}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 }

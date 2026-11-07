@@ -69,9 +69,9 @@ export default function AdminLayout({ children, title = 'Admin Panel' }) {
         )}
 
         {/* Main Content */}
-        <div className="lg:ml-64">
+        <div className="min-w-0 lg:ml-64">
           <Header title={title} onMenuClick={() => setSidebarOpen(!sidebarOpen)} />
-          <main className="p-6">
+          <main className="min-w-0 overflow-x-hidden p-6">
             {denied ? (
               <div className="card max-w-lg p-8">
                 <h2 className="text-lg font-semibold text-gray-900">You don&apos;t have access</h2>
