@@ -9,6 +9,7 @@ from decimal import Decimal, InvalidOperation
 from django.conf import settings
 from django.db import IntegrityError
 from django.db.models import Count, Q, Sum
+from django.db.models.functions import Coalesce
 from django.utils.dateparse import parse_date
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -227,7 +228,10 @@ class AdminShipmentSummaryView(APIView):
             by_group[group] = by_group.get(group, 0) + count
 
         open_qs = base.exclude(status__in=FINAL_STATUSES)
-        open_agg = open_qs.aggregate(open_count=Count('id'), open_cod=Sum('cod_amount'))
+        open_agg = open_qs.aggregate(
+            open_count=Count('id'),
+            open_cod=Sum(Coalesce('courier_cod_amount', 'cod_amount')),
+        )
         return Response({
             'total': sum(by_group.values()),
             'by_status_group': by_group,

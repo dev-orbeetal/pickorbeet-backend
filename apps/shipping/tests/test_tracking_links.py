@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 from importlib import import_module
 
 from django.apps import apps
@@ -13,6 +14,7 @@ from apps.shipping.services import (
     parse_courier_time,
     record_tracking_steps,
     refresh_shipment,
+    reported_cod_amount,
 )
 from apps.shipping.steadfast import SteadfastNotFoundError
 
@@ -176,3 +178,82 @@ class TrackingStepTests(ShopTestCase):
         self.assertTrue(changed)
         self.assertEqual(shipment.status, 'hold')
         self.assertEqual(self.step_events().count(), 0)
+
+
+LIVE_COD_SENTENCE = (
+    "Changes: COD '3420' to '0'. By User PickOrbeet(2494631)"
+    "Policestation: 'Undefined' to 'Maijdee Bazar'."
+)
+
+
+class ReportedCodTests(ShopTestCase):
+    def test_portal_sentence_reports_the_new_amount(self):
+        self.assertEqual(reported_cod_amount(LIVE_COD_SENTENCE), Decimal('0.00'))
+        self.assertEqual(reported_cod_amount("Changes: COD '0' to '500'."), Decimal('500.00'))
+        self.assertIsNone(reported_cod_amount("Policestation: 'Undefined' to 'Maijdee Bazar'."))
+
+    def test_a_saved_sentence_becomes_the_cash_the_rider_collects(self):
+        order = make_order(user=make_user())
+        shipment = book_shipment(order, make_user(role='seller'), client=FakeClient())
+        Shipment.objects.filter(pk=shipment.pk).update(
+            cod_amount=Decimal('3420.00'), courier_cod_amount=Decimal('3420.00'))
+        shipment.refresh_from_db()
+        ShipmentEvent.objects.create(
+            shipment=shipment,
+            source='poll',
+            message=LIVE_COD_SENTENCE,
+            occurred_at=timezone.now() - timedelta(hours=8),
+        )
+
+        customer = ShipmentSerializer(shipment).data
+        staff = AdminShipmentSerializer(shipment).data
+        shipment.refresh_from_db()
+
+        self.assertEqual(customer['cod_amount'], '0.00')
+        self.assertEqual(staff['cod_amount'], '3420.00')
+        self.assertEqual(staff['courier_cod_amount'], '0.00')
+        self.assertTrue(staff['cod_mismatch'])
+        self.assertEqual(shipment.courier_cod_amount, Decimal('0.00'))
+
+    def test_a_later_report_replaces_an_earlier_one(self):
+        order = make_order(user=make_user())
+        shipment = book_shipment(order, make_user(role='seller'), client=FakeClient())
+        booked = shipment.booked_at
+        ShipmentEvent.objects.create(
+            shipment=shipment, source='poll', message="Changes: COD '3420' to '0'.",
+            occurred_at=booked + timedelta(hours=1),
+        )
+        ShipmentEvent.objects.create(
+            shipment=shipment, source='webhook', message='',
+            payload={'cod_amount': '500'}, occurred_at=booked + timedelta(hours=2),
+        )
+
+        self.assertEqual(ShipmentSerializer(shipment).data['cod_amount'], '500.00')
+
+    def test_fetching_a_known_step_still_updates_the_rider_amount(self):
+        order = make_order(user=make_user())
+        shipment = book_shipment(order, make_user(role='seller'), client=FakeClient())
+        Shipment.objects.filter(pk=shipment.pk).update(cod_amount=Decimal('3420.00'))
+        step = {'text': LIVE_COD_SENTENCE, 'status': 1, 'created_at': '2026-11-06T20:03:00.000000Z'}
+        record_tracking_steps(shipment, [step])
+        shipment.refresh_from_db()
+        shipment.courier_cod_amount = Decimal('3420.00')
+        shipment.save(update_fields=['courier_cod_amount'])
+
+        self.assertEqual(record_tracking_steps(shipment, [step]), 0)
+        shipment.refresh_from_db()
+        self.assertEqual(shipment.courier_cod_amount, Decimal('0.00'))
+
+    def test_tracking_message_sets_the_rider_amount_without_a_cod_field(self):
+        order = make_order(user=make_user())
+        shipment = book_shipment(order, make_user(role='seller'), client=FakeClient())
+        Shipment.objects.filter(pk=shipment.pk).update(cod_amount=Decimal('3420.00'))
+        shipment.refresh_from_db()
+
+        apply_courier_status(shipment, '', source='webhook', message=LIVE_COD_SENTENCE)
+        shipment.refresh_from_db()
+
+        self.assertEqual(shipment.courier_cod_amount, Decimal('0.00'))
+        self.assertEqual(shipment.cod_amount, Decimal('3420.00'))
+        order.refresh_from_db()
+        self.assertNotEqual(order.payment_status, 'paid')

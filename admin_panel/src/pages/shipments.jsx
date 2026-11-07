@@ -390,10 +390,10 @@ export default function ShipmentsPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        {money(row.cod_amount)}
+                        {money(row.courier_cod_amount != null && row.courier_cod_amount !== '' ? row.courier_cod_amount : row.cod_amount)}
                         {row.cod_mismatch && (
-                          <span className="block text-xs text-amber-700" title="Steadfast's amount differs from the order">
-                            Steadfast: {money(row.courier_cod_amount)}
+                          <span className="block text-xs text-amber-700" title="Booked amount differs from what Steadfast will collect">
+                            Booked {money(row.cod_amount)}
                           </span>
                         )}
                       </td>
@@ -469,12 +469,14 @@ export default function ShipmentsPage() {
                 </div>
                 <div className="flex justify-between gap-3">
                   <span className="text-gray-500">Cash to collect</span>
-                  <span className="font-medium">{money(detail.cod_amount)}</span>
+                  <span className="font-medium">
+                    {money(detail.courier_cod_amount != null && detail.courier_cod_amount !== '' ? detail.courier_cod_amount : detail.cod_amount)}
+                  </span>
                 </div>
                 {detail.cod_mismatch && (
                   <p className="text-amber-800 bg-amber-50 rounded-xl px-3 py-2">
-                    Steadfast will collect {money(detail.courier_cod_amount)}, but this order needs{' '}
-                    {money(detail.cod_amount)}. The amount was changed in the Steadfast portal.
+                    The rider collects {money(detail.courier_cod_amount)}. This order was booked to collect{' '}
+                    {money(detail.cod_amount)}. Steadfast changed the amount after booking.
                   </p>
                 )}
                 <div className="flex justify-between gap-3">

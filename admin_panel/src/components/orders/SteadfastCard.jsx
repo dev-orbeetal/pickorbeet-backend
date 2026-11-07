@@ -244,13 +244,14 @@ export default function SteadfastCard({ order, onBook, onRefresh, booking, refre
           )}
           <div className="flex justify-between gap-3">
             <span className="text-gray-500">Cash to collect</span>
-            <span className="font-medium">{money(shipment.cod_amount) || '৳0'}</span>
+            <span className="font-medium">
+              {money(shipment.courier_cod_amount != null && shipment.courier_cod_amount !== '' ? shipment.courier_cod_amount : shipment.cod_amount) || '৳0'}
+            </span>
           </div>
           {shipment.cod_mismatch && (
             <p className="text-amber-800 bg-amber-50 rounded-xl px-3 py-2">
-              Steadfast will collect {money(shipment.courier_cod_amount) || '৳0'}, but this order needs{' '}
-              {money(shipment.cod_amount) || '৳0'}. The amount was changed in the Steadfast portal; fix it there
-              or update the order.
+              The rider collects {money(shipment.courier_cod_amount) || '৳0'}. This order was booked to collect{' '}
+              {money(shipment.cod_amount) || '৳0'}. Steadfast changed the amount after booking.
             </p>
           )}
           {shipment.delivery_charge != null && shipment.delivery_charge !== '' && (

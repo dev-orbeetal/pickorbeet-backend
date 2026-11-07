@@ -104,7 +104,6 @@ function ComposePanel() {
   const [audience, setAudience] = useState('all');
   const [product, setProduct] = useState(null);
   const [query, setQuery] = useState('');
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [when, setWhen] = useState('');
   const [customerQuery, setCustomerQuery] = useState('');
   const [customers, setCustomers] = useState([]);
@@ -112,10 +111,10 @@ function ComposePanel() {
   const [chosenIds, setChosenIds] = useState([]);
   const [reach, setReach] = useState(null);
 
-  const { data: productData } = useGetProductsQuery(
-    { search: query, page_size: 8 },
-    { skip: !pickerOpen && query.trim().length < 1 },
-  );
+  const { data: productData, isFetching: loadingProducts } = useGetProductsQuery({
+    search: query,
+    page_size: 8,
+  });
   const products = productData?.results || [];
 
   const previewTitle = fill(title, product);
@@ -274,23 +273,18 @@ function ComposePanel() {
             product={product}
             query={query}
             products={products}
-            open={pickerOpen}
+            loading={loadingProducts}
             onQuery={(value) => {
               setProduct(null);
               setQuery(value);
-              setPickerOpen(true);
             }}
-            onOpen={() => setPickerOpen(true)}
-            onClose={() => setPickerOpen(false)}
             onPick={(item) => {
               setProduct(item);
               setQuery('');
-              setPickerOpen(false);
             }}
             onClear={() => {
               setProduct(null);
               setQuery('');
-              setPickerOpen(true);
             }}
           />
           <label className="block">
@@ -421,10 +415,10 @@ function ComposePanel() {
   );
 }
 
-function ProductPicker({ product, query, products, open, onQuery, onOpen, onClose, onPick, onClear }) {
+function ProductPicker({ product, query, products, loading, onQuery, onPick, onClear }) {
   return (
     <div>
-      <span className="text-xs font-semibold text-gray-500">Product</span>
+      <span className="text-xs font-semibold text-gray-500">Choose a product</span>
       {product ? (
         <div className="mt-1 flex items-center gap-3 rounded-xl border border-[#E4E9F2] p-2">
           <img
@@ -441,45 +435,45 @@ function ProductPicker({ product, query, products, open, onQuery, onOpen, onClos
           </button>
         </div>
       ) : (
-        <div className="relative mt-1">
-          <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-          <input
-            className="input w-full min-w-0 pl-9"
-            placeholder="Search by name or SKU"
-            value={query}
-            onFocus={onOpen}
-            onBlur={() => setTimeout(onClose, 180)}
-            onChange={(event) => onQuery(event.target.value)}
-          />
-          {open && (
-            <ul className="absolute z-20 mt-2 max-h-72 w-full overflow-y-auto rounded-xl border border-[#E4E9F2] bg-white shadow-lg">
-              {products.map((item) => (
-                <li key={item.id}>
-                  <button
-                    type="button"
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => onPick(item)}
-                    className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-gray-50"
-                  >
-                    <img
-                      src={productImage(item) || '/placeholder.png'}
-                      alt=""
-                      className="h-10 w-10 shrink-0 rounded-lg bg-gray-100 object-cover"
-                    />
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium">{item.name}</span>
-                      {item.sku && <span className="block truncate text-xs text-gray-500">{item.sku}</span>}
-                    </span>
-                  </button>
-                </li>
-              ))}
-              {products.length === 0 && (
-                <li className="px-3 py-2 text-sm text-gray-500">
-                  {query.trim() ? 'No products match.' : 'No products yet.'}
-                </li>
-              )}
-            </ul>
-          )}
+        <div className="mt-1">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+            <input
+              className="input w-full min-w-0 pl-9"
+              placeholder="Search by name or SKU"
+              value={query}
+              onChange={(event) => onQuery(event.target.value)}
+            />
+          </div>
+          <ul className="mt-2 max-h-64 overflow-y-auto rounded-xl border border-[#E4E9F2] bg-white">
+            {products.map((item) => (
+              <li key={item.id} className="border-b border-[#E4E9F2] last:border-b-0">
+                <button
+                  type="button"
+                  onClick={() => onPick(item)}
+                  className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-gray-50"
+                >
+                  <img
+                    src={productImage(item) || '/placeholder.png'}
+                    alt=""
+                    className="h-10 w-10 shrink-0 rounded-lg bg-gray-100 object-cover"
+                  />
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium">{item.name}</span>
+                    {item.sku && <span className="block truncate text-xs text-gray-500">{item.sku}</span>}
+                  </span>
+                </button>
+              </li>
+            ))}
+            {!loading && products.length === 0 && (
+              <li className="px-3 py-2 text-sm text-gray-500">
+                {query.trim() ? 'No products match.' : 'No products yet.'}
+              </li>
+            )}
+            {loading && products.length === 0 && (
+              <li className="px-3 py-2 text-sm text-gray-500">Loading products…</li>
+            )}
+          </ul>
         </div>
       )}
     </div>

@@ -1,16 +1,23 @@
 """
 Serializers for courier shipments.
 """
+from decimal import Decimal
+
 from rest_framework import serializers
 
 from core.mailer import track_url
 
 from .models import Shipment, ShipmentEvent
 from .services import (
-    cod_mismatch, is_final, portal_url_for, seconds_until_refresh, status_group, visible_tracking_events,
+    cash_to_collect, cod_mismatch, is_final, portal_url_for, seconds_until_refresh, status_group,
+    visible_tracking_events,
 )
 
 STAFF_ROLES = {'seller', 'accountant', 'super_admin'}
+
+
+def _money(value):
+    return f'{Decimal(value or 0).quantize(Decimal("0.01")):.2f}'
 
 
 class ShipmentEventSerializer(serializers.ModelSerializer):
@@ -33,6 +40,7 @@ class ShipmentSerializer(serializers.ModelSerializer):
     is_final = serializers.SerializerMethodField()
     refresh_available_in = serializers.SerializerMethodField()
     events = serializers.SerializerMethodField()
+    cod_amount = serializers.SerializerMethodField()
 
     class Meta:
         model = Shipment
@@ -49,6 +57,10 @@ class ShipmentSerializer(serializers.ModelSerializer):
 
     def get_refresh_available_in(self, obj):
         return seconds_until_refresh(obj)
+
+    def get_cod_amount(self, obj):
+        """Cash the rider collects. Steadfast's latest figure replaces the amount booked with the order."""
+        return _money(cash_to_collect(obj))
 
     def get_events(self, obj):
         return ShipmentEventSerializer(visible_tracking_events(obj.events.all()), many=True).data
@@ -67,6 +79,11 @@ class AdminShipmentSerializer(ShipmentSerializer):
             'courier_cod_amount', 'cod_mismatch', 'delivery_charge', 'note', 'booked_by', 'booked_by_name',
             'portal_url', 'track_page_url',
         ]
+
+    def get_cod_amount(self, obj):
+        """The amount this order was booked to collect. The rider's amount is ``courier_cod_amount``."""
+        cash_to_collect(obj)
+        return _money(obj.cod_amount)
 
     def get_cod_mismatch(self, obj):
         return cod_mismatch(obj)

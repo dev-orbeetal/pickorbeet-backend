@@ -10,7 +10,7 @@ import hmac
 import logging
 import re
 from datetime import datetime, timedelta
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
@@ -614,6 +614,137 @@ def webhook_signature_state(body, signature, secret):
     return 'invalid'
 
 
+# Steadfast writes portal edits into the timeline, for example:
+# Changes: COD '3420' to '0'. By User PickOrbeet(2494631)
+_COD_CHANGE = re.compile(
+    r"COD\s+['\"]?\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*['\"]?\s+to\s+['\"]?\s*([0-9][0-9,]*(?:\.[0-9]+)?)",
+    re.IGNORECASE,
+)
+
+
+def _decimal_amount(raw):
+    if raw is None or isinstance(raw, bool):
+        return None
+    text = str(raw).strip().replace(',', '')
+    if not text:
+        return None
+    try:
+        return Decimal(text).quantize(Decimal('0.01'))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def reported_cod_amount(text):
+    """The new cash-on-delivery amount in a Steadfast change sentence, or None."""
+    if not text:
+        return None
+    match = _COD_CHANGE.search(text)
+    if not match:
+        return None
+    return _decimal_amount(match.group(2))
+
+
+def cod_on_step(step, message):
+    """Cash Steadfast says this step collects. A change sentence wins over a raw field."""
+    parsed = reported_cod_amount(message)
+    if parsed is not None:
+        return parsed
+    if not isinstance(step, dict):
+        return None
+    for key in ('cod_amount', 'cod'):
+        if key in step:
+            amount = _decimal_amount(step.get(key))
+            if amount is not None:
+                return amount
+    return None
+
+
+def latest_reported_cod(steps):
+    """The newest collectable amount in a Steadfast timeline. Zero is a real amount."""
+    chosen = None
+    chosen_at = None
+    for step in steps or []:
+        if not isinstance(step, dict):
+            continue
+        message = _step_message(step)
+        amount = cod_on_step(step, message)
+        if amount is None:
+            continue
+        when = parse_courier_time(_pick(step, 'updated_at', 'created_at', 'time', 'date'))
+        if chosen is None or (when is not None and (chosen_at is None or when >= chosen_at)):
+            chosen = amount
+            chosen_at = when
+    return chosen
+
+
+def _event_cod(event):
+    """Collectable amount on one saved update.
+
+    A change sentence wins over a raw field. The amount stored on the booking
+    itself is what we sent Steadfast, so only a delivery webhook's amount counts
+    as a later report.
+    """
+    amount = reported_cod_amount(event.message)
+    if amount is not None:
+        return amount
+    if event.source != 'webhook':
+        return None
+    payload = event.payload if isinstance(event.payload, dict) else {}
+    if 'cod_amount' in payload:
+        return _decimal_amount(payload.get('cod_amount'))
+    return None
+
+
+def latest_cod_from_events(shipment):
+    """The newest collectable amount already saved on this shipment's timeline."""
+    chosen = None
+    chosen_at = None
+    for event in shipment.events.all():
+        amount = _event_cod(event)
+        if amount is None:
+            continue
+        when = event.occurred_at or event.created_at
+        if chosen is None or (when is not None and (chosen_at is None or when >= chosen_at)):
+            chosen = amount
+            chosen_at = when
+    return chosen
+
+
+def sync_reported_cod(shipment, amount):
+    """Remember what Steadfast will collect. Returns True when the stored figure changes."""
+    if amount is None:
+        return False
+    amount = Decimal(amount).quantize(Decimal('0.01'))
+    current = shipment.courier_cod_amount
+    if current is not None and Decimal(current) == amount:
+        return False
+    Shipment.objects.filter(pk=shipment.pk).update(courier_cod_amount=amount)
+    shipment.courier_cod_amount = amount
+    return True
+
+
+def ensure_reported_cod(shipment):
+    """Keep the rider amount equal to the newest Steadfast report already saved.
+
+    Portal edits arrive as timeline sentences and were stored without changing
+    the cash figure. Reading the shipment applies the newest of those sentences
+    and any cash amount a delivery report included.
+    """
+    if getattr(shipment, '_cod_ensured', False):
+        return shipment
+    sync_reported_cod(shipment, latest_cod_from_events(shipment))
+    shipment._cod_ensured = True
+    return shipment
+
+
+def cash_to_collect(shipment):
+    """What the rider collects now. Steadfast's latest report wins over the booked amount."""
+    ensure_reported_cod(shipment)
+    if shipment.courier_cod_amount is not None:
+        return shipment.courier_cod_amount
+    return shipment.cod_amount
+
+
 def cod_mismatch(shipment):
     """True when Steadfast will collect a different amount from the one the order needs."""
     reported = shipment.courier_cod_amount
@@ -631,6 +762,8 @@ def apply_courier_status(shipment, raw_status, *, source, message='', payload=No
     """
     status = normalize_status(raw_status) if raw_status else ''
     message = ' '.join((message or '').split())
+    if courier_cod_amount is None:
+        courier_cod_amount = reported_cod_amount(message)
     occurred_at = occurred_at or timezone.now()
 
     with transaction.atomic():
@@ -661,8 +794,8 @@ def apply_courier_status(shipment, raw_status, *, source, message='', payload=No
             locked.delivery_charge = delivery_charge
         if courier_cod_amount is not None:
             if locked.courier_cod_amount != courier_cod_amount and courier_cod_amount != locked.cod_amount:
-                logger.warning(
-                    'Steadfast will collect %s for %s but the order needs %s',
+                logger.info(
+                    'Steadfast will collect %s for %s; this order was booked to collect %s',
                     courier_cod_amount, locked.invoice, locked.cod_amount,
                 )
             locked.courier_cod_amount = courier_cod_amount
@@ -858,6 +991,7 @@ def record_tracking_steps(shipment, steps):
     if newest is not None and newest.occurred_at and (latest_known is None or newest.occurred_at > latest_known):
         notify_parcel_update(
             shipment, message=newest.message, status=newest.status, occurred_at=newest.occurred_at)
+    sync_reported_cod(shipment, latest_reported_cod(steps))
     return created
 
 
