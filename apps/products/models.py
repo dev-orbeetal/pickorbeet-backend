@@ -5,8 +5,18 @@ from django.db import models
 from django.db.models import Avg, Count, FloatField, IntegerField, OuterRef, Subquery, Value
 from django.db.models.functions import Coalesce, Lower
 from django.conf import settings
+from django.core.validators import MinValueValidator
 from django.utils.text import slugify
 import uuid
+
+# Shoppers never see stock counts. Quantity pickers stop at this ceiling and the
+# cart checks real stock on every change.
+MAX_ORDER_QUANTITY = 99
+
+
+def purchase_ceiling(item):
+    """The most a shopper may pick of a product or variant; 0 when it can't be bought."""
+    return MAX_ORDER_QUANTITY if item.is_available else 0
 
 
 class Category(models.Model):
@@ -639,6 +649,21 @@ class StoreSettings(models.Model):
         blank=True,
         default='https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d14602.254272231177!2d90.41259!3d23.7925!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3755c7a0f70deb73%3A0x30c36498f90fe23!2sGulshan%2C%20Dhaka!5e0!3m2!1sen!2sbd!4v1640000000000!5m2!1sen!2sbd',
         help_text='Google Maps embed URL for the contact page'
+    )
+
+    delivery_charge_inside_dhaka = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        default=70,
+        validators=[MinValueValidator(0)],
+        help_text='Delivery charge for addresses in Dhaka district',
+    )
+    delivery_charge_outside_dhaka = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        default=125,
+        validators=[MinValueValidator(0)],
+        help_text='Delivery charge for every other district',
     )
     
     created_at = models.DateTimeField(auto_now_add=True)

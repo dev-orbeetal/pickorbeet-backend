@@ -2,11 +2,13 @@
 Serializers for orders app.
 """
 from rest_framework import serializers
-from django.conf import settings
 from .models import Order, OrderItem, OrderStatusHistory, Cart, CartItem, Coupon, CouponUsage, DeliveryOption
+from apps.products.models import purchase_ceiling
 from apps.products.serializers import ProductListSerializer
 from apps.shipping.serializers import serialize_shipment
 from apps.shipping.services import ShipmentError, normalize_phone, status_group
+from .delivery import delivery_charges
+from .invoice import invoice_available
 from .services import can_edit_delivery
 
 
@@ -104,6 +106,7 @@ class ValidateCouponSerializer(serializers.Serializer):
     """Serializer for validating a coupon code."""
     code = serializers.CharField(max_length=50)
     subtotal = serializers.DecimalField(max_digits=10, decimal_places=2, required=False, default=0)
+    item_ids = serializers.ListField(child=serializers.UUIDField(), required=False, max_length=100)
 
 
 class ApplyCouponSerializer(serializers.Serializer):
@@ -133,9 +136,14 @@ class CustomerCouponSerializer(serializers.Serializer):
     discount_type = serializers.CharField()
     discount_value = serializers.DecimalField(max_digits=10, decimal_places=2)
     minimum_order_amount = serializers.DecimalField(max_digits=10, decimal_places=2)
+    maximum_discount = serializers.DecimalField(max_digits=10, decimal_places=2, allow_null=True)
     valid_until = serializers.DateTimeField()
     state = serializers.ChoiceField(choices=['available', 'used', 'expired'])
     used_at = serializers.DateTimeField(allow_null=True)
+    # Set only when the wallet is asked about specific cart lines.
+    applies = serializers.BooleanField(allow_null=True)
+    reason = serializers.CharField(allow_null=True)
+    estimated_discount = serializers.DecimalField(max_digits=10, decimal_places=2, allow_null=True)
 
 
 class CartItemSerializer(serializers.ModelSerializer):
@@ -150,6 +158,10 @@ class CartItemSerializer(serializers.ModelSerializer):
                                              decimal_places=2, read_only=True)
     discount_percentage = serializers.SerializerMethodField()
     is_out_of_stock = serializers.SerializerMethodField()
+    max_quantity = serializers.SerializerMethodField()
+    # App 1.0.5 caps its stepper at stock_quantity. Same ceiling as max_quantity, never
+    # the real count; drop once 1.0.6 is widely installed.
+    stock_quantity = serializers.SerializerMethodField()
     size = serializers.SerializerMethodField()
     color = serializers.SerializerMethodField()
     options = serializers.SerializerMethodField()
@@ -158,8 +170,8 @@ class CartItemSerializer(serializers.ModelSerializer):
         model = CartItem
         fields = ['id', 'product', 'variant', 'product_name', 'product_slug', 'product_image',
                   'short_description', 'quantity', 'unit_price', 'total_price', 'compare_price',
-                  'discount_percentage', 'is_out_of_stock', 'size', 'color',
-                  'options']
+                  'discount_percentage', 'is_out_of_stock', 'max_quantity', 'stock_quantity',
+                  'size', 'color', 'options']
 
     def get_size(self, obj):
         return obj.variant.size if obj.variant and obj.variant.size else None
@@ -176,6 +188,12 @@ class CartItemSerializer(serializers.ModelSerializer):
 
     def get_is_out_of_stock(self, obj):
         return not (obj.variant or obj.product).is_available
+
+    def get_max_quantity(self, obj):
+        return purchase_ceiling(obj.variant or obj.product)
+
+    def get_stock_quantity(self, obj):
+        return self.get_max_quantity(obj)
 
     def get_product_image(self, obj):
         if obj.product.primary_image:
@@ -199,10 +217,10 @@ class CartSerializer(serializers.ModelSerializer):
                   'delivery_charge_inside_dhaka', 'delivery_charge_outside_dhaka']
 
     def get_delivery_charge_inside_dhaka(self, obj):
-        return settings.DELIVERY_CHARGE_INSIDE_DHAKA
+        return delivery_charges()[0]
 
     def get_delivery_charge_outside_dhaka(self, obj):
-        return settings.DELIVERY_CHARGE_OUTSIDE_DHAKA
+        return delivery_charges()[1]
 
 
 class AddToCartSerializer(serializers.Serializer):
@@ -355,6 +373,7 @@ class OrderDetailSerializer(serializers.ModelSerializer):
     item_count = serializers.ReadOnlyField()
     shipment = serializers.SerializerMethodField()
     can_edit_delivery = serializers.SerializerMethodField()
+    invoice_available = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
@@ -373,6 +392,7 @@ class OrderDetailSerializer(serializers.ModelSerializer):
                   'discount', 'total', 'coupon_code', 'payment_method', 'transaction_id',
                   'processed_by', 'processed_by_name', 'notes', 'stock_location',
                   'item_count', 'items', 'status_history', 'shipment', 'can_edit_delivery',
+                  'invoice_available', 'invoice_emailed_at',
                   'created_at', 'updated_at', 'confirmed_at', 'shipped_at', 'delivered_at']
 
     def get_customer_avatar(self, obj):
@@ -393,6 +413,9 @@ class OrderDetailSerializer(serializers.ModelSerializer):
 
     def get_can_edit_delivery(self, obj):
         return can_edit_delivery(obj)
+
+    def get_invoice_available(self, obj):
+        return invoice_available(obj)
 
 
 class CheckoutSerializer(serializers.Serializer):

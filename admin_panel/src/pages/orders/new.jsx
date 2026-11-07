@@ -7,7 +7,7 @@ import {
 import toast from 'react-hot-toast';
 import AdminLayout from '@/components/layout/AdminLayout';
 import BdAddressFields from '@/components/BdAddressFields';
-import { useGetInventoryItemsQuery } from '@/store/api/productsApi';
+import { useGetInventoryItemsQuery, useGetStoreSettingsQuery } from '@/store/api/productsApi';
 import { useCreateExternalOrderMutation } from '@/store/api/ordersApi';
 import { getMediaUrl } from '@/lib/utils';
 
@@ -36,7 +36,13 @@ export default function NewOrderPage() {
   const router = useRouter();
   const [customer, setCustomer] = useState(emptyCustomer);
   const [lines, setLines] = useState([]);
-  const [deliveryCharge, setDeliveryCharge] = useState('60');
+  const { data: storeSettings } = useGetStoreSettingsQuery();
+  const [typedCharge, setTypedCharge] = useState(null);
+  const insideDhaka = customer.shipping_district.trim().toLowerCase() === 'dhaka';
+  const zoneCharge = insideDhaka
+    ? storeSettings?.delivery_charge_inside_dhaka ?? 70
+    : storeSettings?.delivery_charge_outside_dhaka ?? 125;
+  const deliveryCharge = typedCharge ?? String(Number(zoneCharge));
   const [discount, setDiscount] = useState('0');
   const [paymentMethod, setPaymentMethod] = useState('cod');
   const [orderStatus, setOrderStatus] = useState('confirmed');
@@ -386,7 +392,7 @@ export default function NewOrderPage() {
                 step="0.01"
                 className="input"
                 value={deliveryCharge}
-                onChange={(e) => setDeliveryCharge(e.target.value)}
+                onChange={(e) => setTypedCharge(e.target.value)}
               />
             </Field>
             <Field label="Discount">

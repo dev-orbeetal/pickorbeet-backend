@@ -1,4 +1,4 @@
-import { baseApi } from './baseApi';
+import { baseApi, OVERRIDE_EXISTING } from './baseApi';
 
 export const paymentsApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
@@ -167,7 +167,7 @@ export const paymentsApi = baseApi.injectEndpoints({
       invalidatesTags: ['Expenses', 'Finance', 'Transactions', 'Inventory', 'Products'],
     }),
   }),
-  overrideExisting: false,
+  overrideExisting: OVERRIDE_EXISTING,
 });
 
 export const {

@@ -1,18 +1,23 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useSelector } from 'react-redux';
 import { useRouter } from 'next/router';
 import {
   ArrowLeft, Printer, Package, Truck, CheckCircle,
   XCircle, Clock, MapPin, Phone, Mail, MessageCircle,
   RotateCcw, AlertTriangle, X, ChevronRight,
-  ShoppingBag, BoxIcon, Send, CircleDot, Ban, RefreshCw, Pencil,
+  ShoppingBag, BoxIcon, Send, CircleDot, Ban, RefreshCw, Pencil, FileDown, Trash2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useReactToPrint } from 'react-to-print';
 import AdminLayout from '@/components/layout/AdminLayout';
-import { useGetOrderQuery, useUpdateOrderStatusMutation, useBookShipmentMutation, useRefreshShipmentMutation } from '@/store/api/ordersApi';
+import {
+  useGetOrderQuery, useUpdateOrderStatusMutation, useBookShipmentMutation, useRefreshOrderShipmentMutation,
+  useGetInvoiceLinkMutation, useResendInvoiceMutation,
+} from '@/store/api/ordersApi';
 import { useOpenSupportInboxMutation } from '@/store/api/supportApi';
 import SteadfastCard from '@/components/orders/SteadfastCard';
 import ExternalOrderEditModal from '@/components/orders/ExternalOrderEditModal';
+import PurgeOrderModal from '@/components/orders/PurgeOrderModal';
 import { getMediaUrl, routeId } from '@/lib/utils';
 import { statusLabel } from '@/lib/labels';
 
@@ -157,19 +162,29 @@ export default function OrderDetailPage() {
   const printRef = useRef();
   const [statusModal, setStatusModal] = useState({ open: false, target: null });
   const [editOpen, setEditOpen] = useState(false);
+  const [purgeOpen, setPurgeOpen] = useState(false);
+  const [purged, setPurged] = useState(false);
+  const isSuperAdmin = useSelector((state) => state.auth.user?.role) === 'super_admin';
 
   const { data: order, isLoading: loading, error } = useGetOrderQuery(id, {
-    skip: !id,
+    skip: !id || purged,
+    pollingInterval: 30000,
+    skipPollingIfUnfocused: true,
   });
   const [updateOrderStatus, { isLoading: updating }] = useUpdateOrderStatusMutation();
   const [bookShipment, { isLoading: booking }] = useBookShipmentMutation();
-  const [refreshShipment, { isLoading: refreshingCourier }] = useRefreshShipmentMutation();
+  const [refreshOrderShipment, { isLoading: refreshingCourier }] = useRefreshOrderShipmentMutation();
+  const [getInvoiceLink, { isLoading: loadingInvoice }] = useGetInvoiceLinkMutation();
+  const [resendInvoice, { isLoading: resendingInvoice }] = useResendInvoiceMutation();
   const [openSupportInbox, { isLoading: openingChat }] = useOpenSupportInboxMutation();
 
-  if (error) {
+  // A failed background poll keeps the last order on screen; leave only when nothing loaded.
+  const loadFailed = Boolean(error) && !order;
+  useEffect(() => {
+    if (!loadFailed) return;
     toast.error('Failed to fetch order');
     router.push('/orders');
-  }
+  }, [loadFailed, router]);
 
   const openCustomerChat = async () => {
     if (!order?.user || openingChat) return;
@@ -198,9 +213,9 @@ export default function OrderDetailPage() {
     }
   };
 
-  const handleBook = async (note) => {
+  const handleBook = async (booking) => {
     try {
-      await bookShipment({ id, note }).unwrap();
+      await bookShipment({ id, ...booking }).unwrap();
       toast.success('Parcel booked with Steadfast');
     } catch (error) {
       toast.error(error?.data?.error || 'Could not book this parcel');
@@ -209,10 +224,29 @@ export default function OrderDetailPage() {
 
   const handleRefreshCourier = async () => {
     try {
-      await refreshShipment(id).unwrap();
+      await refreshOrderShipment(id).unwrap();
       toast.success('Courier status updated');
     } catch (error) {
       toast.error(error?.data?.error || 'Could not refresh the courier status');
+    }
+  };
+
+  const handleDownloadInvoice = async () => {
+    try {
+      const { url } = await getInvoiceLink(id).unwrap();
+      // The PDF is sent as an attachment, so the page stays where it is.
+      window.location.assign(url);
+    } catch (error) {
+      toast.error(error?.data?.detail || 'Could not download the invoice');
+    }
+  };
+
+  const handleResendInvoice = async () => {
+    try {
+      const result = await resendInvoice(id).unwrap();
+      toast.success(result?.detail || 'Invoice sent');
+    } catch (error) {
+      toast.error(error?.data?.detail || 'Could not send the invoice');
     }
   };
 
@@ -268,6 +302,15 @@ export default function OrderDetailPage() {
         open={editOpen}
         onClose={() => setEditOpen(false)}
       />
+      <PurgeOrderModal
+        order={order}
+        open={purgeOpen}
+        onClose={() => setPurgeOpen(false)}
+        onDeleted={() => {
+          setPurged(true);
+          router.replace('/orders');
+        }}
+      />
 
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
@@ -286,10 +329,36 @@ export default function OrderDetailPage() {
               Edit order
             </button>
           )}
+          <button type="button" onClick={handleDownloadInvoice} disabled={loadingInvoice} className="btn btn-secondary">
+            <FileDown className="w-4 h-4 mr-2" />
+            {loadingInvoice ? 'Preparing…' : 'Download invoice'}
+          </button>
+          {order.invoice_available && order.order_type === 'online' && order.customer_email && (
+            <button
+              type="button"
+              onClick={handleResendInvoice}
+              disabled={resendingInvoice}
+              className="btn btn-secondary"
+              title={order.invoice_emailed_at ? `First emailed ${new Date(order.invoice_emailed_at).toLocaleString()}` : 'Not emailed yet'}
+            >
+              <Mail className="w-4 h-4 mr-2" />
+              {resendingInvoice ? 'Sending…' : 'Resend invoice email'}
+            </button>
+          )}
           <button onClick={handlePrint} className="btn btn-secondary">
             <Printer className="w-4 h-4 mr-2" />
             Print Voucher
           </button>
+          {isSuperAdmin && (
+            <button
+              type="button"
+              onClick={() => setPurgeOpen(true)}
+              className="btn border border-red-200 bg-white text-red-600 hover:bg-red-50"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Delete permanently
+            </button>
+          )}
         </div>
       </div>
 
@@ -598,6 +667,12 @@ export default function OrderDetailPage() {
                   <span className="ml-2 text-gray-500">{order.payment_method}</span>
                 )}
               </div>
+              {order.shipment && order.payment_status !== 'paid' && (
+                <p className="text-xs text-gray-500">
+                  Turns paid by itself when Steadfast confirms the delivery. A partial delivery or a
+                  cancellation alerts staff instead.
+                </p>
+              )}
             </div>
           </div>
         </div>

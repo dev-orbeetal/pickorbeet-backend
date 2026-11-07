@@ -88,7 +88,7 @@ class SteadfastClient:
 
     # -- transport -----------------------------------------------------------------
 
-    def _request(self, method, path, *, json=None):
+    def _request(self, method, path, *, json=None, allow_list=False):
         if not self.is_configured:
             raise SteadfastConfigError('Steadfast API keys are not configured on the server.')
 
@@ -122,6 +122,8 @@ class SteadfastClient:
             payload = response.json()
         except ValueError as exc:
             raise SteadfastError('Steadfast sent a response that is not JSON.', status_code=status_code) from exc
+        if allow_list and isinstance(payload, list) and status_code < 400:
+            return payload
         if not isinstance(payload, dict):
             raise SteadfastError('Steadfast sent an unexpected response.', status_code=status_code)
 
@@ -193,6 +195,15 @@ class SteadfastClient:
             return float(raw)
         except (TypeError, ValueError) as exc:
             raise SteadfastError('Steadfast returned an invalid balance.', payload=payload) from exc
+
+    def police_stations(self):
+        """Steadfast's thanas grouped by district: ``[{"Id", "Name", "PoliceStations": [...]}]``."""
+        payload = self._request('GET', '/police_stations', allow_list=True)
+        if isinstance(payload, dict):
+            payload = payload.get('police_stations') or payload.get('data') or []
+        if not isinstance(payload, list):
+            raise SteadfastError('Steadfast did not return police stations.')
+        return payload
 
     def trackings_by_invoice(self, invoice):
         """Return tracking timeline steps for an invoice (empty list if none)."""

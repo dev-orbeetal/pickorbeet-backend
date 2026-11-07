@@ -1,4 +1,4 @@
-import { baseApi } from './baseApi';
+import { baseApi, OVERRIDE_EXISTING } from './baseApi';
 
 export const categoriesApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
@@ -93,7 +93,7 @@ export const categoriesApi = baseApi.injectEndpoints({
       invalidatesTags: [{ type: 'Categories', id: 'LIST' }, { type: 'Products', id: 'LIST' }],
     }),
   }),
-  overrideExisting: false,
+  overrideExisting: OVERRIDE_EXISTING,
 });
 
 export const {

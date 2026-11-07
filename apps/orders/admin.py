@@ -5,7 +5,7 @@ from django.contrib import admin, messages
 from django.utils.html import format_html
 from apps.shipping.admin import ShipmentInline
 from apps.shipping.services import ShipmentError, book_shipment
-from .models import Order, OrderItem, OrderStatusHistory, Cart, CartItem, Coupon, CouponUsage
+from .models import Order, OrderItem, OrderStatusHistory, OrderDeletionLog, Cart, CartItem, Coupon, CouponUsage
 
 
 class OrderItemInline(admin.TabularInline):
@@ -130,6 +130,20 @@ class OrderStatusHistoryAdmin(admin.ModelAdmin):
     list_display = ['order', 'status', 'changed_by', 'created_at']
     list_filter = ['status', 'created_at']
     search_fields = ['order__order_number']
+
+
+@admin.register(OrderDeletionLog)
+class OrderDeletionLogAdmin(admin.ModelAdmin):
+    list_display = ['order_number', 'order_type', 'order_status', 'total', 'deleted_by_name', 'deleted_at']
+    list_filter = ['order_type', 'deleted_at']
+    search_fields = ['order_number', 'reason', 'deleted_by_name']
+    readonly_fields = [field.name for field in OrderDeletionLog._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
 
 
 class CartItemInline(admin.TabularInline):

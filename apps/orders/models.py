@@ -342,6 +342,10 @@ class Order(models.Model):
     confirmed_at = models.DateTimeField(blank=True, null=True)
     shipped_at = models.DateTimeField(blank=True, null=True)
     delivered_at = models.DateTimeField(blank=True, null=True)
+    invoice_emailed_at = models.DateTimeField(
+        blank=True, null=True,
+        help_text='When the invoice PDF was first mailed. The shipping mail attaches it only once.',
+    )
 
     class Meta:
         verbose_name = 'Order'
@@ -364,10 +368,8 @@ class Order(models.Model):
         if self.order_type == 'in_shop':
             self.delivery_charge = 0
         elif self.order_type != 'external' and not self.delivery_charge:
-            if self.is_inside_dhaka:
-                self.delivery_charge = settings.DELIVERY_CHARGE_INSIDE_DHAKA
-            else:
-                self.delivery_charge = settings.DELIVERY_CHARGE_OUTSIDE_DHAKA
+            from apps.orders.delivery import delivery_charge_for
+            self.delivery_charge = delivery_charge_for(self.is_inside_dhaka)
         
         # Calculate total
         self.total = self.subtotal + self.delivery_charge - self.discount
@@ -473,6 +475,38 @@ class OrderStatusHistory(models.Model):
 
     def __str__(self):
         return f"{self.order.order_number} - {self.status}"
+
+
+class OrderDeletionLog(models.Model):
+    """An order a super admin deleted for good: who, why, and a copy of its rows."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    order_id = models.UUIDField(db_index=True)
+    order_number = models.CharField(max_length=50, db_index=True)
+    order_type = models.CharField(max_length=20, blank=True)
+    order_status = models.CharField(max_length=20, blank=True)
+    payment_status = models.CharField(max_length=20, blank=True)
+    total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    reason = models.TextField()
+    stock_restored = models.BooleanField(default=False)
+    snapshot = models.JSONField(default=list, help_text='The order and its related rows, as Django serialized them')
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+    )
+    deleted_by_name = models.CharField(max_length=255, blank=True)
+    deleted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Deleted order'
+        verbose_name_plural = 'Deleted orders'
+        ordering = ['-deleted_at']
+
+    def __str__(self):
+        return f"{self.order_number} deleted {self.deleted_at:%Y-%m-%d}"
 
 
 class Cart(models.Model):

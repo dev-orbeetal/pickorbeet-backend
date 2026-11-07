@@ -1,4 +1,4 @@
-import { baseApi } from './baseApi';
+import { baseApi, OVERRIDE_EXISTING } from './baseApi';
 
 const supportApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
@@ -42,6 +42,7 @@ const supportApi = baseApi.injectEndpoints({
       invalidatesTags: (result, error, { id }) => ['Support', { type: 'SupportThread', id }],
     }),
   }),
+  overrideExisting: OVERRIDE_EXISTING,
 });
 
 export const {

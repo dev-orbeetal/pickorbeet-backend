@@ -1,0 +1,22 @@
+{% extends "emails/base.html" %}
+{% block content %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr>
+    <td class="pad-sm" valign="middle" style="font-family:{{ font }};">
+      <div style="font-size:26px;line-height:32px;font-weight:800;color:#172033;">Your Invoice</div>
+      <p style="margin:12px 0 0;font-size:14px;line-height:22px;color:#687386;">The invoice for your order is attached to this email as a PDF.</p>
+    </td>
+  </tr>
+</table>
+{% include "emails/partials/order_meta.html" %}
+{% for item in items %}
+  {% if not forloop.first %}<div style="border-top:1px solid #EEF1F8;font-size:0;line-height:0;">&nbsp;</div>{% endif %}
+  {% include "emails/partials/product_row.html" %}
+{% endfor %}
+{% include "emails/partials/totals.html" %}
+{% if invoice_url %}
+<div align="center" style="padding-top:22px;">
+  {% include "emails/partials/button.html" with href=invoice_url label="Download invoice" bg="#2864E8" width="220" %}
+</div>
+{% endif %}
+{% endblock %}

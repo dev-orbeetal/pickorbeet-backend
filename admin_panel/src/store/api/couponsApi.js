@@ -1,4 +1,4 @@
-import { baseApi } from './baseApi';
+import { baseApi, OVERRIDE_EXISTING } from './baseApi';
 
 export const couponsApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
@@ -48,6 +48,7 @@ export const couponsApi = baseApi.injectEndpoints({
       }),
     }),
   }),
+  overrideExisting: OVERRIDE_EXISTING,
 });
 
 export const {

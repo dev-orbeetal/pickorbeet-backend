@@ -6,13 +6,20 @@ from .views import (
     CartView, AddToCartView, UpdateCartItemView, ClearCartView,
     CheckoutView,     CustomerOrderListView, CustomerOrderDetailView,
     CustomerOrderSummaryView, CustomerOrderDeliveryView, CustomerCancelOrderView,
-    TrackOrderView, AdminOrderListView, AdminOrderDetailView,
+    TrackOrderView, AdminOrderListView, AdminOrderDetailView, AdminOrderPurgeView,
     UpdateOrderStatusView, ExternalOrderView, ExternalOrderUpdateView,
     CustomerCouponListView, ValidateCouponView, ApplyCouponToCartView,
     AdminCouponListCreateView, AdminCouponDetailView, AdminCouponStatsView,
     PublicDeliveryOptionsView, AdminDeliveryOptionListCreateView, AdminDeliveryOptionDetailView
 )
 from apps.shipping.views import AdminBookShipmentView, AdminRefreshShipmentView, CustomerRefreshShipmentView
+
+from .invoice_views import (
+    AdminInvoiceLinkView,
+    AdminInvoiceResendView,
+    CustomerInvoiceLinkView,
+    InvoiceDownloadView,
+)
 
 urlpatterns = [
     # Cart endpoints
@@ -37,6 +44,10 @@ urlpatterns = [
     path('my-orders/<uuid:pk>/delivery/', CustomerOrderDeliveryView.as_view(), name='customer_order_delivery'),
     path('my-orders/<uuid:pk>/shipment/refresh/', CustomerRefreshShipmentView.as_view(),
          name='customer_shipment_refresh'),
+    path('my-orders/<uuid:pk>/invoice/link/', CustomerInvoiceLinkView.as_view(), name='customer_invoice_link'),
+
+    # Invoice PDF behind a signed link (mail, app, website, admin)
+    path('invoice/<str:token>/', InvoiceDownloadView.as_view(), name='invoice_download'),
     
     # Order tracking (public)
     path('track/', TrackOrderView.as_view(), name='track_order'),
@@ -44,9 +55,12 @@ urlpatterns = [
     # Admin order endpoints
     path('admin/', AdminOrderListView.as_view(), name='admin_order_list'),
     path('admin/<uuid:pk>/', AdminOrderDetailView.as_view(), name='admin_order_detail'),
+    path('admin/<uuid:pk>/purge/', AdminOrderPurgeView.as_view(), name='admin_order_purge'),
     path('admin/<uuid:pk>/status/', UpdateOrderStatusView.as_view(), name='update_order_status'),
     path('admin/<uuid:pk>/shipment/', AdminBookShipmentView.as_view(), name='admin_book_shipment'),
     path('admin/<uuid:pk>/shipment/refresh/', AdminRefreshShipmentView.as_view(), name='admin_refresh_shipment'),
+    path('admin/<uuid:pk>/invoice/link/', AdminInvoiceLinkView.as_view(), name='admin_invoice_link'),
+    path('admin/<uuid:pk>/invoice/resend/', AdminInvoiceResendView.as_view(), name='admin_invoice_resend'),
     path('admin/external/', ExternalOrderView.as_view(), name='external_order'),
     path('admin/<uuid:pk>/external/', ExternalOrderUpdateView.as_view(), name='external_order_update'),
     

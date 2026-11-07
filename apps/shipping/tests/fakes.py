@@ -68,6 +68,7 @@ class FakeClient:
             'consignment_id': self.consignment_id,
             'invoice': kwargs['invoice'],
             'tracking_code': self.tracking_code,
+            'tracking_link': 'https://steadfast.com.bd/t/a1b2c3d4',
             'recipient_name': kwargs['recipient_name'],
             'recipient_phone': kwargs['recipient_phone'],
             'recipient_address': kwargs['recipient_address'],
@@ -96,6 +97,31 @@ class FakeClient:
         if self.error:
             raise self.error
         return list(self.trackings)
+
+    def police_stations(self):
+        if self.error:
+            raise self.error
+        return list(POLICE_STATIONS)
+
+
+def _district(district_id, name, *stations):
+    return {
+        'Id': district_id,
+        'Name': name,
+        'PoliceStations': [
+            {'Id': station_id, 'Name': station, 'DistrictId': district_id, 'HubId': 3}
+            for station_id, station in stations
+        ],
+    }
+
+
+# The shape Steadfast's GET /police_stations returns, with its older spellings.
+POLICE_STATIONS = [
+    _district(1, 'Dhaka', (17, 'Dhanmondi'), (18, 'Mirpur Model'), (19, 'Mirpur'), (20, 'Gulshan')),
+    _district(2, 'Noakhali', (201, 'Noakhali Sadar'), (202, 'Begumganj'), (203, 'Companiganj')),
+    _district(3, 'Chittagong', (301, 'Kotwali'), (302, 'Panchlaish')),
+    _district(4, 'Comilla', (401, 'Comilla Sadar Dakshin'), (402, 'Kotwali Comilla')),
+]
 
 
 TIMEOUT = requests.Timeout('slow')

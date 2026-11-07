@@ -3,18 +3,24 @@ from decimal import Decimal
 from rest_framework.test import APIClient
 
 from apps.orders.tests.factories import ShopTestCase, make_product, make_user
-from apps.products.models import ProductVariant
+from apps.products.models import MAX_ORDER_QUANTITY, ProductVariant
 
 STOCK_KEYS = {
     'stock_quantity', 'warehouse_stock', 'dealer_stock', 'dealer_available',
     'low_stock_threshold', 'is_low_stock', 'cost_price',
 }
+PURCHASE_CEILINGS = {0, MAX_ORDER_QUANTITY}
 
 
 def leaked_keys(value):
-    """Every stock-related key anywhere in a JSON payload."""
+    """Every stock-related key anywhere in a JSON payload.
+
+    ``stock_quantity`` is allowed only as the purchase ceiling older apps read.
+    """
     if isinstance(value, dict):
         found = STOCK_KEYS & set(value)
+        if value.get('stock_quantity') in PURCHASE_CEILINGS:
+            found.discard('stock_quantity')
         for child in value.values():
             found |= leaked_keys(child)
         return found
@@ -63,6 +69,18 @@ class PublicAvailabilityTests(ShopTestCase):
         self.assertEqual(body['availability'], 'in_stock')
         by_sku = {variant['sku']: variant['availability'] for variant in body['variants']}
         self.assertEqual(by_sku, {sold_out.sku: 'out_of_stock', 'V-STOCK': 'in_stock'})
+
+    def test_older_apps_get_the_purchase_ceiling_as_stock(self):
+        product = make_product(stock=0, dealer_available=False)
+        make_variant(product, 'V-SOLD', 0, False)
+        make_variant(product, 'V-HAVE', 4, False)
+        body = self.detail(product)
+        self.assertEqual(body['stock_quantity'], MAX_ORDER_QUANTITY)
+        by_sku = {variant['sku']: variant['stock_quantity'] for variant in body['variants']}
+        self.assertEqual(by_sku, {'V-SOLD': 0, 'V-HAVE': MAX_ORDER_QUANTITY})
+        self.assertEqual(
+            self.detail(make_product(stock=0, dealer_available=False))['stock_quantity'], 0,
+        )
 
     def test_inactive_products_stay_hidden(self):
         product = make_product(is_active=False)

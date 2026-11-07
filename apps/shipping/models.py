@@ -7,6 +7,29 @@ from django.conf import settings
 from django.db import models
 
 
+class SteadfastPoliceStation(models.Model):
+    """A thana from Steadfast's ``/police_stations`` list, refreshed weekly."""
+
+    id = models.PositiveIntegerField(primary_key=True, help_text="Steadfast's police station ID")
+    name = models.CharField(max_length=120)
+    district_id = models.PositiveIntegerField(default=0)
+    district_name = models.CharField(max_length=120)
+    # Spelling-normalised names, so "Chittagong" and "Chattogram" find the same rows.
+    name_key = models.CharField(max_length=120, blank=True, default='')
+    district_key = models.CharField(max_length=120, blank=True, default='', db_index=True)
+    is_active = models.BooleanField(default=True, help_text='False once Steadfast stops listing it')
+    raw = models.JSONField(default=dict, blank=True)
+    refreshed_at = models.DateTimeField()
+
+    class Meta:
+        verbose_name = 'Steadfast police station'
+        verbose_name_plural = 'Steadfast police stations'
+        ordering = ['district_name', 'name']
+
+    def __str__(self):
+        return f'{self.name}, {self.district_name}'
+
+
 class Shipment(models.Model):
     """A parcel booked with a courier for one order."""
 
@@ -46,7 +69,19 @@ class Shipment(models.Model):
     recipient_name = models.CharField(max_length=100, blank=True, default='')
     recipient_phone = models.CharField(max_length=20, blank=True, default='')
     recipient_address = models.CharField(max_length=250, blank=True, default='')
+    police_station = models.ForeignKey(
+        SteadfastPoliceStation,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+        help_text='Thana named in the address sent to Steadfast',
+    )
     cod_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    courier_cod_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        help_text='Cash Steadfast last reported it will collect. It changes when the parcel is edited in their portal.',
+    )
     delivery_charge = models.DecimalField(
         max_digits=10, decimal_places=2, null=True, blank=True,
         help_text='Courier charge reported by Steadfast',
@@ -104,7 +139,33 @@ class ShipmentEvent(models.Model):
     class Meta:
         verbose_name = 'Shipment Event'
         verbose_name_plural = 'Shipment Events'
-        ordering = ['-created_at']
+        ordering = [models.F('occurred_at').desc(nulls_last=True), '-created_at']
 
     def __str__(self):
         return f'{self.shipment} · {self.get_source_display()} · {self.status or "message"}'
+
+
+class ShipmentSyncRun(models.Model):
+    """One pass of the scheduled Steadfast status check. Kept for a week to show sync health."""
+
+    TRIGGER_CHOICES = [
+        ('schedule', 'Schedule'),
+        ('command', 'Command'),
+    ]
+
+    trigger = models.CharField(max_length=20, choices=TRIGGER_CHOICES, default='schedule')
+    started_at = models.DateTimeField(db_index=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    checked = models.PositiveIntegerField(default=0)
+    changed = models.PositiveIntegerField(default=0)
+    failed = models.PositiveIntegerField(default=0)
+    error_code = models.CharField(max_length=64, blank=True, default='')
+    error = models.CharField(max_length=500, blank=True, default='')
+
+    class Meta:
+        verbose_name = 'Shipment Sync Run'
+        verbose_name_plural = 'Shipment Sync Runs'
+        ordering = ['-started_at']
+
+    def __str__(self):
+        return f'{self.get_trigger_display()} sync at {self.started_at:%Y-%m-%d %H:%M}'

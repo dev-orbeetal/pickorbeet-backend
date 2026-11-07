@@ -1,13 +1,17 @@
+import hashlib
+import hmac
+import json
 from datetime import timedelta
 from unittest import mock
 
+from django.core import mail
 from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.orders.tests.factories import ShopTestCase, make_order, make_user
 from apps.shipping.models import Shipment, ShipmentEvent
-from apps.shipping.services import book_shipment
+from apps.shipping.services import book_shipment, cod_mismatch, webhook_signature_state
 
 from .fakes import FakeClient
 
@@ -32,9 +36,9 @@ class WebhookTests(ShopTestCase):
             'notification_type': 'delivery_status',
             'consignment_id': 1424107,
             'invoice': self.order.order_number,
-            'cod_amount': 1659.0,
+            'cod_amount': 1669.0,
             'status': status,
-            'delivery_charge': 60.0,
+            'delivery_charge': 70.0,
             'tracking_message': 'Your package has been delivered successfully.',
             'updated_at': '2025-10-24 12:45:30',
         }
@@ -58,7 +62,8 @@ class WebhookTests(ShopTestCase):
         self.order.refresh_from_db()
         self.assertEqual(self.shipment.status, 'delivered')
         self.assertEqual(self.shipment.status_message, 'Your package has been delivered successfully.')
-        self.assertEqual(str(self.shipment.delivery_charge), '60.00')
+        self.assertEqual(str(self.shipment.delivery_charge), '70.00')
+        self.assertFalse(cod_mismatch(self.shipment))
         self.assertEqual(self.shipment.status_updated_at.year, 2025)
         self.assertEqual(self.order.order_status, 'delivered')
 
@@ -85,13 +90,74 @@ class WebhookTests(ShopTestCase):
         self.assertEqual(self.shipment.status, 'in_review')
         self.assertEqual(self.shipment.status_message, 'Package arrived at the sorting center.')
 
-    def test_unknown_consignment(self):
+    def test_unknown_consignment_is_acknowledged_so_steadfast_stops_retrying(self):
         response = self.post(self.delivery(consignment_id=999, invoice='ORD-NOPE'))
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 200)
+        self.shipment.refresh_from_db()
+        self.assertEqual(self.shipment.status, 'in_review')
 
-    def test_unsupported_notification(self):
+    def test_unsupported_notification_is_acknowledged_and_ignored(self):
+        before = ShipmentEvent.objects.count()
         response = self.post({'notification_type': 'balance_update', 'consignment_id': 1424107})
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(ShipmentEvent.objects.count(), before)
+
+    def test_a_missing_type_counts_as_a_delivery_status(self):
+        body = self.delivery('hold')
+        body.pop('notification_type')
+        self.assertEqual(self.post(body).status_code, 200)
+        self.shipment.refresh_from_db()
+        self.assertEqual(self.shipment.status, 'hold')
+
+    def test_cash_reported_by_steadfast_is_saved_and_flagged_when_different(self):
+        self.post(self.delivery('pending', cod_amount=0))
+        self.shipment.refresh_from_db()
+        self.assertEqual(str(self.shipment.courier_cod_amount), '0.00')
+        self.assertTrue(cod_mismatch(self.shipment))
+
+        self.post(self.delivery('hold', cod_amount=float(self.shipment.cod_amount)))
+        self.shipment.refresh_from_db()
+        self.assertFalse(cod_mismatch(self.shipment))
+
+    def test_the_reply_does_not_wait_for_the_email(self):
+        with self.captureOnCommitCallbacks(execute=False) as callbacks:
+            response = self.post(self.delivery())
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(mail.outbox), 0)
+        for callback in callbacks:
+            callback()
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('delivered', mail.outbox[0].subject)
+
+    def signed(self, body, secret='hook-secret'):
+        raw = json.dumps(body).encode()
+        signature = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
+        return raw, signature
+
+    def post_raw(self, raw, **headers):
+        return self.api.generic('POST', WEBHOOK, raw, content_type='application/json',
+                                HTTP_AUTHORIZATION='Bearer hook-secret', **headers)
+
+    def test_signature_is_checked_but_optional_by_default(self):
+        raw, signature = self.signed(self.delivery('hold'))
+        self.assertEqual(webhook_signature_state(raw, signature, 'hook-secret'), 'valid')
+        self.assertEqual(webhook_signature_state(raw, f'sha256={signature.upper()}', 'hook-secret'), 'valid')
+        self.assertEqual(webhook_signature_state(raw, '', 'hook-secret'), 'missing')
+        self.assertEqual(webhook_signature_state(raw, 'ab' * 32, 'hook-secret'), 'invalid')
+        self.assertEqual(webhook_signature_state(raw, 'ä', 'hook-secret'), 'invalid')
+
+        with self.assertLogs('apps.shipping.views', 'WARNING'):
+            response = self.post_raw(raw, HTTP_X_SIGNATURE='ab' * 32)
+        self.assertEqual(response.status_code, 200)
+
+    @override_settings(STEADFAST_WEBHOOK_REQUIRE_SIGNATURE=True)
+    def test_signature_can_be_required(self):
+        raw, signature = self.signed(self.delivery('hold'))
+        self.assertEqual(self.post_raw(raw).status_code, 401)
+        self.assertEqual(self.post_raw(raw, HTTP_X_SIGNATURE='ab' * 32).status_code, 401)
+        self.assertEqual(self.post_raw(raw, HTTP_X_SIGNATURE=signature).status_code, 200)
+        self.shipment.refresh_from_db()
+        self.assertEqual(self.shipment.status, 'hold')
 
 
 @override_settings(STEADFAST_SYNC_ORDER_STATUS=True)

@@ -8,8 +8,10 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import transaction
 from django.utils import timezone
-from django.db.models import Count, Q
+from django.db.models import Count, F, Q
 from decimal import Decimal
+import uuid
+from .coupons import ZERO, coupon_scope, quote_coupon
 from .models import Order, OrderItem, OrderStatusHistory, Cart, CartItem, Coupon, CouponUsage, DeliveryOption
 from .serializers import (
     CartSerializer, CartItemSerializer, AddToCartSerializer, UpdateCartItemSerializer,
@@ -32,8 +34,10 @@ from .services import (
     STOCK_DEDUCTED_STATUSES,
     DeliveryUpdateError,
     ExternalOrderUpdateError,
+    OrderPurgeError,
     cart_line_error,
     change_order_status,
+    purge_order,
     reduce_stock,
     update_delivery_details,
     update_external_order,
@@ -42,6 +46,39 @@ from .services import (
 
 def snapshot_options(variant):
     return variant_options(variant) if variant else []
+
+
+def request_cart(request):
+    """The signed-in shopper's cart, or the guest session's."""
+    if request.user.is_authenticated:
+        return Cart.objects.filter(user=request.user).first()
+    session_key = request.session.session_key
+    return Cart.objects.filter(session_key=session_key).first() if session_key else None
+
+
+def cart_lines(request, item_ids=None):
+    """This shopper's cart lines, only ``item_ids`` when given."""
+    cart = request_cart(request)
+    if cart is None:
+        return []
+    lines = cart.items.select_related('product', 'variant')
+    if item_ids is not None:
+        lines = lines.filter(id__in=set(item_ids))
+    return list(lines)
+
+
+def item_ids_param(request):
+    """``?item_ids=a,b`` as UUIDs, or None when absent. Malformed ids are skipped."""
+    raw = request.query_params.get('item_ids')
+    if raw is None:
+        return None
+    ids = []
+    for value in raw.split(',')[:100]:
+        try:
+            ids.append(uuid.UUID(value.strip()))
+        except ValueError:
+            continue
+    return ids
 
 
 def public_shipment_summary(order):
@@ -182,13 +219,15 @@ class UpdateCartItemView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        error = cart_line_error(
-            cart_item.product, cart_item.variant, serializer.validated_data['quantity']
+        quantity = serializer.validated_data['quantity']
+        # Lowering never oversells, and checkout checks every line again.
+        error = quantity > cart_item.quantity and cart_line_error(
+            cart_item.product, cart_item.variant, quantity
         )
         if error:
             return Response({'error': error}, status=status.HTTP_400_BAD_REQUEST)
 
-        cart_item.quantity = serializer.validated_data['quantity']
+        cart_item.quantity = quantity
         cart_item.save()
         
         return Response(CartSerializer(cart_item.cart, context={'request': request}).data)
@@ -224,19 +263,11 @@ class CheckoutView(APIView):
     """Process checkout and create order."""
     permission_classes = [AllowAny]
 
-    def get_cart(self, request):
-        if request.user.is_authenticated:
-            return Cart.objects.filter(user=request.user).first()
-        session_key = request.session.session_key
-        if session_key:
-            return Cart.objects.filter(session_key=session_key).first()
-        return None
-
     def post(self, request):
         serializer = CheckoutSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        cart = self.get_cart(request)
+        cart = request_cart(request)
         if not cart or not cart.items.exists():
             return Response(
                 {'error': 'Cart is empty'},
@@ -269,32 +300,25 @@ class CheckoutView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
         subtotal = sum((item.total_price for item in cart_items), Decimal('0'))
-        
-        # Validate coupon if provided
-        coupon = None
-        discount_amount = Decimal('0')
+        user = request.user if request.user.is_authenticated else None
         coupon_code = data.get('coupon_code', '').strip().upper()
-        
-        if coupon_code:
-            try:
-                coupon = Coupon.objects.get(code=coupon_code)
-                can_use, message = coupon.can_be_used_by(
-                    request.user if request.user.is_authenticated else None,
-                    subtotal
-                )
-                if can_use:
-                    discount_amount = coupon.calculate_discount(subtotal)
-                else:
-                    return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
-            except Coupon.DoesNotExist:
-                return Response({'error': 'Invalid coupon code.'}, status=status.HTTP_400_BAD_REQUEST)
-        
         platform = resolve_customer_platform(
             request,
             data['platform'] if 'platform' in data else None,
         )
 
         with transaction.atomic():
+            # The row lock makes usage limits hold when two checkouts race.
+            coupon = None
+            discount_amount = ZERO
+            if coupon_code:
+                coupon = Coupon.objects.select_for_update().filter(code=coupon_code).first()
+                if coupon is None:
+                    return Response({'error': 'Invalid coupon code.'}, status=status.HTTP_400_BAD_REQUEST)
+                discount_amount, error = quote_coupon(coupon, user, cart_items)
+                if error:
+                    return Response({'error': error}, status=status.HTTP_400_BAD_REQUEST)
+
             # Create order
             order = Order.objects.create(
                 user=request.user if request.user.is_authenticated else None,
@@ -361,12 +385,11 @@ class CheckoutView(APIView):
             if coupon:
                 CouponUsage.objects.create(
                     coupon=coupon,
-                    user=request.user if request.user.is_authenticated else None,
+                    user=user,
                     order=order,
                     discount_amount=discount_amount
                 )
-                coupon.times_used += 1
-                coupon.save()
+                Coupon.objects.filter(pk=coupon.pk).update(times_used=F('times_used') + 1)
             
             # Remove the ordered lines; unselected lines stay in the cart
             CartItem.objects.filter(id__in=[item.id for item in cart_items]).delete()
@@ -584,6 +607,31 @@ class AdminOrderDetailView(generics.RetrieveDestroyAPIView):
         return super().destroy(request, *args, **kwargs)
 
 
+class AdminOrderPurgeView(APIView):
+    """Super admin: delete any order for good, keeping a copy in the deletion log."""
+    permission_classes = [IsAuthenticated, IsSuperAdmin]
+
+    def post(self, request, pk):
+        order = Order.objects.filter(pk=pk).first()
+        if order is None:
+            return Response({'error': 'Order not found'}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            log = purge_order(
+                order,
+                confirm_number=request.data.get('order_number'),
+                reason=request.data.get('reason'),
+                user=request.user,
+            )
+        except OrderPurgeError as exc:
+            code = status.HTTP_409_CONFLICT if exc.code == 'active_parcel' else status.HTTP_400_BAD_REQUEST
+            return Response({'error': exc.message, 'code': exc.code}, status=code)
+        return Response({
+            'detail': f'Order {log.order_number} was deleted.',
+            'log_id': str(log.id),
+            'stock_restored': log.stock_restored,
+        })
+
+
 class UpdateOrderStatusView(APIView):
     """Admin: Update order status with automatic stock management."""
     permission_classes = [IsAuthenticated, IsStaffUser]
@@ -757,12 +805,17 @@ class ExternalOrderUpdateView(APIView):
 
 # Coupon Views
 class CustomerCouponListView(APIView):
-    """Shopper wallet: available, used, and expired coupons."""
+    """Shopper wallet: available, used, and expired coupons.
+
+    ``?item_ids=`` prices each available coupon against those cart lines.
+    """
 
     permission_classes = [AllowAny]
 
     def get(self, request):
         user = request.user if request.user.is_authenticated else None
+        item_ids = item_ids_param(request)
+        lines = cart_lines(request, item_ids) if item_ids is not None else None
         rows = []
         used_ids = set()
 
@@ -790,7 +843,11 @@ class CustomerCouponListView(APIView):
                 subtotal = coupon.minimum_order_amount or Decimal('0')
                 can_use, _message = coupon.can_be_used_by(user, subtotal)
                 if can_use:
-                    rows.append(_wallet_row(coupon, state='available', used_at=None))
+                    row = _wallet_row(coupon, state='available', used_at=None)
+                    if lines is not None:
+                        discount, reason = quote_coupon(coupon, user, lines)
+                        row.update(applies=reason is None, reason=reason, estimated_discount=discount)
+                    rows.append(row)
                 continue
             rows.append(_wallet_row(coupon, state='expired', used_at=None))
 
@@ -806,9 +863,13 @@ def _wallet_row(coupon, *, state, used_at):
         'discount_type': coupon.discount_type,
         'discount_value': coupon.discount_value,
         'minimum_order_amount': coupon.minimum_order_amount,
+        'maximum_discount': coupon.maximum_discount,
         'valid_until': coupon.valid_until,
         'state': state,
         'used_at': used_at,
+        'applies': None,
+        'reason': None,
+        'estimated_discount': None,
     }
 
 
@@ -820,31 +881,37 @@ class ValidateCouponView(APIView):
         serializer = ValidateCouponSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        code = serializer.validated_data['code'].upper()
-        subtotal = serializer.validated_data.get('subtotal', 0)
-        
-        try:
-            coupon = Coupon.objects.get(code=code)
-        except Coupon.DoesNotExist:
+        data = serializer.validated_data
+        code = data['code'].strip().upper()
+        coupon = Coupon.objects.filter(code=code).first()
+        if coupon is None:
             return Response({
                 'valid': False,
                 'error': 'Invalid coupon code.'
             }, status=status.HTTP_400_BAD_REQUEST)
-        
+
         user = request.user if request.user.is_authenticated else None
-        can_use, message = coupon.can_be_used_by(user, subtotal)
-        
-        if not can_use:
+        scope = coupon_scope(coupon)
+        item_ids = data.get('item_ids')
+        if item_ids is None and not any(scope):
+            # Older apps send only the subtotal of the lines they selected.
+            subtotal = data.get('subtotal') or ZERO
+            can_use, error = coupon.can_be_used_by(user, subtotal)
+            discount_amount = coupon.calculate_discount(subtotal) if can_use and subtotal else ZERO
+            error = None if can_use else error
+        else:
+            lines = cart_lines(request, item_ids)
+            discount_amount, error = quote_coupon(coupon, user, lines, scope)
+
+        if error:
             return Response({
                 'valid': False,
-                'error': message
+                'error': error
             }, status=status.HTTP_400_BAD_REQUEST)
-        
-        discount_amount = coupon.calculate_discount(subtotal) if subtotal else 0
-        
+
         return Response({
             'valid': True,
-            'message': message,
+            'message': 'Coupon is valid!',
             'coupon': {
                 'code': coupon.code,
                 'name': coupon.name,
@@ -861,52 +928,40 @@ class ApplyCouponToCartView(APIView):
     """Apply coupon to current cart and return updated totals."""
     permission_classes = [AllowAny]
 
-    def get_cart(self, request):
-        if request.user.is_authenticated:
-            return Cart.objects.filter(user=request.user).first()
-        session_key = request.session.session_key
-        if session_key:
-            return Cart.objects.filter(session_key=session_key).first()
-        return None
-
     def post(self, request):
         serializer = ApplyCouponSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        code = serializer.validated_data['code'].upper()
-        cart = self.get_cart(request)
-        
-        if not cart or not cart.items.exists():
+        code = serializer.validated_data['code'].strip().upper()
+        lines = cart_lines(request)
+        if not lines:
             return Response({
                 'error': 'Cart is empty'
             }, status=status.HTTP_400_BAD_REQUEST)
-        
-        try:
-            coupon = Coupon.objects.get(code=code)
-        except Coupon.DoesNotExist:
+
+        coupon = Coupon.objects.filter(code=code).first()
+        if coupon is None:
             return Response({
                 'valid': False,
                 'error': 'Invalid coupon code.'
             }, status=status.HTTP_400_BAD_REQUEST)
-        
+
         user = request.user if request.user.is_authenticated else None
-        can_use, message = coupon.can_be_used_by(user, cart.subtotal)
-        
-        if not can_use:
+        discount_amount, error = quote_coupon(coupon, user, lines)
+        if error:
             return Response({
                 'valid': False,
-                'error': message
+                'error': error
             }, status=status.HTTP_400_BAD_REQUEST)
-        
-        discount_amount = coupon.calculate_discount(cart.subtotal)
-        
+
+        subtotal = sum((line.total_price for line in lines), ZERO)
         return Response({
             'valid': True,
             'message': f'Coupon "{coupon.code}" applied successfully!',
             'coupon': CouponSerializer(coupon).data,
-            'cart_subtotal': str(cart.subtotal),
+            'cart_subtotal': str(subtotal),
             'discount_amount': str(discount_amount),
-            'total_after_discount': str(cart.subtotal - discount_amount)
+            'total_after_discount': str(subtotal - discount_amount)
         })
 
 

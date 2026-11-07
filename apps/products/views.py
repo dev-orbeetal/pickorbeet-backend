@@ -3,7 +3,7 @@ Views for products app.
 """
 import re
 import uuid
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from rest_framework import generics, status, filters
 from rest_framework.exceptions import ValidationError
@@ -1311,6 +1311,20 @@ def _official_badge_error(field):
     return 'Choose a color for the official badge.'
 
 
+DELIVERY_FIELDS = ('delivery_charge_inside_dhaka', 'delivery_charge_outside_dhaka')
+MAX_DELIVERY_CHARGE = Decimal('10000')
+
+
+def _clean_delivery_charge(value):
+    try:
+        amount = Decimal(str(value).strip())
+    except (InvalidOperation, ValueError):
+        return None
+    if not amount.is_finite() or amount < 0 or amount > MAX_DELIVERY_CHARGE:
+        return None
+    return amount.quantize(Decimal('0.01'))
+
+
 class PublicStoreSettingsView(APIView):
     """Public endpoint for client to fetch store settings (no auth required)."""
     permission_classes = [AllowAny]
@@ -1332,6 +1346,8 @@ class PublicStoreSettingsView(APIView):
             'official_badge_size': settings.official_badge_size,
             'official_badge_color': settings.official_badge_color,
             'official_badge_position': settings.official_badge_position,
+            'delivery_charge_inside_dhaka': settings.delivery_charge_inside_dhaka,
+            'delivery_charge_outside_dhaka': settings.delivery_charge_outside_dhaka,
         })
 
 
@@ -1355,7 +1371,7 @@ class StoreSettingsView(APIView):
         data = {field: getattr(settings, field) for field in self.SETTINGS_FIELDS}
         data['logo'] = _logo_url(settings, request)
         data['default_directory_banner'] = _directory_banner_url(settings, request)
-        for field in self.BADGE_FIELDS:
+        for field in (*self.BADGE_FIELDS, *DELIVERY_FIELDS):
             data[field] = getattr(settings, field)
         return data
 
@@ -1366,6 +1382,12 @@ class StoreSettingsView(APIView):
 
     def patch(self, request):
         from .models import StoreSettings
+        charges = [field for field in DELIVERY_FIELDS if field in request.data]
+        if charges and not request.user.is_super_admin():
+            return Response(
+                {'detail': 'Only a super admin can change delivery charges.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         settings = StoreSettings.get_settings()
         
         updated = False
@@ -1384,6 +1406,15 @@ class StoreSettingsView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             setattr(settings, field, cleaned)
+            updated = True
+        for field in charges:
+            amount = _clean_delivery_charge(request.data.get(field))
+            if amount is None:
+                return Response(
+                    {'detail': 'Enter a delivery charge between 0 and 10,000 taka.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            setattr(settings, field, amount)
             updated = True
         if 'logo' in request.FILES:
             settings.logo = request.FILES['logo']

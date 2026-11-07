@@ -4,7 +4,7 @@ Admin configuration for courier shipments.
 from django.contrib import admin, messages
 from django.utils.html import format_html
 
-from .models import Shipment, ShipmentEvent
+from .models import Shipment, ShipmentEvent, ShipmentSyncRun, SteadfastPoliceStation
 from .services import ShipmentError, refresh_shipment, status_group
 
 GROUP_COLORS = {
@@ -82,8 +82,8 @@ class ShipmentAdmin(admin.ModelAdmin):
             'fields': ('status', 'status_message', 'status_updated_at', 'last_checked_at'),
         }),
         ('Recipient and cash', {
-            'fields': ('recipient_name', 'recipient_phone', 'recipient_address', 'cod_amount',
-                       'delivery_charge', 'note'),
+            'fields': ('recipient_name', 'recipient_phone', 'recipient_address', 'police_station',
+                       'cod_amount', 'courier_cod_amount', 'delivery_charge', 'note'),
         }),
         ('Booking', {
             'fields': ('booked_at', 'booked_by', 'raw_response', 'created_at', 'updated_at'),
@@ -116,6 +116,29 @@ class ShipmentEventAdmin(admin.ModelAdmin):
     search_fields = ['shipment__order__order_number', 'shipment__tracking_code', 'idempotency_key']
     readonly_fields = ['shipment', 'source', 'status', 'message', 'idempotency_key', 'payload',
                        'occurred_at', 'created_at']
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(SteadfastPoliceStation)
+class SteadfastPoliceStationAdmin(admin.ModelAdmin):
+    list_display = ['name', 'district_name', 'id', 'is_active', 'refreshed_at']
+    list_filter = ['is_active', 'district_name']
+    search_fields = ['name', 'district_name']
+    readonly_fields = ['id', 'name', 'district_id', 'district_name', 'name_key', 'district_key',
+                       'is_active', 'raw', 'refreshed_at']
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(ShipmentSyncRun)
+class ShipmentSyncRunAdmin(admin.ModelAdmin):
+    list_display = ['started_at', 'trigger', 'checked', 'changed', 'failed', 'error_code', 'finished_at']
+    list_filter = ['trigger', 'error_code']
+    readonly_fields = ['trigger', 'started_at', 'finished_at', 'checked', 'changed', 'failed',
+                       'error_code', 'error']
 
     def has_add_permission(self, request):
         return False

@@ -23,6 +23,10 @@ sslcommerz-lib==1.0
 # Barcode Generation
 python-barcode==0.15.1
 
+# Invoice PDF (uharfbuzz shapes Bangla text; fonts ship in apps/orders/fonts)
+fpdf2==2.8.9
+uharfbuzz==0.57.0
+
 # PDF Generation for Memos/Vouchers
 # reportlab - temporarily removed due to Python 3.13 compatibility
 # xhtml2pdf==0.2.11

@@ -1,4 +1,4 @@
-import { baseApi } from './baseApi';
+import { baseApi, OVERRIDE_EXISTING } from './baseApi';
 
 export const authApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
@@ -25,7 +25,7 @@ export const authApi = baseApi.injectEndpoints({
       providesTags: ['Auth'],
     }),
   }),
-  overrideExisting: false,
+  overrideExisting: OVERRIDE_EXISTING,
 });
 
 export const {

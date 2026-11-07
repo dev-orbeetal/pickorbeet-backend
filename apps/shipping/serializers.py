@@ -3,8 +3,10 @@ Serializers for courier shipments.
 """
 from rest_framework import serializers
 
+from core.mailer import track_url
+
 from .models import Shipment, ShipmentEvent
-from .services import is_final, seconds_until_refresh, status_group
+from .services import cod_mismatch, is_final, portal_url_for, seconds_until_refresh, status_group
 
 STAFF_ROLES = {'seller', 'accountant', 'super_admin'}
 
@@ -52,12 +54,26 @@ class ShipmentSerializer(serializers.ModelSerializer):
 
 class AdminShipmentSerializer(ShipmentSerializer):
     booked_by_name = serializers.CharField(source='booked_by.full_name', read_only=True, default=None)
+    police_station_name = serializers.CharField(source='police_station.name', read_only=True, default=None)
+    portal_url = serializers.SerializerMethodField()
+    track_page_url = serializers.SerializerMethodField()
+    cod_mismatch = serializers.SerializerMethodField()
 
     class Meta(ShipmentSerializer.Meta):
         fields = ShipmentSerializer.Meta.fields + [
-            'invoice', 'recipient_name', 'recipient_phone', 'recipient_address',
-            'delivery_charge', 'note', 'booked_by', 'booked_by_name',
+            'invoice', 'recipient_name', 'recipient_phone', 'recipient_address', 'police_station_name',
+            'courier_cod_amount', 'cod_mismatch', 'delivery_charge', 'note', 'booked_by', 'booked_by_name',
+            'portal_url', 'track_page_url',
         ]
+
+    def get_cod_mismatch(self, obj):
+        return cod_mismatch(obj)
+
+    def get_portal_url(self, obj):
+        return portal_url_for(obj) or None
+
+    def get_track_page_url(self, obj):
+        return track_url(obj.order) if obj.order_id else None
 
 
 class AdminShipmentOrderSummarySerializer(serializers.Serializer):
@@ -125,6 +141,8 @@ def serialize_shipment(order, context=None):
 
 class BookShipmentSerializer(serializers.Serializer):
     note = serializers.CharField(required=False, allow_blank=True, max_length=500)
+    recipient_address = serializers.CharField(required=False, allow_blank=True, max_length=250)
+    police_station_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
 
 
 class ImportShipmentPreviewSerializer(serializers.Serializer):

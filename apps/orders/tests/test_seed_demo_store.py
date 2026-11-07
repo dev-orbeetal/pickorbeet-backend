@@ -33,7 +33,7 @@ class SeedDemoStoreTests(ShopTestCase):
             'cancelled_approval_pending', 'unknown_approval_pending',
         })
         design = Order.objects.get(order_number='PO1234567')
-        self.assertEqual(str(design.total), '5657.00')
+        self.assertEqual(str(design.total), '5667.00')
         self.assertEqual(design.shipment.tracking_code, 'SF123456789BD')
 
     @override_settings(DEBUG=True)

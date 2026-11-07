@@ -3,6 +3,7 @@ import logging
 from datetime import timedelta
 
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 
 from core.mailer import (
@@ -80,7 +81,8 @@ def _expected_delivery(order):
     return format_when(start + timedelta(days=days))
 
 
-def _recipient(order):
+def order_email(order):
+    """Where order mail goes. In-shop and external orders get none."""
     if order.order_type != 'online':
         return ''
     return order.customer_email or ''
@@ -102,11 +104,28 @@ def send_order_confirmed_email(order):
             'details_url': frontend('orders'),
             **_money(order),
         },
-        _recipient(order),
+        order_email(order),
     )
 
 
-def send_order_on_the_way_email(order):
+def _invoice_attachment(order):
+    """The PDF as a mail attachment, or nothing if it cannot be built. The mail goes out either way."""
+    from .invoice import build_invoice_pdf, invoice_filename
+
+    try:
+        return [(invoice_filename(order), build_invoice_pdf(order), 'application/pdf')]
+    except Exception:
+        logger.exception('Invoice PDF failed for %s', order.pk)
+        return []
+
+
+def _invoice_link(order):
+    from .invoice import invoice_available, invoice_url
+
+    return invoice_url(order) if invoice_available(order) else ''
+
+
+def send_order_on_the_way_email(order, attach_invoice=False):
     number = display_order_number(order)
     out = order.order_status == 'out_for_delivery'
     active = 3 if out else 2
@@ -134,12 +153,14 @@ def send_order_on_the_way_email(order):
             'steps': build_tracker(active, _shipment_dates(order)),
             'items': _order_lines(order),
             'track_url': track_url(order),
+            'invoice_url': _invoice_link(order),
         },
-        _recipient(order),
+        order_email(order),
+        attachments=_invoice_attachment(order) if attach_invoice else (),
     )
 
 
-def send_order_delivered_email(order):
+def send_order_delivered_email(order, attach_invoice=False):
     number = display_order_number(order)
     lines = _order_lines(order)
     review = lines[0]['url'] if lines else frontend('orders')
@@ -157,14 +178,41 @@ def send_order_delivered_email(order):
             'buy_url': review,
             'explore_url': frontend('products'),
         },
-        _recipient(order),
+        order_email(order),
+        attachments=_invoice_attachment(order) if attach_invoice else (),
     )
+
+
+def send_invoice_email(order):
+    """The invoice on request, for example when staff resend it. Mail errors are raised."""
+    number = display_order_number(order)
+    sent = send_branded(
+        f'Invoice for order {number}',
+        'emails/order_invoice.html',
+        {
+            'preheader': f'The invoice for {number} is attached.',
+            'footer_mode': 'support',
+            'support_line': 'Keep this invoice for warranty claims, returns and exchanges.',
+            'order_number': number,
+            'meta_label': 'Order Date',
+            'meta_value': format_when(order.created_at),
+            'items': _order_lines(order),
+            'invoice_url': _invoice_link(order),
+            **_money(order),
+        },
+        order_email(order),
+        attachments=_invoice_attachment(order),
+    )
+    if sent:
+        type(order).objects.filter(pk=order.pk, invoice_emailed_at__isnull=True).update(
+            invoice_emailed_at=timezone.now())
+    return sent
 
 
 def notify_order_placed_email(order):
     """Checkout hook. A mail failure must not undo the order."""
     try:
-        if not _recipient(order):
+        if not order_email(order):
             return False
         return send_order_confirmed_email(order)
     except Exception:
@@ -172,19 +220,65 @@ def notify_order_placed_email(order):
         return False
 
 
-def notify_order_status_email(order):
-    """Shipment hook. Confirmed and processing stay in the inbox only."""
-    try:
-        if not _recipient(order):
-            return False
-        if order.order_status in ('shipped', 'out_for_delivery'):
-            return send_order_on_the_way_email(order)
-        if order.order_status == 'delivered':
-            return send_order_delivered_email(order)
+EMAILED_STATUSES = {'shipped', 'out_for_delivery', 'delivered'}
+
+
+def _claim_invoice(order):
+    """True for the one status mail that carries the invoice: the first one after shipping."""
+    from .invoice import invoice_available
+
+    if not invoice_available(order):
         return False
+    return type(order).objects.filter(pk=order.pk, invoice_emailed_at__isnull=True).update(
+        invoice_emailed_at=timezone.now()) == 1
+
+
+def send_order_status_email(order):
+    """Confirmed and processing stay in the inbox only. Mail errors are raised for the task to retry."""
+    if not order_email(order) or order.order_status not in EMAILED_STATUSES:
+        return False
+    attach = _claim_invoice(order)
+    try:
+        if order.order_status == 'delivered':
+            return send_order_delivered_email(order, attach_invoice=attach)
+        return send_order_on_the_way_email(order, attach_invoice=attach)
+    except Exception:
+        if attach:
+            # The retry claims it again, so the invoice is not lost with the failed mail.
+            type(order).objects.filter(pk=order.pk).update(invoice_emailed_at=None)
+        raise
+
+
+def notify_order_status_email(order):
+    try:
+        return send_order_status_email(order)
     except Exception:
         logger.exception('Order status email failed for %s', order.pk)
         return False
+
+
+def queue_order_status_email(order):
+    """Mail after the status change commits, so a webhook or staff request is not held up by SMTP.
+
+    When the queue is down the mail is sent in place, as it was before the queue existed.
+    """
+    if order.order_status not in EMAILED_STATUSES or not order_email(order):
+        return
+    order_id, status = str(order.pk), order.order_status
+
+    def enqueue():
+        from .models import Order
+        from .tasks import send_order_status_email_task
+
+        try:
+            send_order_status_email_task.delay(order_id, status)
+        except Exception:
+            logger.warning('Could not queue the %s email for %s; sending it now', status, order_id, exc_info=True)
+            fresh = Order.objects.filter(pk=order_id).first()
+            if fresh is not None and fresh.order_status == status:
+                notify_order_status_email(fresh)
+
+    transaction.on_commit(enqueue)
 
 
 def send_abandoned_cart_email(cart):

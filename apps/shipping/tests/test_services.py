@@ -44,7 +44,7 @@ class HelperTests(SimpleTestCase):
         self.assertEqual(normalize_status('Canceled'), 'cancelled')
 
 
-@override_settings(STEADFAST_SYNC_ORDER_STATUS=True, STEADFAST_TRACKING_URL='https://steadfast.com.bd/t/{code}')
+@override_settings(STEADFAST_SYNC_ORDER_STATUS=True)
 class BookShipmentTests(ShopTestCase):
     def setUp(self):
         super().setUp()
@@ -58,14 +58,14 @@ class BookShipmentTests(ShopTestCase):
 
         self.assertEqual(shipment.consignment_id, '1424107')
         self.assertEqual(shipment.tracking_code, 'SF123456789BD')
-        self.assertEqual(shipment.tracking_url, 'https://steadfast.com.bd/t/SF123456789BD')
+        self.assertEqual(shipment.tracking_url, 'https://steadfast.com.bd/t/a1b2c3d4')
         self.assertEqual(shipment.status, 'in_review')
         self.assertEqual(shipment.booked_by, self.staff)
         sent = client.created[0]
         self.assertEqual(sent['invoice'], self.order.order_number)
         self.assertEqual(sent['recipient_phone'], '01712345678')
-        self.assertEqual(sent['recipient_address'], 'House 12, Road 4, Malibagh, Dhaka, 1212')
-        self.assertEqual(sent['cod_amount'], 1659)  # 1599 + 60 delivery, unpaid
+        self.assertEqual(sent['recipient_address'], 'House 12, Road 4, Malibagh, Gulshan Model Town, Dhaka, 1212')
+        self.assertEqual(sent['cod_amount'], 1669)  # 1599 + 70 delivery, unpaid
         self.assertEqual(sent['note'], 'Handle with care')
 
         self.order.refresh_from_db()
@@ -163,7 +163,7 @@ class RefreshShipmentTests(ShopTestCase):
     def test_unchanged_status_records_no_event(self):
         self.age(120)
         before = ShipmentEvent.objects.count()
-        _, changed = refresh_shipment(self.shipment, client=FakeClient(status='in_review'))
+        _, changed = refresh_shipment(self.shipment, client=FakeClient(status='in_review', trackings=[]))
         self.assertFalse(changed)
         self.assertEqual(ShipmentEvent.objects.count(), before)
 

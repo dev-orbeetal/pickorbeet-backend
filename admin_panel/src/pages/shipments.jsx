@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
-  Download, ExternalLink, Eye, RefreshCw, Search, Truck, Wallet, X,
+  Download, Eye, RefreshCw, Search, Truck, Wallet, X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '@/components/layout/AdminLayout';
 import LoadError from '@/components/ui/LoadError';
 import Pager from '@/components/ui/Pager';
-import { courierBadgeClass } from '@/components/orders/SteadfastCard';
+import { TrackingLinks, courierBadgeClass } from '@/components/orders/SteadfastCard';
 import { useGetOrdersQuery } from '@/store/api/ordersApi';
 import {
   useBulkRefreshShipmentsMutation,
@@ -31,6 +31,8 @@ const STATUS_GROUPS = [
 
 const OPEN_GROUPS = new Set(['in_review', 'pending', 'hold', 'unknown']);
 
+const LIVE_POLLING = { pollingInterval: 30000, skipPollingIfUnfocused: true };
+
 function money(value) {
   const amount = parseFloat(value);
   if (Number.isNaN(amount)) return '—';
@@ -40,6 +42,27 @@ function money(value) {
 function when(value) {
   if (!value) return '—';
   return new Date(value).toLocaleString();
+}
+
+function SyncHealth({ sync }) {
+  const minutes = Math.round((sync.interval_seconds || 120) / 60);
+  const lastRun = sync.last_run_at
+    ? `Last check ${when(sync.last_run_at)}: ${sync.last_run_checked} checked, ${sync.last_run_changed} changed`
+      + (sync.last_run_failed ? `, ${sync.last_run_failed} failed` : '')
+    : 'No automatic check has run yet';
+  return (
+    <div
+      className={`mb-6 rounded-xl px-4 py-3 text-sm ${
+        sync.warning ? 'bg-amber-50 text-amber-900 border border-amber-200' : 'bg-gray-50 text-gray-600'
+      }`}
+    >
+      {sync.warning && <p className="font-medium">{sync.warning}</p>}
+      <p>
+        Open parcels are checked with Steadfast every {minutes} minute{minutes === 1 ? '' : 's'}. {lastRun}.
+        {' '}Last webhook: {sync.last_webhook_at ? when(sync.last_webhook_at) : 'none yet'}.
+      </p>
+    </div>
+  );
 }
 
 export default function ShipmentsPage() {
@@ -80,14 +103,18 @@ export default function ShipmentsPage() {
   }, [filters.booked_from, filters.booked_to]);
 
   const { data: balance, isFetching: balanceLoading, refetch: refetchBalance } = useGetSteadfastBalanceQuery();
-  const { data: summary, isError: summaryError, refetch: refetchSummary } = useGetShipmentSummaryQuery(summaryParams);
+  const { data: summary, isError: summaryError, refetch: refetchSummary } = useGetShipmentSummaryQuery(
+    summaryParams,
+    LIVE_POLLING,
+  );
   const {
     data: shipmentsData,
     isLoading,
     isError,
     refetch,
-  } = useGetShipmentsQuery(queryParams);
-  const [refreshShipment, { isLoading: refreshing }] = useRefreshShipmentMutation();
+  } = useGetShipmentsQuery(queryParams, LIVE_POLLING);
+  const [refreshShipment] = useRefreshShipmentMutation();
+  const [refreshingIds, setRefreshingIds] = useState(() => new Set());
   const [bulkRefresh, { isLoading: bulkRefreshing }] = useBulkRefreshShipmentsMutation();
   const [previewImport, { isLoading: previewing }] = usePreviewShipmentImportMutation();
   const [importShipment, { isLoading: importing }] = useImportShipmentMutation();
@@ -143,16 +170,21 @@ export default function ShipmentsPage() {
   };
 
   const handleRefresh = async (id) => {
+    if (refreshingIds.has(id)) return;
+    setRefreshingIds((current) => new Set(current).add(id));
     try {
       const updated = await refreshShipment(id).unwrap();
       toast.success('Status refreshed');
-      if (selected?.id === id) {
-        setSelected(updated);
-        setDetail(updated);
-      }
-      refetchSummary();
+      setSelected((current) => (current?.id === id ? updated : current));
+      setDetail((current) => (current?.id === id ? updated : current));
     } catch (error) {
       toast.error(error?.data?.error || 'Refresh failed');
+    } finally {
+      setRefreshingIds((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
     }
   };
 
@@ -167,8 +199,6 @@ export default function ShipmentsPage() {
     try {
       const result = await bulkRefresh({ ids: openIds, limit: openIds.length, pause: 0.2 }).unwrap();
       toast.success(`Checked ${result.checked}: ${result.changed} changed, ${result.failed} failed`);
-      refetch();
-      refetchSummary();
     } catch (error) {
       toast.error(error?.data?.error || 'Bulk refresh failed');
     }
@@ -243,6 +273,8 @@ export default function ShipmentsPage() {
           </button>
         </div>
       </div>
+
+      {summary?.sync && <SyncHealth sync={summary.sync} />}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 mb-6">
         <div className="card p-4 sm:col-span-2 xl:col-span-1">
@@ -357,7 +389,14 @@ export default function ShipmentsPage() {
                           {row.status_label || row.status}
                         </span>
                       </td>
-                      <td className="px-4 py-3">{money(row.cod_amount)}</td>
+                      <td className="px-4 py-3">
+                        {money(row.cod_amount)}
+                        {row.cod_mismatch && (
+                          <span className="block text-xs text-amber-700" title="Steadfast's amount differs from the order">
+                            Steadfast: {money(row.courier_cod_amount)}
+                          </span>
+                        )}
+                      </td>
                       <td className="px-4 py-3">{row.delivery_charge != null ? money(row.delivery_charge) : '—'}</td>
                       <td className="px-4 py-3 text-xs text-gray-600">{when(row.booked_at)}</td>
                       <td className="px-4 py-3 text-xs text-gray-600">{when(row.last_checked_at)}</td>
@@ -374,11 +413,11 @@ export default function ShipmentsPage() {
                           <button
                             type="button"
                             onClick={() => handleRefresh(row.id)}
-                            disabled={refreshing}
-                            className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg"
+                            disabled={refreshingIds.has(row.id)}
+                            className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg disabled:opacity-60"
                             title="Refresh status"
                           >
-                            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+                            <RefreshCw className={`w-4 h-4 ${refreshingIds.has(row.id) ? 'animate-spin' : ''}`} />
                           </button>
                         </div>
                       </td>
@@ -432,6 +471,12 @@ export default function ShipmentsPage() {
                   <span className="text-gray-500">Cash to collect</span>
                   <span className="font-medium">{money(detail.cod_amount)}</span>
                 </div>
+                {detail.cod_mismatch && (
+                  <p className="text-amber-800 bg-amber-50 rounded-xl px-3 py-2">
+                    Steadfast will collect {money(detail.courier_cod_amount)}, but this order needs{' '}
+                    {money(detail.cod_amount)}. The amount was changed in the Steadfast portal.
+                  </p>
+                )}
                 <div className="flex justify-between gap-3">
                   <span className="text-gray-500">Courier charge</span>
                   <span className="font-medium">{detail.delivery_charge != null ? money(detail.delivery_charge) : '—'}</span>
@@ -444,19 +489,14 @@ export default function ShipmentsPage() {
               </div>
 
               <div className="flex flex-wrap gap-2">
-                {detail.tracking_url && (
-                  <a href={detail.tracking_url} target="_blank" rel="noreferrer" className="btn btn-secondary text-sm">
-                    <ExternalLink className="w-4 h-4 mr-1.5" />
-                    Open tracking
-                  </a>
-                )}
+                <TrackingLinks shipment={detail} />
                 <button
                   type="button"
                   onClick={() => handleRefresh(detail.id)}
-                  disabled={refreshing}
+                  disabled={refreshingIds.has(detail.id)}
                   className="btn btn-secondary text-sm"
                 >
-                  <RefreshCw className={`w-4 h-4 mr-1.5 ${refreshing ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`w-4 h-4 mr-1.5 ${refreshingIds.has(detail.id) ? 'animate-spin' : ''}`} />
                   Refresh
                 </button>
                 <button

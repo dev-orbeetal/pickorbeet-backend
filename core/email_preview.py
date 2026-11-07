@@ -67,9 +67,9 @@ def _confirmed(motion):
         'meta_value': '20 Oct 2026, 10:24 AM',
         'items': [SAMPLE_ITEM],
         'subtotal': '৳1,080',
-        'delivery': '৳60',
+        'delivery': '৳70',
         'discount': '',
-        'total': '৳1,140',
+        'total': '৳1,150',
         'details_url': frontend('orders'),
     }, motion)
 

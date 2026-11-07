@@ -1,4 +1,4 @@
-import { baseApi } from './baseApi';
+import { baseApi, OVERRIDE_EXISTING } from './baseApi';
 
 export const productsApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
@@ -322,7 +322,7 @@ export const productsApi = baseApi.injectEndpoints({
       invalidatesTags: ['HomepageSections'],
     }),
   }),
-  overrideExisting: false,
+  overrideExisting: OVERRIDE_EXISTING,
 });
 
 export const {

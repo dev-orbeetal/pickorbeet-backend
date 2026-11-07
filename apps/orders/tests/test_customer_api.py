@@ -36,8 +36,8 @@ class DeliveryEditTests(ShopTestCase):
         self.assertEqual(body['shipping_city'], 'Chattogram')
         self.assertEqual(body['shipping_phone'], '01812345678')
         self.assertFalse(body['is_inside_dhaka'])
-        self.assertEqual(body['delivery_charge'], '120.00')
-        self.assertEqual(body['total'], '1719.00')  # 1599 + 120
+        self.assertEqual(body['delivery_charge'], '125.00')
+        self.assertEqual(body['total'], '1724.00')  # 1599 + 125
         self.assertTrue(OrderStatusHistory.objects.filter(
             order=self.order, note__icontains='Delivery details updated').exists())
 
@@ -94,9 +94,9 @@ class CheckoutSelectionTests(ShopTestCase):
     def test_cart_lines_expose_pricing_and_availability(self):
         item = self.api.get('/api/v1/orders/cart/').json()['items'][0]
         for key in ('product_slug', 'compare_price', 'discount_percentage', 'short_description',
-                    'is_out_of_stock'):
+                    'is_out_of_stock', 'max_quantity'):
             self.assertIn(key, item)
-        self.assertNotIn('stock_quantity', item)
+        self.assertEqual(item['stock_quantity'], item['max_quantity'])
         line = next(i for i in self.api.get('/api/v1/orders/cart/').json()['items']
                     if i['product_name'] == 'boAt Airdopes 141')
         self.assertEqual(line['discount_percentage'], 20)

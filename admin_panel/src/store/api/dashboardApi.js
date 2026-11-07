@@ -1,4 +1,4 @@
-import { baseApi } from './baseApi';
+import { baseApi, OVERRIDE_EXISTING } from './baseApi';
 
 export const dashboardApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
@@ -7,7 +7,7 @@ export const dashboardApi = baseApi.injectEndpoints({
       providesTags: ['Dashboard'],
     }),
   }),
-  overrideExisting: false,
+  overrideExisting: OVERRIDE_EXISTING,
 });
 
 export const { useGetDashboardStatsQuery } = dashboardApi;

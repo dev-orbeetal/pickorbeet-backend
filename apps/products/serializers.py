@@ -7,9 +7,19 @@ from rest_framework import serializers
 from .models import (
     Category, SubCategory, Product, ProductImage, ProductVideo, ProductVariant, ProductSpecification,
     ProductReview, ProductReviewImage, ContactMessage, HomepageBanner, HomepageSection,
-    HomepageSectionProduct,
+    HomepageSectionProduct, purchase_ceiling,
 )
 from .youtube import extract_youtube_id
+
+
+class LegacyStockCeilingMixin:
+    """App 1.0.5 enables buying from stock_quantity. Send the purchase ceiling in its
+    place, never the real count. Drop once 1.0.6 is widely installed."""
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data.setdefault('stock_quantity', purchase_ceiling(instance))
+        return data
 
 
 class RelativeImageField(serializers.ImageField):
@@ -239,7 +249,7 @@ class CategoryListSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'slug', 'tagline', 'image', 'banner_image', 'is_featured', 'featured_order']
 
 
-class PublicProductVariantSerializer(ProductVariantSerializer):
+class PublicProductVariantSerializer(LegacyStockCeilingMixin, ProductVariantSerializer):
     """Customer-facing variant: availability only, never stock counts."""
     availability = serializers.ReadOnlyField()
 
@@ -248,7 +258,7 @@ class PublicProductVariantSerializer(ProductVariantSerializer):
                   'is_active', 'effective_price', 'options']
 
 
-class ProductListSerializer(serializers.ModelSerializer):
+class ProductListSerializer(LegacyStockCeilingMixin, serializers.ModelSerializer):
     """Serializer for product lists (minimal data)."""
     category_name = serializers.CharField(source='category.name', read_only=True)
     subcategory_name = serializers.CharField(source='subcategory.name', read_only=True)
@@ -306,7 +316,7 @@ class ProductListSerializer(serializers.ModelSerializer):
         return review_stats(obj)['review_count']
 
 
-class ProductDetailSerializer(serializers.ModelSerializer):
+class ProductDetailSerializer(LegacyStockCeilingMixin, serializers.ModelSerializer):
     """Detailed serializer for single product view."""
     category = CategoryListSerializer(read_only=True)
     subcategory = SubCategoryListSerializer(read_only=True)

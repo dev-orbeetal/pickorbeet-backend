@@ -123,6 +123,25 @@ class CartStockValidationTests(ShopTestCase):
         self.assert_rejected(self.add(product, quantity=2), 'Insufficient stock')
         self.assertEqual(CartItem.objects.get(product=product).quantity, 2)
 
+    def test_cart_lines_carry_a_purchase_ceiling_not_the_stock(self):
+        stocked = make_product(stock=3, dealer_available=False)
+        fading = make_product(stock=1, dealer_available=False)
+        self.add(stocked)
+        self.add(fading)
+        fading.stock_quantity = 0
+        fading.save(update_fields=['stock_quantity'])
+
+        lines = {
+            line['product']: line
+            for line in self.api.get('/api/v1/orders/cart/').json()['items']
+        }
+        self.assertEqual(lines[str(stocked.id)]['max_quantity'], MAX_DEALER_QUANTITY)
+        self.assertEqual(lines[str(stocked.id)]['stock_quantity'], MAX_DEALER_QUANTITY)
+        self.assertFalse(lines[str(stocked.id)]['is_out_of_stock'])
+        self.assertEqual(lines[str(fading.id)]['max_quantity'], 0)
+        self.assertEqual(lines[str(fading.id)]['stock_quantity'], 0)
+        self.assertTrue(lines[str(fading.id)]['is_out_of_stock'])
+
     def test_quantity_updates_are_validated(self):
         product = make_product(stock=3, dealer_available=False)
         self.add(product)
@@ -132,6 +151,21 @@ class CartStockValidationTests(ShopTestCase):
         line.refresh_from_db()
         self.assertEqual(line.quantity, 1)
         self.assertEqual(self.api.patch(url, {'quantity': 3}, format='json').status_code, 200)
+
+    def test_quantity_can_always_be_lowered(self):
+        product = make_product(stock=3, dealer_available=False)
+        self.add(product, quantity=3)
+        line = CartItem.objects.get(product=product)
+        product.stock_quantity = 0
+        product.save(update_fields=['stock_quantity'])
+        url = f'/api/v1/orders/cart/item/{line.id}/'
+
+        self.assertEqual(self.api.patch(url, {'quantity': 2}, format='json').status_code, 200)
+        self.assert_rejected(
+            self.api.patch(url, {'quantity': 3}, format='json'), 'This product is not available',
+        )
+        line.refresh_from_db()
+        self.assertEqual(line.quantity, 2)
 
     def test_checkout_rejects_stock_that_ran_out_after_adding(self):
         product = make_product(name='Fading Item', stock=2, dealer_available=False)

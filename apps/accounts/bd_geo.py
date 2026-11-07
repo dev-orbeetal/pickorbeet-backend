@@ -10,14 +10,14 @@ DHAKA_AREAS = {'dhaka', 'mirpur', 'uttara', 'gulshan', 'banani', 'dhanmondi', 'm
 
 
 def is_inside_dhaka(*, city='', district='', division=''):
-    city_l = (city or '').strip().lower()
-    district_l = (district or '').strip().lower()
-    division_l = (division or '').strip().lower()
-    return (
-        city_l in DHAKA_AREAS
-        or district_l == 'dhaka'
-        or division_l == 'dhaka'
-    )
+    """Only Dhaka district ships at the inside rate; Gazipur or Narayanganj in Dhaka division do not.
+
+    The city list is used only for old addresses that have no district.
+    """
+    district = (district or '').strip().lower()
+    if district:
+        return district == 'dhaka'
+    return (city or '').strip().lower() in DHAKA_AREAS
 
 
 def _norm(value):

@@ -9,7 +9,7 @@ from decimal import Decimal
 from urllib.parse import quote
 
 from django.conf import settings
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.utils import timezone
 from django.utils.html import strip_tags
@@ -171,18 +171,21 @@ def render_branded(template, context, *, motion=False):
     return html, plain_text(html)
 
 
-def send_branded(subject, template, context, recipient):
+def send_branded(subject, template, context, recipient, attachments=()):
+    """``attachments`` are ``(filename, content, mimetype)`` tuples."""
     if not recipient:
         return False
     html, text = render_branded(template, context, motion=False)
-    send_mail(
+    message = EmailMultiAlternatives(
         subject=subject,
-        message=text,
+        body=text,
         from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[recipient],
-        html_message=html,
-        fail_silently=False,
+        to=[recipient],
     )
+    message.attach_alternative(html, 'text/html')
+    for filename, content, mimetype in attachments:
+        message.attach(filename, content, mimetype)
+    message.send(fail_silently=False)
     return True
 
 

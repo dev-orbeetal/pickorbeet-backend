@@ -22,14 +22,13 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.accounts.models import Address, User
+from apps.orders.delivery import delivery_charge_for
 from apps.orders.models import Cart, CartItem, Coupon, CouponUsage, Order, OrderItem, OrderStatusHistory
 from apps.products.models import (
     Category, HomepageBanner, HomepageBenefit, HomepageSection, HomepageSectionProduct, Product,
     ProductImage, SubCategory,
 )
 from apps.shipping.models import Shipment, ShipmentEvent
-from apps.shipping.services import tracking_url_for
-
 ASSETS = Path(__file__).resolve().parents[2] / 'demo_assets'
 DHAKA = ZoneInfo('Asia/Dhaka')
 PASSWORD = 'Demo@12345'
@@ -637,7 +636,7 @@ class Command(BaseCommand):
         lines = [(products[sku], quantity) for sku, quantity in items]
         subtotal = sum((product.price * quantity for product, quantity in lines), Decimal('0'))
         discount = coupon.calculate_discount(subtotal) if coupon_code else Decimal('0')
-        delivery = settings.DELIVERY_CHARGE_INSIDE_DHAKA if inside_dhaka else settings.DELIVERY_CHARGE_OUTSIDE_DHAKA
+        delivery = delivery_charge_for(inside_dhaka)
 
         order = Order.objects.create(
             order_number=number,
@@ -709,7 +708,6 @@ class Command(BaseCommand):
             invoice=order.order_number,
             consignment_id=str(1424107 + index),
             tracking_code=code,
-            tracking_url=tracking_url_for(code),
             status=courier_status,
             status_message=message,
             recipient_name=order.shipping_name,

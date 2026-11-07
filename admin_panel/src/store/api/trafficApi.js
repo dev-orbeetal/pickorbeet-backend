@@ -1,4 +1,4 @@
-import { baseApi } from './baseApi';
+import { baseApi, OVERRIDE_EXISTING } from './baseApi';
 
 export const trafficApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
@@ -39,7 +39,7 @@ export const trafficApi = baseApi.injectEndpoints({
       providesTags: ['Traffic'],
     }),
   }),
-  overrideExisting: false,
+  overrideExisting: OVERRIDE_EXISTING,
 });
 
 export const {

@@ -1,4 +1,6 @@
 """Rendered mail matches the branded templates, and the send hooks fire once."""
+from unittest import mock
+
 from django.core import mail
 from django.test import RequestFactory, override_settings
 from django.http import Http404
@@ -17,7 +19,7 @@ from apps.orders.emails import (
     send_mega_sale_email,
     send_order_confirmed_email,
 )
-from apps.orders.models import Cart, CartItem
+from apps.orders.models import Cart, CartItem, Order
 from apps.orders.services import change_order_status
 from core.email_preview import email_preview
 from core.mailer import format_taka
@@ -105,8 +107,8 @@ class OrderEmailTests(ShopTestCase):
         self.assertIn('Oraimo Necklace Lite', body)
         self.assertIn('৳1,080', body)
         self.assertIn('৳1,500', body)
-        self.assertIn('৳60', body)
-        self.assertIn('৳1,140', body)
+        self.assertIn('৳70', body)
+        self.assertIn('৳1,150', body)
         self.assertIn('Order Confirmed!', body)
         self.assertNotIn('@keyframes', body)
 
@@ -129,13 +131,17 @@ class OrderEmailTests(ShopTestCase):
         self.assertEqual(mail.outbox[0].to, [customer.email])
         self.assertIn('Black | Qty: 1', html_of(mail.outbox[0]))
 
+    def change(self, order, status):
+        with self.captureOnCommitCallbacks(execute=True):
+            change_order_status(order, status)
+
     def test_status_mail_follows_the_shipment_and_skips_confirmation(self):
         user = make_user()
         order = make_order(user=user)
-        change_order_status(order, 'confirmed')
+        self.change(order, 'confirmed')
         self.assertEqual(len(mail.outbox), 0)
 
-        change_order_status(order, 'shipped')
+        self.change(order, 'shipped')
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn('on the way', mail.outbox[0].subject)
         shipped = html_of(mail.outbox[0])
@@ -143,19 +149,42 @@ class OrderEmailTests(ShopTestCase):
         self.assertIn('Track Your Order', shipped)
         self.assertNotIn('@keyframes', shipped)
 
-        change_order_status(order, 'out_for_delivery')
+        self.change(order, 'out_for_delivery')
         self.assertIn('out for delivery', mail.outbox[1].subject)
         self.assertIn('out for delivery', html_of(mail.outbox[1]).lower())
 
-        change_order_status(order, 'delivered')
+        self.change(order, 'delivered')
         delivered = html_of(mail.outbox[2])
         self.assertIn('Delivered!', delivered)
         self.assertIn('Write a Review', delivered)
 
+    def test_status_mail_waits_for_the_commit(self):
+        order = make_order(user=make_user())
+        with self.captureOnCommitCallbacks(execute=False) as callbacks:
+            change_order_status(order, 'shipped')
+        self.assertEqual(len(mail.outbox), 0)
+        callbacks[-1]()
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_a_queued_mail_for_an_older_status_is_dropped(self):
+        order = make_order(user=make_user())
+        with self.captureOnCommitCallbacks(execute=False) as callbacks:
+            change_order_status(order, 'shipped')
+        Order.objects.filter(pk=order.pk).update(order_status='cancelled')
+        callbacks[-1]()
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_mail_is_sent_in_place_when_the_queue_is_down(self):
+        order = make_order(user=make_user())
+        with mock.patch('apps.orders.tasks.send_order_status_email_task.delay', side_effect=OSError('no broker')):
+            self.change(order, 'shipped')
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('on the way', mail.outbox[0].subject)
+
     def test_in_shop_and_missing_address_do_not_send(self):
         user = make_user()
         in_shop = make_order(user=user, order_type='in_shop')
-        change_order_status(in_shop, 'shipped')
+        self.change(in_shop, 'shipped')
         self.assertFalse(notify_order_placed_email(in_shop))
         guest = make_order(user=None, guest_email='')
         self.assertFalse(notify_order_placed_email(guest))
@@ -165,7 +194,7 @@ class OrderEmailTests(ShopTestCase):
         order = make_order(user=None, guest_email='guest@example.com')
         self.assertTrue(notify_order_placed_email(order))
         self.assertEqual(mail.outbox[0].to, ['guest@example.com'])
-        change_order_status(order, 'shipped')
+        self.change(order, 'shipped')
         self.assertEqual(mail.outbox[1].to, ['guest@example.com'])
 
     def test_abandoned_cart_and_sale_are_callable_but_not_automatic(self):
@@ -206,7 +235,7 @@ class PreviewTests(ShopTestCase):
             response = email_preview(still, 'order-confirmed')
         self.assertNotContains(response, '@keyframes')
         self.assertContains(response, '#PO783256')
-        self.assertContains(response, '৳1,140')
+        self.assertContains(response, '৳1,150')
 
     def test_preview_is_hidden_outside_debug_and_rejects_unknown_slugs(self):
         request = RequestFactory().get('/emails/preview/otp/')

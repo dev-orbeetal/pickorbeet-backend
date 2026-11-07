@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Copy, ExternalLink, RefreshCw, Truck } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useGetBookingPreviewQuery } from '@/store/api/shippingApi';
 
 const BOOKABLE = ['pending', 'confirmed', 'processing', 'shipped', 'out_for_delivery'];
 
@@ -30,8 +31,155 @@ function when(value) {
   return new Date(value).toLocaleString();
 }
 
-export default function SteadfastCard({ order, onBook, onRefresh, booking, refreshing }) {
+export function TrackingLinks({ shipment }) {
+  const links = [
+    [shipment.track_page_url, 'Customer tracking page'],
+    [shipment.tracking_url, 'Open on Steadfast'],
+    [shipment.portal_url, 'Steadfast portal'],
+  ].filter(([href]) => href);
+  return links.map(([href, label]) => (
+    <a key={label} href={href} target="_blank" rel="noreferrer" className="btn btn-secondary text-sm">
+      <ExternalLink className="w-4 h-4 mr-1.5" />
+      {label}
+    </a>
+  ));
+}
+
+const MATCH_HINT = {
+  matched: 'Thana found in the customer’s address.',
+  chosen: 'Thana chosen by you.',
+  sadar: 'No thana found in the address, so the district Sadar thana is used. Check it before booking.',
+};
+
+const FIELD = 'w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500';
+
+function BookingForm({ order, onBook, booking }) {
   const [note, setNote] = useState('');
+  const [stationId, setStationId] = useState(null);
+  const [address, setAddress] = useState('');
+  const [edited, setEdited] = useState(false);
+  const { data: preview, isFetching, isError, refetch } = useGetBookingPreviewQuery(
+    { orderId: order.id, policeStationId: stationId },
+    { refetchOnMountOrArgChange: true },
+  );
+
+  useEffect(() => {
+    if (preview && !edited) setAddress(preview.recipient_address || '');
+  }, [preview, edited]);
+
+  const stations = preview?.police_stations || [];
+  const selected = stationId ?? preview?.police_station?.id ?? '';
+  const limit = preview?.address_limit || 250;
+  let hint = MATCH_HINT[preview?.police_station_match];
+  if (preview && !hint) {
+    hint = stations.length
+      ? 'No thana found. Pick one so Steadfast routes the parcel to the right area.'
+      : `Steadfast's thana list has nothing for ${preview.district || 'this district'}. Make sure the address names the district.`;
+  }
+
+  const chooseStation = (value) => {
+    setStationId(value ? Number(value) : null);
+    setEdited(false);
+  };
+
+  const book = () => {
+    if (!preview) {
+      onBook({ note: note.trim() });
+      return;
+    }
+    onBook({
+      note: note.trim(),
+      recipient_address: address.trim(),
+      police_station_id: selected || null,
+    });
+  };
+
+  return (
+    <div className="space-y-3 text-sm">
+      <p className="text-gray-600">
+        Send this parcel to Steadfast. The order is marked shipped when the consignment is created.
+      </p>
+      {isError ? (
+        <p className="text-amber-700 bg-amber-50 rounded-xl px-3 py-2">
+          Couldn’t load the booking preview. Booking still sends the order’s address.{' '}
+          <button type="button" onClick={refetch} className="underline font-medium">Try again</button>
+        </p>
+      ) : (
+        <>
+          <div>
+            <label htmlFor="steadfast-thana" className="block text-gray-500 mb-1">
+              Thana in {preview?.district || order.shipping_district || 'the district'}
+            </label>
+            <select
+              id="steadfast-thana"
+              value={selected}
+              onChange={(event) => chooseStation(event.target.value)}
+              disabled={!preview || stations.length === 0}
+              className={FIELD}
+            >
+              <option value="">No thana</option>
+              {stations.map((station) => (
+                <option key={station.id} value={station.id}>{station.name}</option>
+              ))}
+            </select>
+            {hint && (
+              <p className={`mt-1 text-xs ${preview?.police_station_match === 'matched' || preview?.police_station_match === 'chosen' ? 'text-gray-500' : 'text-amber-700'}`}>
+                {hint}
+              </p>
+            )}
+          </div>
+          <div>
+            <div className="flex justify-between text-gray-500 mb-1">
+              <label htmlFor="steadfast-address">Address sent to Steadfast</label>
+              <span className="text-xs">{address.length}/{limit}</span>
+            </div>
+            <textarea
+              id="steadfast-address"
+              value={address}
+              onChange={(event) => {
+                setAddress(event.target.value);
+                setEdited(true);
+              }}
+              rows={3}
+              maxLength={limit}
+              disabled={!preview}
+              placeholder={isFetching ? 'Loading…' : ''}
+              className={`${FIELD} resize-none`}
+            />
+            <p className="mt-1 text-xs text-gray-500">Steadfast reads the thana and district from this text.</p>
+          </div>
+          {preview?.phone_error && (
+            <p className="text-red-700 bg-red-50 rounded-xl px-3 py-2">{preview.phone_error}</p>
+          )}
+          {preview && (
+            <div className="flex justify-between gap-3">
+              <span className="text-gray-500">Cash to collect</span>
+              <span className="font-medium">{money(preview.cod_amount) || '৳0'}</span>
+            </div>
+          )}
+        </>
+      )}
+      <textarea
+        value={note}
+        onChange={(event) => setNote(event.target.value)}
+        rows={2}
+        maxLength={500}
+        placeholder="Note for the rider (optional)"
+        className={`${FIELD} resize-none`}
+      />
+      <button
+        type="button"
+        onClick={book}
+        disabled={booking || (!isError && (!preview || !address.trim() || Boolean(preview.phone_error)))}
+        className="btn btn-primary w-full"
+      >
+        {booking ? 'Booking…' : 'Book with Steadfast'}
+      </button>
+    </div>
+  );
+}
+
+export default function SteadfastCard({ order, onBook, onRefresh, booking, refreshing }) {
   const shipment = order.shipment;
   const booked = Boolean(shipment?.consignment_id || shipment?.tracking_code);
   const courierOrder = order.order_type === 'online' || order.order_type === 'external';
@@ -79,6 +227,18 @@ export default function SteadfastCard({ order, onBook, onRefresh, booking, refre
               <span className="font-medium text-gray-900">{shipment.consignment_id}</span>
             </div>
           )}
+          {shipment.police_station_name && (
+            <div className="flex justify-between gap-3">
+              <span className="text-gray-500">Thana</span>
+              <span className="font-medium text-gray-900">{shipment.police_station_name}</span>
+            </div>
+          )}
+          {shipment.recipient_address && (
+            <div>
+              <p className="text-gray-500">Address sent</p>
+              <p className="text-gray-900">{shipment.recipient_address}</p>
+            </div>
+          )}
           {shipment.status_message && (
             <p className="text-gray-700 bg-gray-50 rounded-xl px-3 py-2">{shipment.status_message}</p>
           )}
@@ -86,6 +246,13 @@ export default function SteadfastCard({ order, onBook, onRefresh, booking, refre
             <span className="text-gray-500">Cash to collect</span>
             <span className="font-medium">{money(shipment.cod_amount) || '৳0'}</span>
           </div>
+          {shipment.cod_mismatch && (
+            <p className="text-amber-800 bg-amber-50 rounded-xl px-3 py-2">
+              Steadfast will collect {money(shipment.courier_cod_amount) || '৳0'}, but this order needs{' '}
+              {money(shipment.cod_amount) || '৳0'}. The amount was changed in the Steadfast portal; fix it there
+              or update the order.
+            </p>
+          )}
           {shipment.delivery_charge != null && shipment.delivery_charge !== '' && (
             <div className="flex justify-between gap-3">
               <span className="text-gray-500">Courier charge</span>
@@ -114,17 +281,7 @@ export default function SteadfastCard({ order, onBook, onRefresh, booking, refre
             <p className="text-gray-600"><span className="text-gray-500">Note: </span>{shipment.note}</p>
           )}
           <div className="flex flex-wrap gap-2 pt-1">
-            {shipment.tracking_url && (
-              <a
-                href={shipment.tracking_url}
-                target="_blank"
-                rel="noreferrer"
-                className="btn btn-secondary text-sm"
-              >
-                <ExternalLink className="w-4 h-4 mr-1.5" />
-                Open tracking
-              </a>
-            )}
+            <TrackingLinks shipment={shipment} />
             <button type="button" onClick={onRefresh} disabled={refreshing} className="btn btn-secondary text-sm">
               <RefreshCw className={`w-4 h-4 mr-1.5 ${refreshing ? 'animate-spin' : ''}`} />
               {refreshing ? 'Checking…' : 'Refresh status'}
@@ -154,22 +311,7 @@ export default function SteadfastCard({ order, onBook, onRefresh, booking, refre
           )}
         </div>
       ) : canBook ? (
-        <div className="space-y-3">
-          <p className="text-sm text-gray-600">
-            Send this parcel to Steadfast. The order is marked shipped when the consignment is created.
-          </p>
-          <textarea
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            rows={2}
-            maxLength={500}
-            placeholder="Note for the rider (optional)"
-            className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
-          />
-          <button type="button" onClick={() => onBook(note.trim())} disabled={booking} className="btn btn-primary w-full">
-            {booking ? 'Booking…' : 'Book with Steadfast'}
-          </button>
-        </div>
+        <BookingForm order={order} onBook={onBook} booking={booking} />
       ) : (
         <p className="text-sm text-gray-500">
           {!courierOrder

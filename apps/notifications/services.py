@@ -162,6 +162,20 @@ def notify_support_reply(recipient, *, message_id, title, body, conversation_id)
     )
 
 
+def notify_courier_alert(shipment, *, title, body):
+    """A parcel needs a person: Steadfast cancelled it or delivered only part of it."""
+    order = shipment.order
+    for user in staff_users(STAFF_PAYMENT):
+        _create(
+            user,
+            kind=f'shipment.{shipment.status}',
+            title=title,
+            body=body,
+            data=_order_data(order, 'admin_order'),
+            dedupe_key=f'shipment:{shipment.pk}:{shipment.status}',
+        )
+
+
 def notify_refund_requested(refund):
     order = refund.payment.order
     exclude = [refund.requested_by_id] if refund.requested_by_id else []

@@ -1,0 +1,22 @@
+# Install once on the VPS:
+#   cp deploy/systemd/pickorbeet-celery-beat.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now pickorbeet-celery-beat
+# Run exactly one beat. It only queues the jobs in CELERY_BEAT_SCHEDULE
+# (Steadfast sync every 2 minutes, police stations daily); pickorbeet-celery runs them.
+[Unit]
+Description=Celery beat for PickOrbeet scheduled jobs
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+User=www
+Group=www
+WorkingDirectory=/www/wwwroot/pickorbeet-backend
+# The schedule file lives outside the checkout so it never shows up in git status.
+StateDirectory=pickorbeet-celery-beat
+ExecStart=/www/wwwroot/pickorbeet-backend/venv/bin/python3 -m celery -A core beat --loglevel=info --schedule=/var/lib/pickorbeet-celery-beat/schedule
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,4 +1,4 @@
-import { baseApi } from './baseApi';
+import { baseApi, OVERRIDE_EXISTING } from './baseApi';
 
 export const geoApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
@@ -18,7 +18,7 @@ export const geoApi = baseApi.injectEndpoints({
       }),
     }),
   }),
-  overrideExisting: false,
+  overrideExisting: OVERRIDE_EXISTING,
 });
 
 export const {

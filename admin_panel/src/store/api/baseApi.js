@@ -134,4 +134,9 @@ export const baseApi = createApi({
   endpoints: () => ({}),
 });
 
+// A repeated endpoint name would keep the first file's URL. Production builds throw,
+// which fails `next build`; development only logs, because hot reload re-injects an
+// edited API file into endpoints it already registered.
+export const OVERRIDE_EXISTING = process.env.NODE_ENV === 'production' ? 'throw' : false;
+
 export default baseApi;

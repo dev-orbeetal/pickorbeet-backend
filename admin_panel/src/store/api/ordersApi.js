@@ -1,4 +1,4 @@
-import { baseApi } from './baseApi';
+import { baseApi, OVERRIDE_EXISTING } from './baseApi';
 
 export const ordersApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
@@ -77,19 +77,40 @@ export const ordersApi = baseApi.injectEndpoints({
     }),
 
     bookShipment: builder.mutation({
-      query: ({ id, note }) => ({
+      query: ({ id, ...body }) => ({
         url: `/orders/admin/${id}/shipment/`,
         method: 'POST',
-        body: note ? { note } : {},
+        body,
       }),
       invalidatesTags: (result, error, { id }) => [
         { type: 'Orders', id },
         { type: 'Orders', id: 'LIST' },
+        { type: 'Shipments', id: 'LIST' },
+        { type: 'Shipments', id: 'SUMMARY' },
         'Dashboard',
       ],
     }),
 
-    refreshShipment: builder.mutation({
+    purgeOrder: builder.mutation({
+      query: ({ id, ...body }) => ({
+        url: `/orders/admin/${id}/purge/`,
+        method: 'POST',
+        body,
+      }),
+      // The deleted order's own tag stays valid so its open page does not refetch a 404.
+      invalidatesTags: [
+        { type: 'Orders', id: 'LIST' },
+        { type: 'Shipments', id: 'LIST' },
+        { type: 'Shipments', id: 'SUMMARY' },
+        'Dashboard',
+        'Reports',
+        'Finance',
+        'Inventory',
+        'Products',
+      ],
+    }),
+
+    refreshOrderShipment: builder.mutation({
       query: (id) => ({
         url: `/orders/admin/${id}/shipment/refresh/`,
         method: 'POST',
@@ -97,7 +118,26 @@ export const ordersApi = baseApi.injectEndpoints({
       invalidatesTags: (result, error, id) => [
         { type: 'Orders', id },
         { type: 'Orders', id: 'LIST' },
+        ...(result?.shipment?.id ? [{ type: 'Shipments', id: result.shipment.id }] : []),
+        { type: 'Shipments', id: 'LIST' },
+        { type: 'Shipments', id: 'SUMMARY' },
+        'Dashboard',
       ],
+    }),
+
+    getInvoiceLink: builder.mutation({
+      query: (id) => ({
+        url: `/orders/admin/${id}/invoice/link/`,
+        method: 'POST',
+      }),
+    }),
+
+    resendInvoice: builder.mutation({
+      query: (id) => ({
+        url: `/orders/admin/${id}/invoice/resend/`,
+        method: 'POST',
+      }),
+      invalidatesTags: (result, error, id) => [{ type: 'Orders', id }],
     }),
 
     // Delivery Options
@@ -132,7 +172,7 @@ export const ordersApi = baseApi.injectEndpoints({
       invalidatesTags: ['DeliveryOptions'],
     }),
   }),
-  overrideExisting: false,
+  overrideExisting: OVERRIDE_EXISTING,
 });
 
 export const {
@@ -144,7 +184,10 @@ export const {
   useUpdateExternalOrderMutation,
   useDeleteOrderMutation,
   useBookShipmentMutation,
-  useRefreshShipmentMutation,
+  useRefreshOrderShipmentMutation,
+  usePurgeOrderMutation,
+  useGetInvoiceLinkMutation,
+  useResendInvoiceMutation,
   useGetDeliveryOptionsQuery,
   useCreateDeliveryOptionMutation,
   useUpdateDeliveryOptionMutation,

@@ -1,4 +1,4 @@
-import { baseApi } from './baseApi';
+import { baseApi, OVERRIDE_EXISTING } from './baseApi';
 
 const contactApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
@@ -29,6 +29,7 @@ const contactApi = baseApi.injectEndpoints({
       invalidatesTags: ['Contact'],
     }),
   }),
+  overrideExisting: OVERRIDE_EXISTING,
 });
 
 export const {

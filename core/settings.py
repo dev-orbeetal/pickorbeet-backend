@@ -157,6 +157,7 @@ REST_FRAMEWORK = {
         'shipment_refresh': config('SHIPMENT_REFRESH_RATE', default='10/min'),
         'device_register': config('DEVICE_REGISTER_RATE', default='30/hour'),
         'analytics_collect': config('ANALYTICS_COLLECT_RATE', default='120/min'),
+        'invoice_download': config('INVOICE_DOWNLOAD_RATE', default='30/min'),
     },
 }
 
@@ -225,6 +226,9 @@ SSLCOMMERZ_SANDBOX = config('SSLCOMMERZ_SANDBOX', default=True, cast=bool)
 # Frontend URLs - Check os.environ first for production servers
 FRONTEND_URL = os.environ.get('FRONTEND_URL') or config('FRONTEND_URL', default='https://www.pickorbeet.com')
 ADMIN_PANEL_URL = os.environ.get('ADMIN_PANEL_URL') or config('ADMIN_PANEL_URL', default='https://admin.pickorbeet.com')
+# Public origin of this Django API, used for links in mail such as the invoice download.
+# Not ADMIN_PANEL_URL: production serves the admin UI at pickorbeet.com/admin, which has no API.
+API_PUBLIC_URL = config('API_PUBLIC_URL', default='https://admin.pickorbeet.com')
 
 # Jazzmin Admin Configuration
 JAZZMIN_SETTINGS = {
@@ -335,9 +339,9 @@ JAZZMIN_UI_TWEAKS = {
     }
 }
 
-# Delivery Charge Settings
-DELIVERY_CHARGE_INSIDE_DHAKA = 60
-DELIVERY_CHARGE_OUTSIDE_DHAKA = 120
+# Delivery charges are edited in Store settings; these apply only before that row exists.
+DELIVERY_CHARGE_INSIDE_DHAKA = 70
+DELIVERY_CHARGE_OUTSIDE_DHAKA = 125
 
 # Steadfast Courier. Keys stay on the server; apps and the website never call Steadfast.
 STEADFAST_BASE_URL = config('STEADFAST_BASE_URL', default='https://portal.packzy.com/api/v1')
@@ -345,7 +349,8 @@ STEADFAST_API_KEY = config('STEADFAST_API_KEY', default='')
 STEADFAST_SECRET_KEY = config('STEADFAST_SECRET_KEY', default='')
 # Bearer token Steadfast sends to POST /api/v1/shipping/steadfast/webhook/
 STEADFAST_WEBHOOK_TOKEN = config('STEADFAST_WEBHOOK_TOKEN', default='')
-STEADFAST_TRACKING_URL = config('STEADFAST_TRACKING_URL', default='https://steadfast.com.bd/t/{code}')
+# Steadfast may also sign the body (X-Signature). Bad signatures are logged; turn this on to reject them.
+STEADFAST_WEBHOOK_REQUIRE_SIGNATURE = config('STEADFAST_WEBHOOK_REQUIRE_SIGNATURE', default=False, cast=bool)
 # Booking marks the order shipped; a confirmed courier delivery marks it delivered.
 STEADFAST_SYNC_ORDER_STATUS = config('STEADFAST_SYNC_ORDER_STATUS', default=True, cast=bool)
 
@@ -375,6 +380,24 @@ else:
     CELERY_RESULT_BACKEND = REDIS_URL
     CELERY_TASK_ALWAYS_EAGER = config('CELERY_TASK_ALWAYS_EAGER', default=False, cast=bool)
     CELERY_TASK_EAGER_PROPAGATES = True
+
+# Active parcels are checked with Steadfast this often; one checked within the min age is skipped.
+STEADFAST_SYNC_INTERVAL_SECONDS = config('STEADFAST_SYNC_INTERVAL_SECONDS', default=120, cast=int)
+STEADFAST_SYNC_MIN_AGE_SECONDS = config('STEADFAST_SYNC_MIN_AGE_SECONDS', default=90, cast=int)
+
+# Run by the pickorbeet-celery-beat service.
+CELERY_BEAT_SCHEDULE = {
+    'steadfast-sync': {
+        'task': 'apps.shipping.tasks.sync_active_shipments_task',
+        'schedule': STEADFAST_SYNC_INTERVAL_SECONDS,
+        # A run queued while the worker was down is dropped; the next one covers it.
+        'options': {'expires': STEADFAST_SYNC_INTERVAL_SECONDS},
+    },
+    'steadfast-police-stations': {
+        'task': 'apps.shipping.tasks.refresh_police_stations_task',
+        'schedule': 7 * 24 * 60 * 60,
+    },
+}
 
 # Exported PickOrbeet admin panel, served at /admin/.
 ADMIN_PANEL_DIST = BASE_DIR / 'admin_panel' / 'out'

@@ -4,16 +4,18 @@ Order domain services shared by API views, the Django admin and the courier sync
 import json
 from decimal import Decimal
 
-from django.conf import settings
+from django.core import serializers as django_serializers
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 from apps.products.costing import StockError, issue_units, restore_units
-from apps.products.models import Product, ProductVariant
+from apps.products.models import MAX_ORDER_QUANTITY, Product, ProductVariant
 from apps.products.variants import variant_options
 
-from .models import Order, OrderItem, OrderStatusHistory
+from .delivery import delivery_charge_for
+from .models import Coupon, Order, OrderDeletionLog, OrderItem, OrderStatusHistory
 
 
 class ExternalOrderUpdateError(Exception):
@@ -96,9 +98,7 @@ def update_delivery_details(order, changes, changed_by=None):
             setattr(order, field, changes[field])
 
         order.is_inside_dhaka = inside
-        order.delivery_charge = (
-            settings.DELIVERY_CHARGE_INSIDE_DHAKA if inside else settings.DELIVERY_CHARGE_OUTSIDE_DHAKA
-        )
+        order.delivery_charge = delivery_charge_for(inside)
         order.save()  # recalculates total from the new delivery charge
 
         if changed:
@@ -129,7 +129,7 @@ def find_variant(item):
 
 
 # Dealers source beyond recorded stock, so that quantity needs its own ceiling.
-MAX_DEALER_QUANTITY = 99
+MAX_DEALER_QUANTITY = MAX_ORDER_QUANTITY
 
 
 def cart_line_error(product, variant, quantity):
@@ -202,10 +202,11 @@ def reduce_stock(order, user=None):
     order.stock_reduced = True
 
 
-def restore_stock(order, user=None):
+def restore_stock(order, user=None, note=None):
     """Restore stock. Cost returns only when this order had removed it."""
     if not order.stock_reduced:
         return
+    note = note or f'Order #{order.order_number} cancelled/refunded'
     for item in order.items.select_related('product', 'variant').all():
         if item.product_id is None:
             continue
@@ -222,7 +223,7 @@ def restore_stock(order, user=None):
             quantity=item.quantity,
             cost_total=cost_total,
             order=order,
-            note=f'Order #{order.order_number} cancelled/refunded',
+            note=note,
             user=user,
         )
         if item.cost_applied:
@@ -420,8 +421,8 @@ def change_order_status(order, new_status, note='', changed_by=None):
     notify_order_status(order, history)
     if previous_payment != 'paid' and order.payment_status == 'paid':
         notify_payment_paid(order)
-    from apps.orders.emails import notify_order_status_email
-    notify_order_status_email(order)
+    from apps.orders.emails import queue_order_status_email
+    queue_order_status_email(order)
     return order
 
 
@@ -483,3 +484,77 @@ def record_online_payment(payment, outcome, *, gateway_fields=None):
             return payment
 
     raise ValueError(f'Unknown payment outcome {outcome}')
+
+
+class OrderPurgeError(Exception):
+    def __init__(self, message, code):
+        super().__init__(message)
+        self.message = message
+        self.code = code
+
+
+PURGE_REASON_MIN_LENGTH = 5
+
+
+def _order_snapshot(order):
+    """The order and every row deleted with it, as Django's JSON serializer writes them."""
+    from apps.payments.models import Refund
+
+    rows = [order, *order.items.all(), *order.status_history.all(), *order.coupon_usage.all()]
+    rows += [*order.payments.all(), *Refund.objects.filter(payment__order=order)]
+    shipment = getattr(order, 'shipment', None)
+    if shipment is not None:
+        rows += [shipment, *shipment.events.all()]
+    return json.loads(django_serializers.serialize('json', rows))
+
+
+def purge_order(order, *, confirm_number, reason, user):
+    """Delete an order for good, keeping a copy in ``OrderDeletionLog``.
+
+    Stock the order took goes back, coupon use counts drop, and its notifications
+    go. A parcel still moving at Steadfast blocks this: cancel it there first.
+    """
+    from apps.notifications.models import Notification
+    from apps.reports.models import DailySalesReport
+    from apps.reports.services import generate_daily_sales_report
+    from apps.shipping.services import is_final
+
+    reason = (reason or '').strip()
+    if (confirm_number or '').strip().upper() != order.order_number.upper():
+        raise OrderPurgeError('Type the order number exactly to confirm.', 'confirmation_mismatch')
+    if len(reason) < PURGE_REASON_MIN_LENGTH:
+        raise OrderPurgeError('Say why this order is being deleted.', 'reason_required')
+
+    with transaction.atomic():
+        locked = Order.objects.select_for_update().get(pk=order.pk)
+        shipment = getattr(locked, 'shipment', None)
+        if shipment is not None and shipment.consignment_id and not is_final(shipment.status):
+            raise OrderPurgeError(
+                'Steadfast still has this parcel. Cancel it in the Steadfast portal and refresh '
+                'its status before deleting the order.',
+                'active_parcel',
+            )
+        snapshot = _order_snapshot(locked)
+        stock_restored = locked.stock_reduced
+        restore_stock(locked, user=user, note=f'Order #{locked.order_number} deleted permanently')
+        for usage in locked.coupon_usage.all():
+            Coupon.objects.filter(pk=usage.coupon_id, times_used__gt=0).update(times_used=F('times_used') - 1)
+        log = OrderDeletionLog.objects.create(
+            order_id=locked.pk,
+            order_number=locked.order_number,
+            order_type=locked.order_type,
+            order_status=locked.order_status,
+            payment_status=locked.payment_status,
+            total=locked.total,
+            reason=reason,
+            stock_restored=stock_restored,
+            snapshot=snapshot,
+            deleted_by=user,
+            deleted_by_name=(getattr(user, 'full_name', '') or '').strip() or getattr(user, 'email', ''),
+        )
+        Notification.objects.filter(data__order_id=str(locked.pk)).delete()
+        report_date = timezone.localdate(locked.created_at)
+        locked.delete()
+        if DailySalesReport.objects.filter(date=report_date).exists():
+            generate_daily_sales_report(report_date, user=user)
+    return log

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Settings, Save, Search, MapPin, Phone, Mail, Clock, Map, Tag, Loader2, Truck, Plus, Edit, Trash2, X, Check, GripVertical, Upload, Image as ImageIcon, BadgeCheck } from 'lucide-react';
+import { Settings, Save, Search, MapPin, Phone, Mail, Clock, Map, Tag, Loader2, Truck, Plus, Trash2, X, GripVertical, Upload, Image as ImageIcon, BadgeCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '@/components/layout/AdminLayout';
 import { getMediaUrl } from '@/lib/utils';
@@ -11,12 +11,6 @@ import {
   useUpdateBannerMutation,
   useDeleteBannerMutation,
 } from '@/store/api/productsApi';
-import {
-  useGetDeliveryOptionsQuery,
-  useCreateDeliveryOptionMutation,
-  useUpdateDeliveryOptionMutation,
-  useDeleteDeliveryOptionMutation,
-} from '@/store/api/ordersApi';
 
 export default function SettingsPage() {
   const { data: settings, isLoading } = useGetStoreSettingsQuery();
@@ -31,65 +25,6 @@ export default function SettingsPage() {
   const [clearingDirectoryBanner, setClearingDirectoryBanner] = useState(false);
   const [slideForm, setSlideForm] = useState({ title: '', link: '', image: null, preview: '' });
   const [sideForm, setSideForm] = useState({ title: '', link: '', image: null, preview: '' });
-
-  // Delivery Options
-  const { data: deliveryOptionsRaw, isLoading: deliveryLoading } = useGetDeliveryOptionsQuery();
-  const [createDeliveryOption] = useCreateDeliveryOptionMutation();
-  const [updateDeliveryOption] = useUpdateDeliveryOptionMutation();
-  const [deleteDeliveryOption] = useDeleteDeliveryOptionMutation();
-
-  const deliveryOptions = Array.isArray(deliveryOptionsRaw?.results || deliveryOptionsRaw)
-    ? (deliveryOptionsRaw?.results || deliveryOptionsRaw)
-    : [];
-
-  const [deliveryForm, setDeliveryForm] = useState({ name: '', charge: '', is_active: true });
-  const [editingDelivery, setEditingDelivery] = useState(null);
-  const [showDeliveryForm, setShowDeliveryForm] = useState(false);
-
-  const handleDeliverySubmit = async (e) => {
-    e.preventDefault();
-    if (!deliveryForm.name.trim() || deliveryForm.charge === '') return;
-    try {
-      const payload = { ...deliveryForm, charge: parseFloat(deliveryForm.charge) };
-      if (editingDelivery) {
-        await updateDeliveryOption({ id: editingDelivery.id, ...payload }).unwrap();
-        toast.success('Delivery option updated');
-      } else {
-        await createDeliveryOption(payload).unwrap();
-        toast.success('Delivery option created');
-      }
-      setDeliveryForm({ name: '', charge: '', is_active: true });
-      setEditingDelivery(null);
-      setShowDeliveryForm(false);
-    } catch (err) {
-      toast.error(err?.data?.name?.[0] || err?.data?.detail || 'Failed to save delivery option');
-    }
-  };
-
-  const handleDeliveryEdit = (option) => {
-    setEditingDelivery(option);
-    setDeliveryForm({ name: option.name, charge: option.charge, is_active: option.is_active });
-    setShowDeliveryForm(true);
-  };
-
-  const handleDeliveryDelete = async (id) => {
-    if (!confirm('Delete this delivery option?')) return;
-    try {
-      await deleteDeliveryOption(id).unwrap();
-      toast.success('Delivery option deleted');
-    } catch (err) {
-      toast.error('Failed to delete');
-    }
-  };
-
-  const handleDeliveryToggle = async (option) => {
-    try {
-      await updateDeliveryOption({ id: option.id, is_active: !option.is_active }).unwrap();
-      toast.success(`${option.name} ${option.is_active ? 'disabled' : 'enabled'}`);
-    } catch (err) {
-      toast.error('Failed to update');
-    }
-  };
 
   const [formData, setFormData] = useState({
     popular_searches: '',
@@ -470,145 +405,7 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* Delivery Options */}
-          <div className="bg-white rounded-xl shadow-sm border p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                <Truck className="w-5 h-5 text-primary-600" />
-                Delivery Options
-              </h2>
-              <button
-                onClick={() => { setShowDeliveryForm(true); setEditingDelivery(null); setDeliveryForm({ name: '', charge: '', is_active: true }); }}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-primary-600 bg-primary-50 rounded-lg hover:bg-primary-100 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-                Add Option
-              </button>
-            </div>
-
-            {/* Add/Edit Form */}
-            {showDeliveryForm && (
-              <form onSubmit={handleDeliverySubmit} className="mb-4 p-4 bg-gray-50 rounded-xl border border-gray-200">
-                <div className="flex items-center gap-3 mb-3">
-                  <p className="text-sm font-medium text-gray-700">
-                    {editingDelivery ? 'Edit Delivery Option' : 'New Delivery Option'}
-                  </p>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-1">Name</label>
-                    <input
-                      type="text"
-                      value={deliveryForm.name}
-                      onChange={(e) => setDeliveryForm({ ...deliveryForm, name: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                      placeholder="Inside Dhaka"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-1">Charge (৳)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={deliveryForm.charge}
-                      onChange={(e) => setDeliveryForm({ ...deliveryForm, charge: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                      placeholder="60"
-                      required
-                    />
-                  </div>
-                  <div className="flex items-end gap-2">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={deliveryForm.is_active}
-                        onChange={(e) => setDeliveryForm({ ...deliveryForm, is_active: e.target.checked })}
-                        className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500"
-                      />
-                      <span className="text-sm text-gray-700">Active</span>
-                    </label>
-                  </div>
-                </div>
-                <div className="flex justify-end gap-2 mt-3">
-                  <button
-                    type="button"
-                    onClick={() => { setShowDeliveryForm(false); setEditingDelivery(null); }}
-                    className="px-3 py-1.5 text-sm text-gray-600 bg-white border rounded-lg hover:bg-gray-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-1.5 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700"
-                  >
-                    {editingDelivery ? 'Update' : 'Create'}
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {/* Options List */}
-            {deliveryLoading ? (
-              <div className="flex justify-center py-6">
-                <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-              </div>
-            ) : deliveryOptions.length === 0 ? (
-              <div className="text-center py-8 text-gray-400">
-                <Truck className="w-10 h-10 mx-auto mb-2 opacity-40" />
-                <p className="text-sm">No delivery options yet. Add one to get started.</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {deliveryOptions.map((opt) => (
-                  <div
-                    key={opt.id}
-                    className={`flex items-center justify-between px-4 py-3 rounded-xl border transition-all ${opt.is_active
-                        ? 'bg-white border-gray-200 hover:border-primary-200 hover:shadow-sm'
-                        : 'bg-gray-50 border-gray-100 opacity-60'
-                      }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className={`w-2 h-2 rounded-full ${opt.is_active ? 'bg-green-500' : 'bg-gray-300'}`} />
-                      <div>
-                        <p className="font-medium text-gray-900 text-sm">{opt.name}</p>
-                        <p className="text-xs text-gray-500">{opt.is_active ? 'Active' : 'Inactive'}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-lg font-bold text-primary-600">৳{parseFloat(opt.charge).toLocaleString()}</span>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => handleDeliveryToggle(opt)}
-                          className={`p-1.5 rounded-lg transition-colors ${opt.is_active
-                              ? 'text-green-600 hover:bg-green-50'
-                              : 'text-gray-400 hover:bg-gray-100'
-                            }`}
-                          title={opt.is_active ? 'Disable' : 'Enable'}
-                        >
-                          <Check className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDeliveryEdit(opt)}
-                          className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDeliveryDelete(opt.id)}
-                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            <p className="text-xs text-gray-400 mt-3">These delivery options appear during checkout for customers to choose from.</p>
-          </div>
+          <DeliveryChargesSettings settings={settings} onSave={updateSettings} />
 
           {/* Popular Searches */}
           <div className="bg-white rounded-xl shadow-sm border p-6">
@@ -776,6 +573,87 @@ export default function SettingsPage() {
         </div>
       </div>
     </AdminLayout>
+  );
+}
+
+const chargeText = (value, fallback) => String(Number(value ?? fallback));
+
+function DeliveryChargesSettings({ settings, onSave }) {
+  const savedInside = chargeText(settings?.delivery_charge_inside_dhaka, 70);
+  const savedOutside = chargeText(settings?.delivery_charge_outside_dhaka, 125);
+  const [inside, setInside] = useState(savedInside);
+  const [outside, setOutside] = useState(savedOutside);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setInside(savedInside);
+    setOutside(savedOutside);
+  }, [savedInside, savedOutside]);
+
+  const valid = (value) => value !== '' && Number(value) >= 0 && Number(value) <= 10000;
+  const changed = inside !== savedInside || outside !== savedOutside;
+
+  const save = async (event) => {
+    event.preventDefault();
+    if (!valid(inside) || !valid(outside)) {
+      toast.error('Enter a delivery charge between 0 and 10,000 taka.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave({ delivery_charge_inside_dhaka: inside, delivery_charge_outside_dhaka: outside }).unwrap();
+      toast.success('Delivery charges saved');
+    } catch (err) {
+      toast.error(err?.data?.detail || 'Failed to save delivery charges');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const field = (label, hint, value, onChange) => (
+    <label className="block">
+      <span className="block text-sm font-medium text-gray-700 mb-1">{label}</span>
+      <div className="relative">
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">৳</span>
+        <input
+          type="number"
+          min="0"
+          max="10000"
+          step="1"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+          required
+        />
+      </div>
+      <span className="block text-xs text-gray-500 mt-1">{hint}</span>
+    </label>
+  );
+
+  return (
+    <form onSubmit={save} className="bg-white rounded-xl shadow-sm border p-6">
+      <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-1">
+        <Truck className="w-5 h-5 text-primary-600" />
+        Delivery charges
+      </h2>
+      <p className="text-sm text-gray-500 mb-4">
+        Checkout charges one of these by the delivery district. New orders use the new amounts; placed orders keep theirs.
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        {field('Inside Dhaka', 'Addresses in Dhaka district', inside, setInside)}
+        {field('Outside Dhaka', 'Every other district, including Gazipur and Narayanganj', outside, setOutside)}
+      </div>
+      <div className="mt-4 flex justify-end">
+        <button
+          type="submit"
+          disabled={saving || !changed}
+          className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 transition-colors text-sm font-medium"
+        >
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          {saving ? 'Saving...' : 'Save delivery charges'}
+        </button>
+      </div>
+    </form>
   );
 }
 

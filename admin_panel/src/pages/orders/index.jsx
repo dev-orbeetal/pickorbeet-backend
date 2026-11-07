@@ -37,7 +37,10 @@ export default function OrdersPage() {
     return params;
   }, [filters, page]);
 
-  const { data: ordersData, isLoading: loading, isError, refetch } = useGetOrdersQuery(queryParams);
+  const { data: ordersData, isLoading: loading, isError, refetch } = useGetOrdersQuery(queryParams, {
+    pollingInterval: 60000,
+    skipPollingIfUnfocused: true,
+  });
   const [deleteOrder] = useDeleteOrderMutation();
   const orders = Array.isArray(ordersData?.results || ordersData)
     ? (ordersData?.results || ordersData)
@@ -154,6 +157,7 @@ export default function OrdersPage() {
             <option value="">All Types</option>
             <option value="online">Online</option>
             <option value="external">External</option>
+            <option value="in_shop">In-shop (legacy)</option>
           </select>
 
           <select

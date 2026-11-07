@@ -4,13 +4,11 @@ Views for courier shipments.
 import hashlib
 import hmac
 import logging
-from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.db import IntegrityError
 from django.db.models import Count, Q, Sum
-from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -38,14 +36,19 @@ from .services import (
     ShipmentError,
     apply_courier_status,
     book_shipment,
+    booking_preview,
     bulk_refresh_shipments,
+    ensure_police_stations,
     import_shipment,
+    parse_courier_time,
     preview_import,
     refresh_shipment,
     status_group,
     statuses_for_group,
+    webhook_signature_state,
 )
 from .steadfast import SteadfastClient, SteadfastError, SteadfastNotFoundError
+from .sync import sync_health
 
 logger = logging.getLogger(__name__)
 
@@ -74,11 +77,37 @@ class AdminBookShipmentView(APIView):
             return Response({'error': 'Order not found'}, status=status.HTTP_404_NOT_FOUND)
         serializer = BookShipmentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
         try:
-            book_shipment(order, request.user, note=serializer.validated_data.get('note', ''))
+            book_shipment(
+                order,
+                request.user,
+                note=data.get('note', ''),
+                recipient_address=data.get('recipient_address', ''),
+                police_station_id=data.get('police_station_id'),
+            )
         except ShipmentError as exc:
             return _error(exc)
         return _order_payload(request, pk, status.HTTP_201_CREATED)
+
+
+class AdminBookingPreviewView(APIView):
+    """Staff: the address and thana a booking would send, before sending it."""
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def get(self, request, pk):
+        order = Order.objects.filter(pk=pk).first()
+        if order is None:
+            return Response({'error': 'Order not found'}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            police_station_id = int(request.query_params.get('police_station_id') or 0) or None
+        except ValueError:
+            police_station_id = None
+        ensure_police_stations()
+        try:
+            return Response(booking_preview(order, police_station_id=police_station_id))
+        except ShipmentError as exc:
+            return _error(exc)
 
 
 class AdminRefreshShipmentView(APIView):
@@ -119,20 +148,6 @@ class CustomerRefreshShipmentView(APIView):
         return _order_payload(request, pk)
 
 
-def _parse_courier_time(value):
-    """Steadfast sends local (Asia/Dhaka) times such as ``2025-03-02 12:45:30``."""
-    if not value:
-        return None
-    text = str(value).strip().replace('T', ' ').rstrip('Z')
-    for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M'):
-        try:
-            parsed = datetime.strptime(text[:26], fmt)
-        except ValueError:
-            continue
-        return timezone.make_aware(parsed) if timezone.is_naive(parsed) else parsed
-    return None
-
-
 def _parse_amount(value):
     if value in (None, ''):
         return None
@@ -143,7 +158,7 @@ def _parse_amount(value):
 
 
 def _shipment_queryset():
-    return Shipment.objects.select_related('order', 'booked_by').prefetch_related('events')
+    return Shipment.objects.select_related('order', 'booked_by', 'police_station').prefetch_related('events')
 
 
 def _filtered_shipments(request):
@@ -219,6 +234,7 @@ class AdminShipmentSummaryView(APIView):
             'open_count': open_agg['open_count'] or 0,
             'open_cod_total': str(open_agg['open_cod'] or Decimal('0.00')),
             'filtered_count': qs.count(),
+            'sync': sync_health(),
         })
 
 
@@ -364,18 +380,31 @@ class SteadfastWebhookView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = []
 
+    RECEIVED = {'status': 'success', 'message': 'Webhook received successfully.'}
+
     def post(self, request):
+        # Read before request.data so the exact bytes Steadfast signed are still available.
+        raw_body = request.body
         expected = settings.STEADFAST_WEBHOOK_TOKEN or ''
         header = request.META.get('HTTP_AUTHORIZATION', '')
         token = header[7:].strip() if header[:7].lower() == 'bearer ' else ''
         if not expected or not token or not hmac.compare_digest(token.encode(), expected.encode()):
             return Response({'status': 'error', 'message': 'Unauthorized.'}, status=status.HTTP_401_UNAUTHORIZED)
 
+        signature = webhook_signature_state(raw_body, request.headers.get('X-Signature', ''), expected)
+        if signature != 'valid':
+            log = logger.warning if signature == 'invalid' else logger.info
+            log('Steadfast webhook signature %s', signature)
+            if settings.STEADFAST_WEBHOOK_REQUIRE_SIGNATURE:
+                return Response({'status': 'error', 'message': 'Invalid signature.'},
+                                status=status.HTTP_401_UNAUTHORIZED)
+
         data = request.data if hasattr(request.data, 'get') else {}
-        notification_type = str(data.get('notification_type') or '').strip().lower()
+        # Steadfast retries anything but a 200, so every authenticated call is acknowledged.
+        notification_type = str(data.get('notification_type') or 'delivery_status').strip().lower()
         if notification_type not in {'delivery_status', 'tracking_update'}:
-            return Response({'status': 'error', 'message': 'Unsupported notification type.'},
-                            status=status.HTTP_400_BAD_REQUEST)
+            logger.info('Steadfast webhook type %r ignored', notification_type)
+            return Response(self.RECEIVED)
 
         consignment_id = str(data.get('consignment_id') or '').strip()
         invoice = str(data.get('invoice') or '').strip()
@@ -386,8 +415,9 @@ class SteadfastWebhookView(APIView):
             lookup |= Q(invoice=invoice)
         shipment = Shipment.objects.filter(lookup).first()
         if shipment is None:
-            return Response({'status': 'error', 'message': 'Invalid consignment ID.'},
-                            status=status.HTTP_404_NOT_FOUND)
+            logger.warning('Steadfast webhook for unknown parcel (consignment %s, invoice %s)',
+                           consignment_id or '-', invoice or '-')
+            return Response(self.RECEIVED)
 
         raw_status = str(data.get('status') or '') if notification_type == 'delivery_status' else ''
         message = str(data.get('tracking_message') or '')[:1000]
@@ -407,11 +437,14 @@ class SteadfastWebhookView(APIView):
                 message=message,
                 payload=dict(data.items()) if hasattr(data, 'items') else {},
                 idempotency_key=key,
-                occurred_at=_parse_courier_time(updated_at),
+                occurred_at=parse_courier_time(updated_at),
                 delivery_charge=_parse_amount(data.get('delivery_charge')),
+                courier_cod_amount=(
+                    _parse_amount(data.get('cod_amount')) if notification_type == 'delivery_status' else None
+                ),
             )
         except IntegrityError:
             # A concurrent delivery of the same notification won the insert.
             logger.info('Duplicate Steadfast webhook %s ignored', key)
 
-        return Response({'status': 'success', 'message': 'Webhook received successfully.'})
+        return Response(self.RECEIVED)

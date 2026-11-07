@@ -23,6 +23,16 @@ class SteadfastClientTests(SimpleTestCase):
         session = FakeSession(*responses)
         return SteadfastClient(api_key='key', secret_key='secret', session=session), session
 
+    def test_police_stations_accepts_a_bare_list_or_a_wrapper(self):
+        districts = [{'Id': 1, 'Name': 'Dhaka', 'PoliceStations': [{'Id': 17, 'Name': 'Dhanmondi'}]}]
+        client, session = self.client_with(FakeResponse(200, districts), FakeResponse(200, {'data': districts}))
+        self.assertEqual(client.police_stations(), districts)
+        self.assertEqual(client.police_stations(), districts)
+        self.assertEqual(session.calls[0]['url'], 'https://portal.packzy.com/api/v1/police_stations')
+
+        client, _ = self.client_with(FakeResponse(200, {'message': 'nothing'}))
+        self.assertEqual(client.police_stations(), [])
+
     def test_create_order_sends_keys_and_returns_consignment(self):
         client, session = self.client_with(FakeResponse(200, {
             'status': 200,

@@ -4,6 +4,7 @@ URL patterns for the shipping app.
 from django.urls import path
 
 from .views import (
+    AdminBookingPreviewView,
     AdminShipmentBulkRefreshView,
     AdminShipmentDetailView,
     AdminShipmentImportPreviewView,
@@ -25,4 +26,6 @@ urlpatterns = [
     path('admin/shipments/<uuid:pk>/', AdminShipmentDetailView.as_view(), name='admin_shipment_detail'),
     path('admin/shipments/<uuid:pk>/refresh/', AdminShipmentRefreshView.as_view(), name='admin_shipment_refresh'),
     path('admin/steadfast/balance/', AdminSteadfastBalanceView.as_view(), name='admin_steadfast_balance'),
+    path('admin/orders/<uuid:pk>/booking-preview/', AdminBookingPreviewView.as_view(),
+         name='admin_booking_preview'),
 ]

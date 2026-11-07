@@ -1,4 +1,4 @@
-import { baseApi } from './baseApi';
+import { baseApi, OVERRIDE_EXISTING } from './baseApi';
 
 export const shippingApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
@@ -28,10 +28,13 @@ export const shippingApi = baseApi.injectEndpoints({
         url: `/shipping/admin/shipments/${id}/refresh/`,
         method: 'POST',
       }),
-      invalidatesTags: (_result, _error, id) => [
+      invalidatesTags: (result, _error, id) => [
         { type: 'Shipments', id },
         { type: 'Shipments', id: 'LIST' },
         { type: 'Shipments', id: 'SUMMARY' },
+        ...(result?.order?.id ? [{ type: 'Orders', id: result.order.id }] : []),
+        { type: 'Orders', id: 'LIST' },
+        'Dashboard',
       ],
     }),
     bulkRefreshShipments: builder.mutation({
@@ -41,9 +44,17 @@ export const shippingApi = baseApi.injectEndpoints({
         body,
       }),
       invalidatesTags: [
-        { type: 'Shipments', id: 'LIST' },
-        { type: 'Shipments', id: 'SUMMARY' },
+        { type: 'Shipments' },
+        { type: 'Orders' },
+        'Dashboard',
       ],
+    }),
+    getBookingPreview: builder.query({
+      query: ({ orderId, policeStationId }) => ({
+        url: `/shipping/admin/orders/${orderId}/booking-preview/`,
+        params: policeStationId ? { police_station_id: policeStationId } : undefined,
+      }),
+      keepUnusedDataFor: 0,
     }),
     getSteadfastBalance: builder.query({
       query: () => '/shipping/admin/steadfast/balance/',
@@ -69,6 +80,7 @@ export const shippingApi = baseApi.injectEndpoints({
       ],
     }),
   }),
+  overrideExisting: OVERRIDE_EXISTING,
 });
 
 export const {
@@ -78,6 +90,7 @@ export const {
   useLazyGetShipmentQuery,
   useRefreshShipmentMutation,
   useBulkRefreshShipmentsMutation,
+  useGetBookingPreviewQuery,
   useGetSteadfastBalanceQuery,
   usePreviewShipmentImportMutation,
   useImportShipmentMutation,
