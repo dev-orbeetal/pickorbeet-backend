@@ -176,6 +176,25 @@ function rowsOf(data) {
   return data?.results || [];
 }
 
+function localISODate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function financePresetRange(preset, today = new Date()) {
+  const end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const start = new Date(end);
+  if (preset === 'week') {
+    const daysSinceMonday = (end.getDay() + 6) % 7;
+    start.setDate(end.getDate() - daysSinceMonday);
+  } else {
+    start.setDate(1);
+  }
+  return { start_date: localISODate(start), end_date: localISODate(end) };
+}
+
 export default function FinancePage() {
   const [dateRange, setDateRange] = useState({
     start_date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
@@ -244,7 +263,16 @@ export default function FinancePage() {
     expenseForm.additional_discount_value,
   );
 
-  const handlePrint = useReactToPrint({ content: () => printRef.current });
+  const handlePrint = useReactToPrint({
+    content: () => printRef.current,
+    pageStyle: `
+      @page { size: A4 portrait; margin: 0; }
+      html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+      * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+      .voucher-sheet { break-after: page; page-break-after: always; }
+      .voucher-sheet:last-child { break-after: auto; page-break-after: auto; }
+    `,
+  });
 
   useEffect(() => {
     if (shouldPrint && printItems.length > 0) {
@@ -256,6 +284,20 @@ export default function FinancePage() {
   useEffect(() => {
     setSelectedExpenseIds([]);
   }, [dateRange.start_date, dateRange.end_date, tab]);
+
+  useEffect(() => {
+    if (!selected) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setSelected(null);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [selected]);
 
   useEffect(() => {
     setSelectedIncomeIds([]);
@@ -385,6 +427,8 @@ export default function FinancePage() {
     product_name: expense.product_name,
     quantity: expense.quantity,
     unit_cost: expense.unit_cost,
+    created_by_name: expense.created_by_name,
+    payment_proof: expense.payment_proof || expense.purchase_receipt?.payment_proof || '',
     purchase_receipt: expense.purchase_receipt,
   });
 
@@ -400,6 +444,7 @@ export default function FinancePage() {
     payment_method_label: '',
     share_partner_label: row.share_partner_label,
     created_by_name: row.created_by_name,
+    payment_proof: row.payment_proof || '',
   });
 
   const printVouchers = (items) => {
@@ -655,6 +700,25 @@ export default function FinancePage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {['week', 'month'].map((preset) => {
+            const range = financePresetRange(preset);
+            const active = dateRange.start_date === range.start_date && dateRange.end_date === range.end_date;
+            return (
+              <button
+                key={preset}
+                type="button"
+                aria-pressed={active}
+                onClick={() => setDateRange(range)}
+                className={`rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
+                  active
+                    ? 'border-primary-500 bg-primary-500 text-white'
+                    : 'border-[#E4E9F2] bg-white text-gray-700 hover:bg-[#F7F9FC]'
+                }`}
+              >
+                {preset === 'week' ? 'This week' : 'This month'}
+              </button>
+            );
+          })}
           <label className="relative inline-flex items-center">
             <Calendar className="pointer-events-none absolute left-3 h-4 w-4 text-gray-400" />
             <input
@@ -1735,102 +1799,38 @@ export default function FinancePage() {
       )}
 
       {selected && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-white rounded-xl w-full max-w-lg">
-            <div className="p-5 border-b flex items-center justify-between">
-              <h2 className="text-lg font-semibold">{selected.voucher_number}</h2>
-              <button type="button" onClick={() => setSelected(null)} className="p-2 hover:bg-gray-100 rounded-lg" aria-label="Close">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <dl className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-              <Detail label="Date" value={selected.expense_date} />
-              <Detail label="Category" value={selected.category_label} />
-              <Detail label="Amount" value={money(selected.amount)} />
-              <Detail label="Quantity" value={selected.quantity ?? '—'} />
-              <Detail label="Unit cost" value={selected.unit_cost != null ? money(selected.unit_cost) : '—'} />
-              <Detail label="Payment" value={selected.payment_method_label || '—'} />
-              <Detail label="Dealer / seller" value={selected.payee || '—'} />
-              <Detail label="Product" value={selected.product_name || '—'} />
-              {selected.purchase_receipt ? (
-                <>
-                  <Detail label="Receipt" value={selected.purchase_receipt.receipt_number} />
-                  <Detail label="Invoice #" value={selected.purchase_receipt.invoice_number || '—'} />
-                  <Detail label="Line discount" value={money(selected.purchase_receipt.total_discount)} />
-                  <Detail
-                    label="Additional discount"
-                    value={money(selected.purchase_receipt.additional_discount || 0)}
-                  />
-                </>
-              ) : null}
-              <Detail label="Recorded by" value={selected.created_by_name || '—'} />
-              <Detail
-                label="Payment proof"
-                value={selected.payment_proof || selected.purchase_receipt?.payment_proof ? (
-                  <a
-                    href={getMediaUrl(selected.payment_proof || selected.purchase_receipt?.payment_proof)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-primary-600"
-                  >
-                    View proof
-                  </a>
-                ) : '—'}
-              />
-              <div className="sm:col-span-2">
-                <dt className="text-gray-500">Description</dt>
-                <dd className="mt-1 text-gray-900">{selected.description}</dd>
+        <div
+          className="fixed inset-0 z-50 overflow-auto overscroll-contain bg-[#121826]/70"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="finance-receipt-title"
+        >
+          <div style={{ width: '210mm', margin: '24px auto 40px' }}>
+              <div className="sticky top-3 z-10 mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white px-3 py-2 shadow-lg">
+                <div className="min-w-0">
+                  <p id="finance-receipt-title" className="truncate text-sm font-semibold text-gray-900">{selected.voucher_number}</p>
+                  <p className="text-xs text-gray-500">{selected.category_label || 'Receipt'}</p>
+                </div>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {(!selected.is_purchase_voucher || selected.purchase_receipt_id || selected.purchase_receipt) && (
+                    <button type="button" onClick={() => removeExpense(selected)} className="btn btn-secondary text-red-600">
+                      <Trash2 className="w-4 h-4 mr-1" />
+                      {selected.purchase_receipt_id || selected.purchase_receipt ? 'Cancel purchase' : 'Delete'}
+                    </button>
+                  )}
+                  <button type="button" onClick={() => printExpenseVoucher(selected)} className="btn btn-primary">
+                    <Printer className="w-4 h-4 mr-1" />
+                    Print voucher
+                  </button>
+                  <button type="button" onClick={() => setSelected(null)} className="rounded-lg p-2 hover:bg-gray-100" aria-label="Close">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
               </div>
-              {selected.comments ? (
-                <div className="sm:col-span-2">
-                  <dt className="text-gray-500">Comments</dt>
-                  <dd className="mt-1 text-gray-900">{selected.comments}</dd>
-                </div>
-              ) : null}
-              {selected.purchase_receipt?.lines?.length ? (
-                <div className="sm:col-span-2">
-                  <dt className="text-gray-500 mb-2">Purchase lines</dt>
-                  <dd className="overflow-x-auto border rounded-lg">
-                    <table className="w-full text-sm">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          {['Product', 'Qty', 'Unit', 'Discount', 'Total'].map((heading) => (
-                            <th key={heading} className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">{heading}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {selected.purchase_receipt.lines.map((line) => (
-                          <tr key={line.id}>
-                            <td className="px-3 py-2">
-                              {line.product_name}
-                              {line.variant_label ? ` (${line.variant_label})` : ''}
-                            </td>
-                            <td className="px-3 py-2">{line.quantity}</td>
-                            <td className="px-3 py-2">{money(line.unit_cost)}</td>
-                            <td className="px-3 py-2">{money(line.discount_amount)}</td>
-                            <td className="px-3 py-2 font-medium">{money(line.line_total)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </dd>
-                </div>
-              ) : null}
-            </dl>
-            <div className="p-5 border-t flex justify-end gap-2">
-              {(!selected.is_purchase_voucher || selected.purchase_receipt_id || selected.purchase_receipt) && (
-                <button type="button" onClick={() => removeExpense(selected)} className="btn btn-secondary text-red-600">
-                  <Trash2 className="w-4 h-4 mr-1" />
-                  {selected.purchase_receipt_id || selected.purchase_receipt ? 'Cancel purchase' : 'Delete'}
-                </button>
-              )}
-              <button type="button" onClick={() => printExpenseVoucher(selected)} className="btn btn-primary">
-                <Printer className="w-4 h-4 mr-1" />
-                Print voucher
-              </button>
+              <div className="shadow-2xl">
+                <VoucherDocument item={toExpensePrintItem(selected)} settings={settings} />
+              </div>
             </div>
-          </div>
         </div>
       )}
 
@@ -1903,103 +1903,308 @@ function PaymentProofInput({
   );
 }
 
-function Detail({ label, value }) {
+function formatVoucherDate(value) {
+  if (!value) return '—';
+  const date = new Date(`${String(value).slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function voucherTitle(item) {
+  if (item.kind === 'income') return 'Income voucher';
+  if (item.purchase_receipt?.lines?.length) return 'Purchase receipt';
+  return 'Expense voucher';
+}
+
+function contactLines(settings) {
+  if (!settings) return [];
+  const phones = [settings.contact_phone_1, settings.contact_phone_2].filter(Boolean).join(' · ');
+  const emails = [settings.contact_email_1, settings.contact_email_2].filter(Boolean).join(' · ');
+  return [settings.contact_address, phones, emails].filter((line) => line && String(line).trim());
+}
+
+function plainAmount(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '';
+  return String(Number(number.toFixed(2)));
+}
+
+const SHEET_STYLE = {
+  width: '210mm',
+  minHeight: '297mm',
+  boxSizing: 'border-box',
+  margin: 0,
+  background: '#ffffff',
+  color: '#1F1F1F',
+  fontFamily: "'Inter', 'Segoe UI', sans-serif",
+};
+
+function SheetCard({ title, children }) {
   return (
-    <div>
-      <dt className="text-gray-500">{label}</dt>
-      <dd className="mt-1 font-medium text-gray-900">{value}</dd>
+    <section style={{ flex: 1, minWidth: 0, background: '#F5F7FC', border: '1px solid #E4E9F2', borderRadius: 12, padding: '14px 16px' }}>
+      <h3 style={{ margin: '0 0 8px', fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase', color: '#202D70', fontWeight: 700 }}>{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+function SheetRow({ label, value }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, padding: '5px 0', fontSize: 12, lineHeight: 1.45 }}>
+      <span style={{ color: '#6B7280', flex: '0 0 auto' }}>{label}</span>
+      <span style={{ fontWeight: 600, textAlign: 'right', color: '#1F1F1F', overflowWrap: 'anywhere' }}>{value || '—'}</span>
     </div>
+  );
+}
+
+function VoucherDocument({ item, settings }) {
+  const receipt = item.purchase_receipt || null;
+  const lines = receipt?.lines || [];
+  const logoUrl = settings?.logo ? getMediaUrl(settings.logo) : '';
+  const proofHref = item.payment_proof ? getMediaUrl(item.payment_proof) : '';
+  const proofNode = proofHref ? (
+    <a href={proofHref} target="_blank" rel="noreferrer" style={{ color: '#202D70', fontWeight: 700, textDecoration: 'underline' }}>
+      View proof
+    </a>
+  ) : '—';
+  const paymentLabel = item.payment_method_label || receipt?.payment_method_label || '—';
+  const lineDiscount = Number(receipt?.total_discount || 0);
+  const extraDiscount = Number(receipt?.additional_discount || 0);
+  const subtotal = Number(receipt?.subtotal) || lines.reduce((sum, line) => sum + Number(line.line_subtotal || 0), 0);
+  const grand = Number(receipt?.grand_total ?? item.amount ?? 0);
+  const extraLabel = receipt?.additional_discount_type === 'percent' && Number(receipt.additional_discount_value) > 0
+    ? `Additional discount (${plainAmount(receipt.additional_discount_value)}%)`
+    : 'Additional discount';
+  const amountLabel = item.kind === 'income' ? 'Amount received' : 'Amount paid';
+  const quantity = receipt?.total_quantity ?? item.quantity;
+
+  return (
+    <article className="voucher-sheet" style={SHEET_STYLE}>
+      <div style={{ height: 8, display: 'flex' }}>
+        <div style={{ flex: 1, background: '#202D70' }} />
+        <div style={{ width: 88, background: '#FF861F' }} />
+      </div>
+      <div style={{ padding: '12mm 14mm 14mm' }}>
+        <header style={{ display: 'flex', justifyContent: 'space-between', gap: 24, alignItems: 'flex-start' }}>
+          <div style={{ minWidth: 0 }}>
+            {logoUrl ? (
+              <img src={logoUrl} alt="PickOrbeet" style={{ height: 48, width: 'auto', maxWidth: 180, objectFit: 'contain' }} />
+            ) : (
+              <div style={{ fontSize: 28, fontWeight: 800, letterSpacing: '-0.04em', color: '#202D70', lineHeight: 1 }}>
+                Pick<span style={{ color: '#FF861F' }}>Orbeet</span>
+              </div>
+            )}
+            <div style={{ marginTop: 8, fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: '#FF861F', fontWeight: 700 }}>
+              Finance
+            </div>
+            {contactLines(settings).length ? (
+              <p style={{ margin: '8px 0 0', maxWidth: 280, fontSize: 11, lineHeight: 1.55, color: '#6B7280', whiteSpace: 'pre-line' }}>
+                {contactLines(settings).join('\n')}
+              </p>
+            ) : null}
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 12, letterSpacing: '0.18em', textTransform: 'uppercase', color: '#FF861F', fontWeight: 700 }}>
+              {voucherTitle(item)}
+            </div>
+            <div style={{ marginTop: 6, fontSize: 20, fontWeight: 700, color: '#202D70', fontVariantNumeric: 'tabular-nums' }}>
+              {item.voucher_number}
+            </div>
+            <div style={{ marginTop: 4, fontSize: 12, color: '#6B7280' }}>{formatVoucherDate(item.date)}</div>
+            {item.category_label ? (
+              <div style={{ display: 'inline-block', marginTop: 8, border: '1px solid #E4E9F2', borderRadius: 999, padding: '3px 10px', fontSize: 11, fontWeight: 600, color: '#202D70' }}>
+                {item.category_label}
+              </div>
+            ) : null}
+          </div>
+        </header>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1.45fr 1fr 1fr', gap: 10, marginTop: 18 }}>
+          <div style={{ background: '#202D70', color: '#fff', borderRadius: 12, padding: '14px 16px' }}>
+            <div style={{ fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase', color: '#FFD4A8' }}>{amountLabel}</div>
+            <div style={{ marginTop: 6, fontSize: 26, fontWeight: 700, letterSpacing: '-0.03em', fontVariantNumeric: 'tabular-nums' }}>{money(grand)}</div>
+          </div>
+          <div style={{ border: '1px solid #E4E9F2', borderRadius: 12, padding: '14px 16px' }}>
+            <div style={{ fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase', color: '#6B7280' }}>
+              {item.kind === 'income' ? 'Category' : 'Quantity'}
+            </div>
+            <div style={{ marginTop: 6, fontSize: 18, fontWeight: 700, color: '#1F1F1F' }}>
+              {item.kind === 'income' ? (item.category_label || '—') : (quantity == null ? '—' : quantity)}
+            </div>
+          </div>
+          <div style={{ border: '1px solid #E4E9F2', borderRadius: 12, padding: '14px 16px' }}>
+            <div style={{ fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase', color: '#6B7280' }}>
+              {item.kind === 'income' ? 'Shareholder' : 'Payment'}
+            </div>
+            <div style={{ marginTop: 6, fontSize: 18, fontWeight: 700, color: '#1F1F1F', overflowWrap: 'anywhere' }}>
+              {item.kind === 'income' ? (item.share_partner_label || '—') : paymentLabel}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 12, marginTop: 14 }}>
+          {item.kind === 'income' ? (
+            <>
+              <SheetCard title="Shareholder">
+                <SheetRow label="Name" value={item.share_partner_label} />
+                <SheetRow label="Category" value={item.category_label} />
+                <SheetRow label="Recorded by" value={item.created_by_name} />
+              </SheetCard>
+              <SheetCard title="Record">
+                <SheetRow label="Voucher" value={item.voucher_number} />
+                <SheetRow label="Date" value={formatVoucherDate(item.date)} />
+                <SheetRow label="Payment proof" value={proofNode} />
+              </SheetCard>
+            </>
+          ) : lines.length ? (
+            <>
+              <SheetCard title="Supplier">
+                <SheetRow label="Dealer / seller" value={item.payee} />
+                <SheetRow label="Invoice #" value={receipt?.invoice_number} />
+                {receipt?.stock_location_label ? <SheetRow label="Stock" value={receipt.stock_location_label} /> : null}
+                <SheetRow label="Payment" value={paymentLabel} />
+              </SheetCard>
+              <SheetCard title="Record">
+                <SheetRow label="Receipt" value={receipt?.receipt_number} />
+                <SheetRow label="Recorded by" value={item.created_by_name} />
+                <SheetRow label="Payment proof" value={proofNode} />
+              </SheetCard>
+            </>
+          ) : (
+            <>
+              <SheetCard title="Expense">
+                <SheetRow label="Dealer / seller" value={item.payee} />
+                <SheetRow label="Product" value={item.product_name} />
+                <SheetRow label="Quantity" value={item.quantity == null ? '—' : String(item.quantity)} />
+                <SheetRow label="Unit cost" value={item.unit_cost != null ? money(item.unit_cost) : '—'} />
+              </SheetCard>
+              <SheetCard title="Record">
+                <SheetRow label="Payment" value={paymentLabel} />
+                <SheetRow label="Recorded by" value={item.created_by_name} />
+                <SheetRow label="Payment proof" value={proofNode} />
+              </SheetCard>
+            </>
+          )}
+        </div>
+
+        {lines.length ? (
+          <>
+            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', marginTop: 18 }}>
+              <colgroup>
+                <col style={{ width: 36 }} />
+                <col />
+                <col style={{ width: 52 }} />
+                <col style={{ width: 88 }} />
+                <col style={{ width: 88 }} />
+                <col style={{ width: 96 }} />
+              </colgroup>
+              <thead>
+                <tr style={{ background: '#202D70', color: '#ffffff' }}>
+                  {['#', 'Product', 'Qty', 'Unit', 'Discount', 'Amount'].map((heading, index) => (
+                    <th
+                      key={heading}
+                      style={{
+                        padding: '9px 10px',
+                        fontSize: 10,
+                        letterSpacing: '0.12em',
+                        textTransform: 'uppercase',
+                        fontWeight: 600,
+                        textAlign: index <= 1 ? 'left' : 'right',
+                      }}
+                    >
+                      {heading}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {lines.map((line, index) => (
+                  <tr key={line.id || index} style={{ background: index % 2 ? '#F7F9FC' : '#ffffff' }}>
+                    <td style={{ padding: '10px', fontSize: 12, color: '#9CA3AF', borderBottom: '1px solid #E6EAF2' }}>{index + 1}</td>
+                    <td style={{ padding: '10px', borderBottom: '1px solid #E6EAF2', overflowWrap: 'anywhere' }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F' }}>{line.product_name}</div>
+                      {line.variant_label ? (
+                        <div style={{ marginTop: 2, fontSize: 11, color: '#6B7280' }}>{line.variant_label}</div>
+                      ) : null}
+                    </td>
+                    <td style={{ padding: '10px', fontSize: 12, textAlign: 'right', borderBottom: '1px solid #E6EAF2', fontVariantNumeric: 'tabular-nums' }}>{line.quantity}</td>
+                    <td style={{ padding: '10px', fontSize: 12, textAlign: 'right', borderBottom: '1px solid #E6EAF2', fontVariantNumeric: 'tabular-nums' }}>{money(line.unit_cost)}</td>
+                    <td style={{ padding: '10px', fontSize: 12, textAlign: 'right', borderBottom: '1px solid #E6EAF2', fontVariantNumeric: 'tabular-nums' }}>{money(line.discount_amount)}</td>
+                    <td style={{ padding: '10px', fontSize: 12, textAlign: 'right', fontWeight: 700, color: '#202D70', borderBottom: '1px solid #E6EAF2', fontVariantNumeric: 'tabular-nums' }}>{money(line.line_total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
+              <table style={{ width: 280, borderCollapse: 'collapse' }}>
+                <tbody>
+                  <tr>
+                    <td style={{ padding: '4px 0', fontSize: 12, color: '#6B7280' }}>Subtotal</td>
+                    <td style={{ padding: '4px 0', fontSize: 13, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{money(subtotal)}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: '4px 0', fontSize: 12, color: '#6B7280' }}>Line discount</td>
+                    <td style={{ padding: '4px 0', fontSize: 13, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{lineDiscount > 0 ? `−${money(lineDiscount)}` : money(0)}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: '4px 0', fontSize: 12, color: '#6B7280' }}>{extraLabel}</td>
+                    <td style={{ padding: '4px 0', fontSize: 13, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{extraDiscount > 0 ? `−${money(extraDiscount)}` : money(0)}</td>
+                  </tr>
+                  <tr>
+                    <td colSpan={2} style={{ paddingTop: 8 }}>
+                      <div style={{ height: 1, background: '#202D70' }} />
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style={{ paddingTop: 8, fontSize: 14, fontWeight: 700, color: '#202D70' }}>Total</td>
+                    <td style={{ paddingTop: 8, fontSize: 20, fontWeight: 700, textAlign: 'right', color: '#202D70', fontVariantNumeric: 'tabular-nums' }}>{money(grand)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : null}
+
+        {item.description ? (
+          <div style={{ marginTop: 18 }}>
+            <div style={{ fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase', color: '#202D70', fontWeight: 700 }}>Description</div>
+            <p style={{ margin: '6px 0 0', fontSize: 12, lineHeight: 1.6, color: '#374151' }}>{item.description}</p>
+          </div>
+        ) : null}
+        {item.comments ? (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase', color: '#202D70', fontWeight: 700 }}>Comments</div>
+            <p style={{ margin: '6px 0 0', fontSize: 12, lineHeight: 1.6, color: '#374151' }}>{item.comments}</p>
+          </div>
+        ) : null}
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 28, marginTop: 48 }}>
+          {[
+            ['Prepared by', item.created_by_name || ''],
+            ['Authorized by', ''],
+            ['Received by', ''],
+          ].map(([label, name]) => (
+            <div key={label}>
+              <div style={{ minHeight: 18, fontSize: 12, fontWeight: 600, color: '#1F1F1F' }}>{name}</div>
+              <div style={{ borderTop: '1px solid #1F1F1F', paddingTop: 8, fontSize: 11, color: '#6B7280' }}>{label}</div>
+            </div>
+          ))}
+        </div>
+
+        <footer style={{ marginTop: 28, paddingTop: 12, borderTop: '1px solid #E4E9F2', display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 10, color: '#9CA3AF' }}>
+          <span>Computer-generated voucher. Amounts are in Bangladeshi taka.</span>
+          <span style={{ fontWeight: 700, color: '#202D70' }}>PickOrbeet</span>
+        </footer>
+      </div>
+    </article>
   );
 }
 
 const VoucherPrintBatch = forwardRef(function VoucherPrintBatch({ items, settings }, ref) {
   return (
-    <div ref={ref}>
-      <style>{`
-        .voucher-sheet { width: 720px; padding: 32px; color: #111; font-family: "Segoe UI", Arial, sans-serif; background: #fff; }
-        .voucher-sheet h1 { margin: 0; font-size: 28px; letter-spacing: 0.04em; }
-        .voucher-sheet .muted { color: #555; font-size: 12px; line-height: 1.5; }
-        .voucher-sheet .rule { border-top: 2px solid #111; margin: 16px 0; }
-        .voucher-sheet table { width: 100%; border-collapse: collapse; }
-        .voucher-sheet th, .voucher-sheet td { text-align: left; padding: 8px 0; border-bottom: 1px solid #e5e7eb; font-size: 14px; vertical-align: top; }
-        .voucher-sheet th { width: 180px; color: #555; font-weight: 600; }
-        .voucher-sheet .amount { font-size: 22px; font-weight: 700; }
-        .voucher-sheet .signs { display: flex; justify-content: space-between; gap: 48px; margin-top: 64px; }
-        .voucher-sheet .sign { flex: 1; border-top: 1px solid #111; padding-top: 8px; font-size: 12px; color: #555; }
-        .voucher-page-break { page-break-after: always; break-after: page; }
-        .voucher-page-break:last-child { page-break-after: auto; break-after: auto; }
-      `}</style>
+    <div ref={ref} style={{ margin: 0, padding: 0, background: '#fff' }}>
       {(items || []).map((item) => (
-        <div key={`${item.kind}-${item.id}`} className="voucher-sheet voucher-page-break">
-          <h1>PickOrbeet</h1>
-          <p className="muted">
-            {settings?.contact_address}<br />
-            {[settings?.contact_phone_1, settings?.contact_email_1].filter(Boolean).join(' · ')}
-          </p>
-          <div className="rule" />
-          <p style={{ fontWeight: 700, letterSpacing: '0.08em' }}>
-            {item.kind === 'income' ? 'INCOME VOUCHER' : 'EXPENSE VOUCHER'}
-          </p>
-          <table>
-            <tbody>
-              <tr><th>Voucher number</th><td>{item.voucher_number}</td></tr>
-              <tr><th>Date</th><td>{item.date}</td></tr>
-              <tr><th>Category</th><td>{item.category_label || '—'}</td></tr>
-              {item.kind === 'income' ? (
-                <tr><th>Shareholder</th><td>{item.share_partner_label || '—'}</td></tr>
-              ) : (
-                <tr><th>Product</th><td>{item.product_name || '—'}</td></tr>
-              )}
-              <tr><th>Description</th><td>{item.description || '—'}</td></tr>
-              {item.comments ? <tr><th>Comments</th><td>{item.comments}</td></tr> : null}
-              {item.purchase_receipt?.invoice_number ? (
-                <tr><th>Invoice #</th><td>{item.purchase_receipt.invoice_number}</td></tr>
-              ) : null}
-              {item.quantity != null ? <tr><th>Quantity</th><td>{item.quantity}</td></tr> : null}
-              {item.unit_cost != null ? <tr><th>Unit cost</th><td>{money(item.unit_cost)}</td></tr> : null}
-              <tr><th>Amount</th><td className="amount">{money(item.amount)}</td></tr>
-              {item.kind === 'expense' ? (
-                <>
-                  <tr><th>Payment method</th><td>{item.payment_method_label || '—'}</td></tr>
-                  <tr><th>Dealer / seller</th><td>{item.payee || '—'}</td></tr>
-                </>
-              ) : (
-                <tr><th>Recorded by</th><td>{item.created_by_name || '—'}</td></tr>
-              )}
-            </tbody>
-          </table>
-          {item.purchase_receipt?.lines?.length ? (
-            <table style={{ marginTop: 24 }}>
-              <thead>
-                <tr>
-                  <th style={{ width: 'auto' }}>Product</th>
-                  <th style={{ width: 70 }}>Qty</th>
-                  <th style={{ width: 90 }}>Unit</th>
-                  <th style={{ width: 90 }}>Discount</th>
-                  <th style={{ width: 100 }}>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {item.purchase_receipt.lines.map((line) => (
-                  <tr key={line.id}>
-                    <td>
-                      {line.product_name}
-                      {line.variant_label ? ` (${line.variant_label})` : ''}
-                    </td>
-                    <td>{line.quantity}</td>
-                    <td>{money(line.unit_cost)}</td>
-                    <td>{money(line.discount_amount)}</td>
-                    <td>{money(line.line_total)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : null}
-          <div className="signs">
-            <div className="sign">Authorized by</div>
-            <div className="sign">Signature</div>
-          </div>
-        </div>
+        <VoucherDocument key={`${item.kind}-${item.id}`} item={item} settings={settings} />
       ))}
     </div>
   );

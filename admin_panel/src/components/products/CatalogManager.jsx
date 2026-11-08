@@ -20,7 +20,7 @@ import {
 
 const VIEW_STORAGE_KEY = 'pickorbeet_catalog_view';
 const ICON_ACTION = 'rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-primary-50 hover:text-primary-600';
-const COUNT_CHIP = 'shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium tabular-nums text-gray-600';
+const COUNT_CHIP = 'shrink-0 rounded-full bg-gray-100 px-2.5 py-0.5 text-sm font-medium tabular-nums text-gray-600';
 
 function byOrder(items) {
   return [...items].sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0) || (a.name || '').localeCompare(b.name || ''));
@@ -75,7 +75,7 @@ function AddProductLink({ categoryId, subcategoryId, onClick }) {
     <Link
       href={newProductHref(categoryId, subcategoryId)}
       onClick={onClick}
-      className="inline-flex shrink-0 items-center rounded-lg px-2 py-1 text-xs font-medium text-primary-600 hover:bg-primary-50"
+      className="inline-flex shrink-0 items-center rounded-lg px-2 py-1 text-sm font-medium text-primary-600 hover:bg-primary-50"
     >
       <Plus className="mr-1 h-3.5 w-3.5" />
       Add Product
@@ -349,7 +349,7 @@ export default function CatalogManager() {
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search categories, subcategories, products..."
             aria-label="Search categories, subcategories, and products"
-            className="input pl-9"
+            className="input pl-9 !text-base"
           />
         </div>
         {canManageCategories && (
@@ -369,7 +369,7 @@ export default function CatalogManager() {
         <section className="rounded-xl border border-gray-200 bg-white p-5">
           {matchedCategories.length > 0 && (
             <div className="mb-4">
-              <h2 className="mb-1 text-sm font-semibold text-gray-800">Categories ({matchedCategories.length})</h2>
+              <h2 className="mb-1 text-base font-semibold text-gray-800">Categories ({matchedCategories.length})</h2>
               {matchedCategories.map((category) => (
                 <button
                   key={category.id}
@@ -377,7 +377,7 @@ export default function CatalogManager() {
                   onClick={() => openResult(category.id)}
                   className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left hover:bg-gray-50"
                 >
-                  <span className="truncate text-sm font-medium text-gray-900">{category.name}</span>
+                  <span className="truncate text-base font-medium text-gray-900">{category.name}</span>
                   <span className={COUNT_CHIP}>{category.product_count}</span>
                 </button>
               ))}
@@ -385,7 +385,7 @@ export default function CatalogManager() {
           )}
           {matchedSubcategories.length > 0 && (
             <div className="mb-4">
-              <h2 className="mb-1 text-sm font-semibold text-gray-800">Subcategories ({matchedSubcategories.length})</h2>
+              <h2 className="mb-1 text-base font-semibold text-gray-800">Subcategories ({matchedSubcategories.length})</h2>
               {matchedSubcategories.map((subcategory) => (
                 <button
                   key={subcategory.id}
@@ -393,7 +393,7 @@ export default function CatalogManager() {
                   onClick={() => openResult(subcategory.parent.id, subcategory.id)}
                   className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left hover:bg-gray-50"
                 >
-                  <span className="truncate text-sm text-gray-900">
+                  <span className="truncate text-base text-gray-900">
                     <span className="text-gray-500">{subcategory.parent.name} › </span>
                     <span className="font-medium">{subcategory.name}</span>
                   </span>
@@ -402,7 +402,7 @@ export default function CatalogManager() {
               ))}
             </div>
           )}
-          <h2 className="text-sm font-semibold text-gray-800">Products</h2>
+          <h2 className="text-base font-semibold text-gray-800">Products</h2>
           <CatalogProductList
             params={{ search }}
             showPath
@@ -434,7 +434,7 @@ export default function CatalogManager() {
                     <button
                       type="button"
                       aria-current={active ? 'true' : undefined}
-                      className="min-w-0 flex-1 truncate text-left text-sm font-medium text-gray-900"
+                      className="min-w-0 flex-1 truncate text-left text-base font-medium text-gray-900"
                     >
                       {category.name}
                     </button>
@@ -457,7 +457,7 @@ export default function CatalogManager() {
               })}
             </div>
             {canManageCategories && (
-              <p className="border-t border-gray-100 px-4 py-2.5 text-center text-xs text-primary-600">Drag and drop to reorder categories.</p>
+              <p className="border-t border-gray-100 px-4 py-2.5 text-center text-sm text-primary-600">Drag and drop to reorder categories.</p>
             )}
           </section>
 
@@ -468,18 +468,18 @@ export default function CatalogManager() {
               <>
                 <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <h2 className="truncate text-lg font-semibold text-gray-900">{selected.name}</h2>
-                    <p className="text-xs text-gray-500">
+                    <h2 className="truncate text-xl font-semibold text-gray-900">{selected.name}</h2>
+                    <p className="text-sm text-gray-500">
                       {plural(selected.product_count, 'product')} · {subcategories.length} {subcategories.length === 1 ? 'subcategory' : 'subcategories'}
                     </p>
                   </div>
                   <div className="flex gap-2">
                     {canManageCategories && (
-                      <button type="button" onClick={() => openSubcategoryModal(selected, null)} className="rounded-md bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-200">
+                      <button type="button" onClick={() => openSubcategoryModal(selected, null)} className="rounded-md bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200">
                         <FolderPlus className="mr-1 inline h-3.5 w-3.5" /> Add Subcategory
                       </button>
                     )}
-                    <Link href={newProductHref(selected.id)} className="rounded-md bg-primary-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-700">
+                    <Link href={newProductHref(selected.id)} className="rounded-md bg-primary-600 px-3 py-2 text-sm font-medium text-white hover:bg-primary-700">
                       <Plus className="mr-1 inline h-3.5 w-3.5" /> Add Product
                     </Link>
                   </div>
@@ -507,7 +507,7 @@ export default function CatalogManager() {
                           <button
                             type="button"
                             onClick={() => setOpen(subcategory.id, !open)}
-                            className="min-w-0 flex-1 basis-24 truncate text-left text-sm font-medium text-gray-900"
+                            className="min-w-0 flex-1 basis-24 truncate text-left text-base font-medium text-gray-900"
                           >
                             {subcategory.name}
                           </button>
@@ -550,7 +550,7 @@ export default function CatalogManager() {
                         <button
                           type="button"
                           onClick={() => setOpen(directKey, !directOpen)}
-                          className="min-w-0 flex-1 basis-24 truncate text-left text-sm font-medium text-gray-700"
+                          className="min-w-0 flex-1 basis-24 truncate text-left text-base font-medium text-gray-700"
                         >
                           No subcategory
                         </button>
@@ -570,7 +570,7 @@ export default function CatalogManager() {
                   )}
                 </div>
                 {canManageCategories && subcategories.length > 1 && (
-                  <p className="mt-3 text-center text-xs text-primary-600">Drag and drop to reorder subcategories.</p>
+                  <p className="mt-3 text-center text-sm text-primary-600">Drag and drop to reorder subcategories.</p>
                 )}
               </>
             )}

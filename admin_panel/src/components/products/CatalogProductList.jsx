@@ -17,9 +17,9 @@ function StockCount({ product }) {
   }
   const tone = total === 0 ? 'text-red-600' : product.is_low_stock ? 'text-amber-600' : 'text-gray-900';
   return (
-    <p className="text-right text-sm" title={`Warehouse ${warehouse} · Dealer ${dealer}`}>
+    <p className="text-right text-base" title={`Warehouse ${warehouse} · Dealer ${dealer}`}>
       <span className={`font-semibold tabular-nums ${tone}`}>{total.toLocaleString()}</span>
-      <span className="text-xs text-gray-400"> in stock</span>
+      <span className="text-sm text-gray-400"> in stock</span>
     </p>
   );
 }
@@ -55,11 +55,11 @@ function ProductRow({ product, showPath, onMove }) {
       <div className="min-w-0 flex-1 basis-40">
         <Link
           href={`/products/${product.id}`}
-          className="block truncate text-sm font-medium text-gray-900 hover:text-primary-600"
+          className="block truncate text-base font-medium text-gray-900 hover:text-primary-600"
         >
           {product.name}
         </Link>
-        <p className="flex flex-wrap items-center gap-x-2 text-xs text-gray-500">
+        <p className="flex flex-wrap items-center gap-x-2 text-sm text-gray-500">
           <span className="truncate">{details.join(' · ')}</span>
           {variantCount > 0 && (
             <span className="inline-flex items-center gap-1">

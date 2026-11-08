@@ -548,17 +548,17 @@ class AdminIncomeView(APIView):
             orders = orders.filter(created_at__date__lte=end_date)
 
         lines = []
-        income_total = 0
+        income_total = 0.0
         for order in orders.order_by('-created_at'):
             completed = [payment for payment in order.payments.all() if payment.status == 'completed']
             if completed:
-                amount = sum((payment.amount for payment in completed))
+                amount = sum(float(payment.amount) for payment in completed)
                 methods = {payment.payment_method for payment in completed}
                 source = completed[0].payment_method if len(methods) == 1 else 'mixed'
                 reference = order.order_number
                 dated = completed[0].completed_at or completed[0].created_at or order.created_at
             else:
-                amount = order.total
+                amount = float(order.total)
                 source = order.payment_method or ('cash' if order.order_type == 'in_shop' else 'cod')
                 reference = order.order_number
                 dated = order.created_at
@@ -580,7 +580,7 @@ class AdminIncomeView(APIView):
                 'share_partner': '',
                 'share_partner_label': '',
                 'comments': '',
-                'amount': float(amount),
+                'amount': amount,
             })
 
         manuals = _bounded(
@@ -589,7 +589,7 @@ class AdminIncomeView(APIView):
             start_date,
             end_date,
         )
-        manual_total = 0
+        manual_total = 0.0
         for entry in manuals.order_by('-income_date', '-created_at'):
             amount = float(entry.amount)
             manual_total += amount
@@ -626,13 +626,13 @@ class AdminIncomeView(APIView):
             refunds = refunds.filter(created_at__date__lte=end_date)
 
         refund_lines = []
-        subtracted = 0
+        subtracted = 0.0
         for refund in refunds.order_by('-created_at'):
             order = refund.payment.order
             still_in_income = order.payment_status == 'paid'
             amount = float(refund.amount)
             if still_in_income:
-                subtracted += refund.amount
+                subtracted += amount
             refund_lines.append({
                 'id': str(refund.id),
                 'date': _iso_date(refund.processed_at or refund.created_at),
@@ -644,11 +644,11 @@ class AdminIncomeView(APIView):
 
         return Response({
             'income': lines,
-            'income_total': float(income_total),
-            'manual_income_total': float(manual_total),
+            'income_total': income_total,
+            'manual_income_total': manual_total,
             'refunds': refund_lines,
-            'refunds_subtracted': float(subtracted),
-            'net_income': float(income_total + manual_total - subtracted),
+            'refunds_subtracted': subtracted,
+            'net_income': income_total + manual_total - subtracted,
         })
 
 
