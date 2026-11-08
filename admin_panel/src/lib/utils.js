@@ -13,8 +13,7 @@ export function getMediaUrl(url, placeholder) {
 
 export function adminHref(path) {
   const normalized = path.startsWith('/') ? path : `/${path}`;
-  const withSlash = normalized.endsWith('/') ? normalized : `${normalized}/`;
-  return `/admin${withSlash}`;
+  return normalized.endsWith('/') ? normalized : `${normalized}/`;
 }
 
 export function routeId(router) {

@@ -1,4 +1,4 @@
-"""Serve the exported PickOrbeet admin panel at /admin/."""
+"""Serve the exported PickOrbeet admin panel at the site root."""
 import mimetypes
 from pathlib import Path
 
@@ -25,12 +25,16 @@ def _html(path):
     return FileResponse(path.open('rb'), content_type='text/html; charset=utf-8')
 
 
-def redirect_panel_path(request, page, rest=''):
-    """Send bare panel paths such as /login to /admin/login/."""
-    suffix = rest or '/'
-    if not suffix.endswith('/'):
-        suffix += '/'
-    return redirect(f'/admin/{page}{suffix}')
+def redirect_legacy_admin(request, path=''):
+    """Send the old /admin/finance/ address to /finance/."""
+    cleaned = '/'.join(
+        part for part in path.split('/') if part and part not in ('.', '..')
+    )
+    target = f'/{cleaned}/' if cleaned else '/'
+    query = request.META.get('QUERY_STRING')
+    if query:
+        target = f'{target}?{query}'
+    return redirect(target, permanent=True)
 
 
 def serve_admin_panel(request, path=''):

@@ -228,7 +228,7 @@ SSLCOMMERZ_SANDBOX = config('SSLCOMMERZ_SANDBOX', default=True, cast=bool)
 FRONTEND_URL = os.environ.get('FRONTEND_URL') or config('FRONTEND_URL', default='https://www.pickorbeet.com')
 ADMIN_PANEL_URL = os.environ.get('ADMIN_PANEL_URL') or config('ADMIN_PANEL_URL', default='https://admin.pickorbeet.com')
 # Public origin of this Django API, used for links in mail such as the invoice download.
-# Not ADMIN_PANEL_URL: production serves the admin UI at pickorbeet.com/admin, which has no API.
+# Public origin of this Django app. The admin UI is the host root, not a /admin path.
 API_PUBLIC_URL = config('API_PUBLIC_URL', default='https://admin.pickorbeet.com')
 
 # Jazzmin Admin Configuration
@@ -410,7 +410,7 @@ CELERY_BEAT_SCHEDULE = {
     },
 }
 
-# Exported PickOrbeet admin panel, served at /admin/.
+# Exported PickOrbeet admin panel, served at /.
 ADMIN_PANEL_DIST = BASE_DIR / 'admin_panel' / 'out'
 
 from core.py314_compat import apply as _apply_py314_compat

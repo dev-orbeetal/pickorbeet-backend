@@ -3,7 +3,7 @@ URL configuration for Pickorbeet E-commerce project.
 """
 from django.contrib import admin
 from django.urls import path, include, re_path
-from core.admin_panel import redirect_panel_path, serve_admin_panel
+from core.admin_panel import redirect_legacy_admin, serve_admin_panel
 from core.email_preview import email_preview, email_preview_index
 from django.conf import settings
 from django.conf.urls.static import static
@@ -25,13 +25,10 @@ schema_view = get_schema_view(
 )
 
 urlpatterns = [
-    # PickOrbeet admin panel (static export). Jazzmin stays available for models
-    # the panel does not edit.
-    re_path(r'^admin/(?P<path>.*)$', serve_admin_panel, name='admin_panel'),
-    re_path(
-        r'^(?P<page>login|dashboard|orders|products|categories|pos|coupons|inventory|barcode-labels|low-stock|reports|traffic|payments|staff|customers|contact|support|settings|finance|homepage|shipments)(?P<rest>/.*)?$',
-        redirect_panel_path,
-    ),
+    # Old panel links such as /admin/finance/ now live at /finance/.
+    # Jazzmin stays at /django-admin/ for models the panel does not edit.
+    re_path(r'^admin/?$', redirect_legacy_admin, name='admin_panel_legacy'),
+    re_path(r'^admin/(?P<path>.*)$', redirect_legacy_admin, name='admin_panel_legacy_path'),
     path('django-admin/', admin.site.urls),
     
     # API Documentation
@@ -54,6 +51,13 @@ urlpatterns = [
     # motion stylesheet is added only for this browser preview.
     path('emails/preview/', email_preview_index, name='email_preview_index'),
     path('emails/preview/<slug:slug>/', email_preview, name='email_preview'),
+    # Panel pages and their assets. Reserved prefixes stay with Django, including
+    # static and media routes appended below while DEBUG is on.
+    re_path(
+        r'^(?!(?:api|static|media|django-admin|emails)(?:/|$))(?P<path>.*)$',
+        serve_admin_panel,
+        name='admin_panel',
+    ),
 ]
 
 # Serve static and media files in development
