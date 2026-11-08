@@ -111,6 +111,8 @@ export function timeAgo(iso) {
   return formatWhen(iso);
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
 export function shortDate(iso) {
   if (!iso) return '';
   const [year, month, day] = iso.split('-').map(Number);
@@ -119,6 +121,13 @@ export function shortDate(iso) {
     month: 'short',
     timeZone: 'UTC',
   }).format(new Date(Date.UTC(year, month - 1, day)));
+}
+
+export function mediumDate(iso) {
+  if (!iso) return '';
+  const [year, month, day] = iso.split('-').map(Number);
+  if (!year || !month || !day) return '';
+  return `${String(day).padStart(2, '0')} ${MONTHS[month - 1]}, ${year}`;
 }
 
 let regionNames;
@@ -144,4 +153,12 @@ export function dimensionLabel(dimension, label) {
 
 export function number(value) {
   return (Number(value) || 0).toLocaleString();
+}
+
+export function previousCaption(preset) {
+  if (preset === 'today') return 'vs previous day';
+  if (preset === '7d') return 'vs previous 7 days';
+  if (preset === '30d') return 'vs previous 30 days';
+  if (preset === '90d') return 'vs previous 90 days';
+  return 'vs previous period';
 }

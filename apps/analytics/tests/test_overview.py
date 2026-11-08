@@ -125,3 +125,39 @@ class OverviewTests(ShopTestCase):
         self.assertEqual(steps['checkout']['pageviews'], 1)
         self.assertEqual(steps['orders']['pageviews'], 1)
         self.assertLess(when, timezone.now())
+
+    def test_hourly_buckets_cover_a_short_range(self):
+        make_hit(at(28, 11), path='/')
+        make_hit(at(28, 15), path='/cart')
+        response = self.api.get(OVERVIEW, {'from': '2026-10-28', 'to': '2026-10-28'})
+        self.assertEqual(response.status_code, 200, response.data)
+        hourly = response.data['hourly']
+        self.assertEqual(len(hourly), 24)
+        by_hour = {row['hour']: row['pageviews'] for row in hourly}
+        self.assertEqual(by_hour['2026-10-28T11:00:00'], 1)
+        self.assertEqual(by_hour['2026-10-28T15:00:00'], 1)
+        wide = self.api.get(OVERVIEW, {'from': '2026-10-01', 'to': '2026-10-28'})
+        self.assertIsNone(wide.data['hourly'])
+
+    def test_accountant_sees_a_visit_without_the_customer_name(self):
+        customer = make_user(first_name='Nusrat', last_name='Jahan', email='private-traffic@example.com')
+        visitor = Visitor.objects.create(
+            visitor_key=uuid.uuid4(),
+            first_seen=at(28, 9),
+            last_seen=at(28, 12),
+            user=customer,
+        )
+        make_hit(at(28, 12), '/cart', visitor=visitor, user=customer)
+        self.api.force_authenticate(make_user(role='accountant'))
+        listed = self.api.get('/api/v1/analytics/customers/', {'from': '2026-10-28', 'to': '2026-10-28'})
+        self.assertEqual(listed.status_code, 200, listed.data)
+        row = listed.data['results'][0]
+        self.assertEqual(row['name'], 'Signed in')
+        self.assertEqual(row['email'], '')
+        self.assertEqual(row['user_id'], '')
+        self.assertEqual(row['pageviews'], 1)
+        timeline = self.api.get(f'/api/v1/analytics/customers/{customer.id}/')
+        self.assertEqual(timeline.status_code, 403)
+        live = self.api.get('/api/v1/analytics/live/')
+        self.assertEqual(live.data['results'][0]['user']['name'], 'Signed in')
+        self.assertEqual(live.data['results'][0]['user']['email'], '')

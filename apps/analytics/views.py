@@ -100,22 +100,31 @@ class BreakdownView(StaffAnalyticsView):
         return Response(breakdown(start, end, request.query_params.get('dimension') or ''))
 
 
+def reveal_customer_identity(user):
+    """Sellers and super admins can open a customer's name. Accountants cannot."""
+    return getattr(user, 'role', '') in {'seller', 'super_admin'}
+
+
 class CustomerListView(StaffAnalyticsView):
     def get(self, request):
         start, end = self.window(request)
         query = (request.query_params.get('q') or '').strip()
-        return Response(customers(start, end, query))
+        return Response(customers(
+            start, end, query, reveal_identity=reveal_customer_identity(request.user),
+        ))
 
 
 class CustomerTimelineView(StaffAnalyticsView):
     def get(self, request, user_id):
+        if not reveal_customer_identity(request.user):
+            return Response(status=403)
         user = get_object_or_404(User, pk=user_id, role='customer')
         return Response(timeline(user))
 
 
 class LiveView(StaffAnalyticsView):
     def get(self, request):
-        return Response(live_feed())
+        return Response(live_feed(reveal_identity=reveal_customer_identity(request.user)))
 
 
 class FunnelView(StaffAnalyticsView):

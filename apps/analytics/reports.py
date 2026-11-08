@@ -82,6 +82,7 @@ def overview(start, end):
         'previous': previous,
         'change': {key: percent_change(current[key], previous[key]) for key in KPI_KEYS},
         'series': daily_series(start, end, start_dt, end_dt),
+        'hourly': hourly_series(start_dt, end_dt) if (end - start).days <= 6 else None,
     }
 
 
@@ -188,6 +189,45 @@ def _day_key(value):
     return value.isoformat()
 
 
+def hourly_series(start_dt, end_dt):
+    """One bucket per Dhaka hour. Only requested for ranges of a week or less."""
+    from django.db.models.functions import TruncHour
+
+    rows = (
+        PageView.objects.filter(occurred_at__gte=start_dt, occurred_at__lt=end_dt)
+        .annotate(hour=TruncHour('occurred_at', tzinfo=DHAKA))
+        .values('hour')
+        .annotate(
+            pageviews=Count('id'),
+            visitors=Count('visitor_id', distinct=True),
+            sessions=Count('session_key', distinct=True),
+        )
+    )
+    by_hour = {_hour_key(row['hour']): row for row in rows}
+    series = []
+    cursor = start_dt.astimezone(DHAKA).replace(minute=0, second=0, microsecond=0)
+    end_hour = end_dt.astimezone(DHAKA)
+    while cursor < end_hour:
+        key = _hour_key(cursor)
+        row = by_hour.get(key)
+        series.append({
+            'hour': key,
+            'visitors': row['visitors'] if row else 0,
+            'pageviews': row['pageviews'] if row else 0,
+            'sessions': row['sessions'] if row else 0,
+        })
+        cursor += timedelta(hours=1)
+    return series
+
+
+def _hour_key(value):
+    if isinstance(value, datetime):
+        if timezone.is_aware(value):
+            value = value.astimezone(DHAKA)
+        value = value.replace(minute=0, second=0, microsecond=0)
+    return value.strftime('%Y-%m-%dT%H:00:00')
+
+
 def breakdown(start, end, dimension):
     field = DIMENSIONS.get(dimension)
     if field is None:
@@ -214,7 +254,7 @@ def breakdown(start, end, dimension):
     }
 
 
-def customers(start, end, query):
+def customers(start, end, query, reveal_identity=True):
     start_dt, end_dt = bounds(start, end)
     qs = PageView.objects.filter(
         occurred_at__gte=start_dt,
@@ -250,13 +290,18 @@ def customers(start, end, query):
     for row in grouped:
         hit = latest.get(row['user_id'])
         results.append({
-            'user_id': str(row['user_id']),
-            'name': f"{row['user__first_name']} {row['user__last_name']}".strip(),
-            'email': row['user__email'],
+            'user_id': str(row['user_id']) if reveal_identity else '',
+            'name': (
+                f"{row['user__first_name']} {row['user__last_name']}".strip()
+                if reveal_identity else 'Signed in'
+            ),
+            'email': row['user__email'] if reveal_identity else '',
             'last_seen': row['last_seen'].isoformat(),
             'pageviews': row['pageviews'],
             'last_path': hit.path if hit else '',
             'country': hit.country_code if hit else '',
+            'region': hit.region if hit else '',
+            'city': hit.city if hit else '',
             'device': hit.device_type if hit else '',
         })
     return {'count': len(results), 'results': results}
@@ -289,16 +334,16 @@ def timeline(user):
     }
 
 
-def live_feed():
+def live_feed(reveal_identity=True):
     rows = PageView.objects.select_related('user').order_by('-occurred_at')[:50]
     results = []
     for row in rows:
         account = None
         if row.user_id and row.user.role == 'customer':
             account = {
-                'id': str(row.user_id),
-                'name': row.user.full_name,
-                'email': row.user.email,
+                'id': str(row.user_id) if reveal_identity else '',
+                'name': row.user.full_name if reveal_identity else 'Signed in',
+                'email': row.user.email if reveal_identity else '',
             }
         results.append({
             'occurred_at': row.occurred_at.isoformat(),
