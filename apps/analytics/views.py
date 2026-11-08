@@ -17,16 +17,26 @@ from .serializers import CollectSerializer
 from .throttles import AnalyticsCollectThrottle
 
 
+def ingest_secret():
+    return (getattr(settings, 'ANALYTICS_INGEST_SECRET', '') or '').strip()
+
+
 def ingest_authorized(request):
-    secret = getattr(settings, 'ANALYTICS_INGEST_SECRET', '') or ''
+    """Allow the collect call.
+
+    When ``ANALYTICS_INGEST_SECRET`` is set, the website proxy must send the
+    same value. When it is empty, visits are still stored. Rejecting that case
+    dropped every production page view and left the traffic page at zero.
+    """
+    secret = ingest_secret()
+    if not secret:
+        return True
     provided = request.headers.get('X-Analytics-Secret') or ''
-    if secret:
-        return secrets.compare_digest(provided, secret)
-    return bool(settings.DEBUG)
+    return secrets.compare_digest(provided, secret)
 
 
 def geo_trusted(request):
-    secret = getattr(settings, 'ANALYTICS_INGEST_SECRET', '') or ''
+    secret = ingest_secret()
     provided = request.headers.get('X-Analytics-Secret') or ''
     return bool(secret) and secrets.compare_digest(provided, secret)
 

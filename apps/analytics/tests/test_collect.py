@@ -1,8 +1,11 @@
 import uuid
 
-from django.test import override_settings
+from django.test import RequestFactory, SimpleTestCase, override_settings
+from rest_framework.request import Request
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
+
+from apps.analytics.throttles import AnalyticsCollectThrottle
 
 from apps.accounts.models import User
 from apps.analytics.models import PageView, Visitor
@@ -57,6 +60,21 @@ class CollectTests(ShopTestCase):
         response = self.api.post(COLLECT, payload(), format='json', HTTP_USER_AGENT=MOBILE_UA)
         self.assertEqual(response.status_code, 403)
         self.assertEqual(PageView.objects.count(), 0)
+
+    @override_settings(ANALYTICS_INGEST_SECRET='', DEBUG=False)
+    def test_unconfigured_secret_still_stores_the_visit(self):
+        response = self.api.post(
+            COLLECT,
+            payload(path='/products', country='BD', city='Dhaka'),
+            format='json',
+            HTTP_USER_AGENT=MOBILE_UA,
+        )
+        self.assertEqual(response.status_code, 204, response.content)
+        hit = PageView.objects.get()
+        self.assertEqual(hit.path, '/products')
+        self.assertEqual(hit.device_type, 'mobile')
+        self.assertEqual(hit.country_code, '')
+        self.assertEqual(hit.city, '')
 
     def test_stores_a_mobile_visit_and_trusted_region(self):
         response = self.post(payload(path='/product/airdopes', title='Airdopes'))
@@ -162,3 +180,27 @@ class CollectTests(ShopTestCase):
         self.post(payload(referrer='https://web.whatsapp.com/'))
         self.assertEqual(PageView.objects.get().source, 'whatsapp')
         self.assertEqual(PageView.objects.get().referrer_host, 'web.whatsapp.com')
+
+
+class CollectThrottleTests(SimpleTestCase):
+    def ident(self, ip, secret=''):
+        django_request = RequestFactory().post(
+            COLLECT,
+            HTTP_X_VISITOR_IP=ip,
+            HTTP_X_ANALYTICS_SECRET=secret,
+            REMOTE_ADDR='192.0.2.1',
+        )
+        return AnalyticsCollectThrottle()._ident(Request(django_request))
+
+    @override_settings(ANALYTICS_INGEST_SECRET='')
+    def test_each_shopper_is_limited_separately_when_secret_is_unset(self):
+        self.assertNotEqual(self.ident('203.0.113.8'), self.ident('203.0.113.9'))
+        self.assertEqual(self.ident('203.0.113.8'), self.ident('203.0.113.8'))
+
+    @override_settings(ANALYTICS_INGEST_SECRET=SECRET)
+    def test_forwarded_ip_is_ignored_unless_the_secret_matches(self):
+        self.assertEqual(self.ident('203.0.113.8'), self.ident('203.0.113.9'))
+        self.assertNotEqual(
+            self.ident('203.0.113.8', SECRET),
+            self.ident('203.0.113.9', SECRET),
+        )
