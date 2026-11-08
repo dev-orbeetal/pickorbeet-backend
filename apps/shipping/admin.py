@@ -68,7 +68,7 @@ class ShipmentAdmin(admin.ModelAdmin):
     list_filter = ['courier', 'status', 'booked_at']
     search_fields = ['order__order_number', 'tracking_code', 'consignment_id', 'invoice', 'recipient_phone']
     readonly_fields = ['order', 'booked_at', 'booked_by', 'status_updated_at', 'last_checked_at',
-                       'raw_response', 'created_at', 'updated_at']
+                       'rider_name', 'rider_phone', 'raw_response', 'created_at', 'updated_at']
     inlines = [ShipmentEventInline]
     actions = ['refresh_status']
     ordering = ['-created_at']
@@ -79,7 +79,8 @@ class ShipmentAdmin(admin.ModelAdmin):
             'description': 'Edit the consignment or tracking code only to repair a booking made in the Steadfast portal.',
         }),
         ('Status', {
-            'fields': ('status', 'status_message', 'status_updated_at', 'last_checked_at'),
+            'fields': ('status', 'status_message', 'rider_name', 'rider_phone',
+                       'status_updated_at', 'last_checked_at'),
         }),
         ('Recipient and cash', {
             'fields': ('recipient_name', 'recipient_phone', 'recipient_address', 'police_station',

@@ -5,7 +5,9 @@ Docs: https://portal.packzy.com (Merchant panel > API). Every call sends the
 ``Api-Key`` and ``Secret-Key`` headers. Keys are read from settings and never
 leave the server.
 """
+import html
 import logging
+import re
 
 import requests
 from django.conf import settings
@@ -13,6 +15,37 @@ from django.conf import settings
 logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = (5, 15)  # (connect, read) seconds
+
+# The public tracking page Steadfast gives us. Anything else is not fetched.
+PUBLIC_TRACKING_URL = re.compile(r'^https://steadfast\.com\.bd/t(?:l)?/[A-Za-z0-9_-]{8,80}$')
+_ASSIGNED_SECTION = re.compile(
+    r'class="sf-card-title">\s*Assigned to\s*</h2>(?P<body>.*?)</section>',
+    re.IGNORECASE | re.DOTALL,
+)
+_RIDER_NAME = re.compile(r'class="sf-person__name">([^<]+)</p>', re.IGNORECASE)
+_RIDER_PHONE = re.compile(r'class="sf-person__meta">([^<]*)</p>', re.IGNORECASE)
+_BD_MOBILE = re.compile(r'^01\d{9}$')
+
+
+def parse_assigned_rider(page):
+    """Name and phone from the public tracking page's Assigned to card.
+
+    Returns ``('', '')`` when that card is missing. The recipient block is ignored.
+    """
+    section = _ASSIGNED_SECTION.search(page or '')
+    if section is None:
+        return '', ''
+    body = section.group('body')
+    name_match = _RIDER_NAME.search(body)
+    phone_match = _RIDER_PHONE.search(body)
+    name = html.unescape(' '.join(name_match.group(1).split()))[:100] if name_match else ''
+    digits = re.sub(r'\D', '', html.unescape(phone_match.group(1)) if phone_match else '')
+    if digits.startswith('880') and len(digits) == 13:
+        digits = '0' + digits[3:]
+    phone = digits if _BD_MOBILE.fullmatch(digits) else ''
+    if not name:
+        return '', ''
+    return name, phone
 
 
 class SteadfastError(Exception):
@@ -204,6 +237,28 @@ class SteadfastClient:
         if not isinstance(payload, list):
             raise SteadfastError('Steadfast did not return police stations.')
         return payload
+
+    def fetch_public_tracking(self, url):
+        """The public tracking page, or '' when the address is not Steadfast's or the page fails.
+
+        This page is what shows the assigned rider. It needs no API key.
+        """
+        if not PUBLIC_TRACKING_URL.fullmatch(url or ''):
+            return ''
+        try:
+            response = self.session.request(
+                'GET',
+                url,
+                headers={'Accept': 'text/html', 'User-Agent': 'PickOrbeet/1.0'},
+                timeout=self.timeout,
+                allow_redirects=False,
+            )
+        except requests.RequestException:
+            logger.info('Steadfast tracking page unavailable')
+            return ''
+        if getattr(response, 'status_code', 0) != 200:
+            return ''
+        return (getattr(response, 'text', '') or '')[:300000]
 
     def trackings_by_invoice(self, invoice):
         """Return tracking timeline steps for an invoice (empty list if none).

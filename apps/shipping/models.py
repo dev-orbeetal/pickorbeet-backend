@@ -61,6 +61,9 @@ class Shipment(models.Model):
     consignment_id = models.CharField(max_length=50, blank=True, default='', db_index=True)
     tracking_code = models.CharField(max_length=64, blank=True, default='', db_index=True)
     tracking_url = models.URLField(max_length=500, blank=True, default='')
+    deliveryman_id = models.CharField(max_length=32, blank=True, default='')
+    rider_name = models.CharField(max_length=100, blank=True, default='')
+    rider_phone = models.CharField(max_length=20, blank=True, default='')
 
     # Free-form so a status Steadfast adds later is stored rather than rejected.
     status = models.CharField(max_length=64, default='in_review', db_index=True)

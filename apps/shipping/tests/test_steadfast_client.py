@@ -9,6 +9,7 @@ from apps.shipping.steadfast import (
     SteadfastNetworkError,
     SteadfastNotFoundError,
     SteadfastValidationError,
+    parse_assigned_rider,
 )
 
 from .fakes import CONNECTION_ERROR, TIMEOUT, FakeResponse, FakeSession
@@ -156,3 +157,27 @@ class SteadfastClientTests(SimpleTestCase):
         }]
         client, _ = self.client_with(FakeResponse(200, {'status': 200, 'tracking': steps}))
         self.assertEqual(client.trackings_by_invoice('ORD-20261105-CCKHRH'), steps)
+
+    def test_public_tracking_page_is_only_read_from_steadfast(self):
+        page = '<p class="sf-person__name">Nipa Akter</p>'
+        client, session = self.client_with(FakeResponse(200, text=page))
+        self.assertEqual(client.fetch_public_tracking('https://example.com/tl/abcdefgh'), '')
+        self.assertEqual(session.calls, [])
+        self.assertEqual(
+            client.fetch_public_tracking('https://steadfast.com.bd/tl/P57lod2UjuejLHZZowjeItiiuCRw-ON0'),
+            page,
+        )
+        self.assertNotIn('Api-Key', session.calls[0]['headers'])
+
+    def test_assigned_card_is_the_rider_not_the_recipient(self):
+        page = '''
+            <h2 class="sf-card-title">Recipient</h2>
+            <dd class="sf-num">017*****702</dd>
+            </section>
+            <h2 class="sf-card-title">Assigned to</h2>
+            <p class="sf-person__name">  Nipa   Akter </p>
+            <p class="sf-person__meta">01319-760106</p>
+            </section>
+        '''
+        self.assertEqual(parse_assigned_rider(page), ('Nipa Akter', '01319760106'))
+        self.assertEqual(parse_assigned_rider('<h2 class="sf-card-title">Recipient</h2>'), ('', ''))

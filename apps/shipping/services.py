@@ -23,6 +23,7 @@ from apps.orders.services import change_order_status
 from .models import Shipment, ShipmentEvent, SteadfastPoliceStation
 from .thanas import district_key, match_police_station, stations_for_district, text_key
 from .steadfast import (
+    PUBLIC_TRACKING_URL,
     SteadfastAuthError,
     SteadfastClient,
     SteadfastConfigError,
@@ -30,6 +31,7 @@ from .steadfast import (
     SteadfastError,
     SteadfastNetworkError,
     SteadfastValidationError,
+    parse_assigned_rider,
 )
 
 logger = logging.getLogger(__name__)
@@ -995,6 +997,62 @@ def record_tracking_steps(shipment, steps):
     return created
 
 
+def assigned_deliveryman_id(steps):
+    """The rider on the newest tracking step that names one. Earlier steps stay in the list."""
+    chosen = ''
+    chosen_at = None
+    for step in steps or []:
+        if not isinstance(step, dict):
+            continue
+        raw = step.get('deliveryman_id')
+        if raw in (None, '', 0, '0'):
+            continue
+        rider_id = str(raw).strip()
+        if not rider_id.isdigit():
+            continue
+        when = parse_courier_time(_pick(step, 'updated_at', 'created_at', 'time', 'date'))
+        if chosen and when is not None and chosen_at is not None and when < chosen_at:
+            continue
+        if chosen and when is None:
+            continue
+        chosen = rider_id[:32]
+        chosen_at = when
+    return chosen
+
+
+def sync_assigned_rider(shipment, steps, client):
+    """Save the rider Steadfast shows on the public tracking page.
+
+    The merchant timeline only carries a rider id. The name and phone are on the
+    tracking page. A failed page leaves the rider already saved.
+    """
+    rider_id = assigned_deliveryman_id(steps)
+    if not rider_id or (shipment.deliveryman_id == rider_id and shipment.rider_name):
+        return
+    url = (shipment.tracking_url or '').strip()
+    if not PUBLIC_TRACKING_URL.fullmatch(url):
+        return
+    fetch = getattr(client, 'fetch_public_tracking', None)
+    if fetch is None:
+        return
+    try:
+        page = fetch(url)
+    except Exception:
+        logger.info('Rider lookup failed for %s', shipment.invoice, exc_info=True)
+        return
+    name, phone = parse_assigned_rider(page or '')
+    if not name:
+        return
+    Shipment.objects.filter(pk=shipment.pk).update(
+        deliveryman_id=rider_id,
+        rider_name=name,
+        rider_phone=phone,
+    )
+    shipment.deliveryman_id = rider_id
+    shipment.rider_name = name
+    shipment.rider_phone = phone
+
+
 def fetch_tracking_steps(shipment, *, client=None):
     """Best effort: a failed lookup leaves the status check that came before it intact."""
     client = client or SteadfastClient()
@@ -1003,7 +1061,9 @@ def fetch_tracking_steps(shipment, *, client=None):
     except SteadfastError as exc:
         logger.info('Steadfast steps for %s unavailable: %s', shipment.invoice, exc)
         return 0
-    return record_tracking_steps(shipment, steps)
+    created = record_tracking_steps(shipment, steps)
+    sync_assigned_rider(shipment, steps, client)
+    return created
 
 
 def statuses_for_group(group):

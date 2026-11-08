@@ -46,6 +46,7 @@ class FakeClient:
         tracking_code='SF123456789BD',
         balance=1250.5,
         trackings=None,
+        tracking_page='',
     ):
         self.status = status
         self.error = error
@@ -55,10 +56,12 @@ class FakeClient:
         self.trackings = trackings if trackings is not None else [
             {'status': 'pending', 'message': 'Picked up', 'updated_at': '2025-10-24 10:00:00'},
         ]
+        self.tracking_page = tracking_page
         self.created = []
         self.status_checks = []
         self.balance_checks = 0
         self.tracking_lookups = []
+        self.page_lookups = []
 
     def create_order(self, **kwargs):
         if self.error:
@@ -97,6 +100,10 @@ class FakeClient:
         if self.error:
             raise self.error
         return list(self.trackings)
+
+    def fetch_public_tracking(self, url):
+        self.page_lookups.append(url)
+        return self.tracking_page
 
     def police_stations(self):
         if self.error:

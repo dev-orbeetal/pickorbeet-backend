@@ -179,6 +179,55 @@ class TrackingStepTests(ShopTestCase):
         self.assertEqual(shipment.status, 'hold')
         self.assertEqual(self.step_events().count(), 0)
 
+    def test_an_assigned_rider_is_saved_from_the_tracking_page(self):
+        link = 'https://steadfast.com.bd/tl/P57lod2UjuejLHZZowjeItiiuCRw-ON0'
+        Shipment.objects.filter(pk=self.shipment.pk).update(tracking_url=link)
+        self.shipment.refresh_from_db()
+        page = '''
+            <h2 class="sf-card-title">Recipient</h2>
+            <dd>017*****702</dd></section>
+            <h2 class="sf-card-title">Assigned to</h2>
+            <p class="sf-person__name">Nipa Akter</p>
+            <p class="sf-person__meta">8801319760106</p>
+            </section>
+        '''
+        steps = [{
+            'text': 'Assigned to rider.',
+            'deliveryman_id': 77041,
+            'created_at': '2026-11-08T12:40:00.000000Z',
+        }, {
+            'text': 'Consignment has been received at NOAKHALI SADAR.',
+            'deliveryman_id': None,
+            'created_at': '2026-11-08T09:28:00.000000Z',
+        }]
+        client = FakeClient(status='pending', trackings=steps, tracking_page=page)
+
+        refresh_shipment(self.shipment, force=True, client=client)
+        refresh_shipment(self.shipment, force=True, client=client)
+        self.shipment.refresh_from_db()
+
+        self.assertEqual(self.shipment.rider_name, 'Nipa Akter')
+        self.assertEqual(self.shipment.rider_phone, '01319760106')
+        self.assertEqual(self.shipment.deliveryman_id, '77041')
+        self.assertEqual(client.page_lookups, [link])
+        self.assertEqual(ShipmentSerializer(self.shipment).data['rider_phone'], '01319760106')
+
+    def test_a_link_that_is_not_steadfast_is_not_opened_for_the_rider(self):
+        Shipment.objects.filter(pk=self.shipment.pk).update(tracking_url='https://example.com/parcel/77')
+        self.shipment.refresh_from_db()
+        client = FakeClient(status='pending', trackings=[{
+            'text': 'Assigned to rider.',
+            'deliveryman_id': 77041,
+            'created_at': '2026-11-08T12:40:00.000000Z',
+        }], tracking_page='<p class="sf-person__name">Nipa Akter</p>')
+
+        refresh_shipment(self.shipment, force=True, client=client)
+        self.shipment.refresh_from_db()
+
+        self.assertEqual(client.page_lookups, [])
+        self.assertEqual(self.shipment.rider_name, '')
+        self.assertIsNone(ShipmentSerializer(self.shipment).data['rider_name'])
+
 
 LIVE_COD_SENTENCE = (
     "Changes: COD '3420' to '0'. By User PickOrbeet(2494631)"

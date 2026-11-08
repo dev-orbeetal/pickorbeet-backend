@@ -41,13 +41,22 @@ class ShipmentSerializer(serializers.ModelSerializer):
     refresh_available_in = serializers.SerializerMethodField()
     events = serializers.SerializerMethodField()
     cod_amount = serializers.SerializerMethodField()
+    rider_name = serializers.SerializerMethodField()
+    rider_phone = serializers.SerializerMethodField()
 
     class Meta:
         model = Shipment
         fields = ['id', 'courier', 'courier_name', 'consignment_id', 'tracking_code', 'tracking_url',
+                  'rider_name', 'rider_phone',
                   'status', 'status_group', 'status_label', 'status_message', 'is_final',
                   'cod_amount', 'booked_at', 'status_updated_at', 'last_checked_at',
                   'refresh_available_in', 'events']
+
+    def get_rider_name(self, obj):
+        return obj.rider_name or None
+
+    def get_rider_phone(self, obj):
+        return obj.rider_phone or None
 
     def get_status_group(self, obj):
         return status_group(obj.status)
