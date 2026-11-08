@@ -36,9 +36,14 @@ def ingest_authorized(request):
 
 
 def geo_trusted(request):
-    secret = ingest_secret()
-    provided = request.headers.get('X-Analytics-Secret') or ''
-    return bool(secret) and secrets.compare_digest(provided, secret)
+    """Keep the place on the same calls that are allowed to record.
+
+    The website collector replaces the browser's country with the hosting
+    network's country, division, and city. While the ingest secret is unset,
+    that place is stored. Once the secret is set, only a matching collector
+    may supply it.
+    """
+    return ingest_authorized(request)
 
 
 class CollectView(APIView):

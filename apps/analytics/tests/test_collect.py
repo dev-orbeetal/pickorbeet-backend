@@ -73,8 +73,8 @@ class CollectTests(ShopTestCase):
         hit = PageView.objects.get()
         self.assertEqual(hit.path, '/products')
         self.assertEqual(hit.device_type, 'mobile')
-        self.assertEqual(hit.country_code, '')
-        self.assertEqual(hit.city, '')
+        self.assertEqual(hit.country_code, 'BD')
+        self.assertEqual(hit.city, 'Dhaka')
 
     def test_stores_a_mobile_visit_and_trusted_region(self):
         response = self.post(payload(path='/product/airdopes', title='Airdopes'))
@@ -87,13 +87,14 @@ class CollectTests(ShopTestCase):
         self.assertEqual(hit.device_type, 'mobile')
         self.assertEqual(hit.visitor.pageview_count, 1)
 
-    @override_settings(ANALYTICS_INGEST_SECRET='', DEBUG=True)
-    def test_client_geo_is_ignored_without_a_secret(self):
+    @override_settings(ANALYTICS_INGEST_SECRET='', DEBUG=False)
+    def test_region_is_stored_when_the_secret_is_unset(self):
         response = self.api.post(COLLECT, payload(), format='json', HTTP_USER_AGENT=MOBILE_UA)
         self.assertEqual(response.status_code, 204, response.content)
         hit = PageView.objects.get()
-        self.assertEqual(hit.country_code, '')
-        self.assertEqual(hit.city, '')
+        self.assertEqual(hit.country_code, 'BD')
+        self.assertEqual(hit.region, 'Dhaka')
+        self.assertEqual(hit.city, 'Dhaka')
 
     def test_bots_prefetches_staff_and_admin_paths_are_dropped(self):
         bot = self.post(payload(), HTTP_USER_AGENT=BOT_UA)
