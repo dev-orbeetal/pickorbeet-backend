@@ -2,18 +2,34 @@
 URL patterns for accounts app.
 """
 from django.urls import path
-from rest_framework_simplejwt.views import TokenRefreshView
 from .views import (
     CustomTokenObtainPairView, UserRegistrationView, UserProfileView,
     ChangePasswordView, LogoutView, AddressListCreateView, AddressDetailView,
     StaffUserListCreateView, StaffUserDetailView, CustomerListView, GoogleAuthView,
     ForgotPasswordView, ResetPasswordView, VerifyEmailView, ResendVerificationView
 )
+from .security_views import (
+    SessionTokenRefreshView, TwoFactorVerifyView, TwoFactorResendView,
+    TwoFactorEnableView, TwoFactorEnableConfirmView, TwoFactorDisableView,
+    SessionListView, SessionRevokeView, SessionRevokeOthersView, LoginActivityView,
+    RecoveryEmailView, RecoveryEmailConfirmView,
+)
 
 urlpatterns = [
     # Authentication
     path('login/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('token/refresh/', SessionTokenRefreshView.as_view(), name='token_refresh'),
+    path('2fa/verify/', TwoFactorVerifyView.as_view(), name='two_factor_verify'),
+    path('2fa/resend/', TwoFactorResendView.as_view(), name='two_factor_resend'),
+    path('2fa/enable/', TwoFactorEnableView.as_view(), name='two_factor_enable'),
+    path('2fa/enable/confirm/', TwoFactorEnableConfirmView.as_view(), name='two_factor_enable_confirm'),
+    path('2fa/disable/', TwoFactorDisableView.as_view(), name='two_factor_disable'),
+    path('sessions/', SessionListView.as_view(), name='session_list'),
+    path('sessions/revoke-others/', SessionRevokeOthersView.as_view(), name='session_revoke_others'),
+    path('sessions/<uuid:pk>/revoke/', SessionRevokeView.as_view(), name='session_revoke'),
+    path('login-activity/', LoginActivityView.as_view(), name='login_activity'),
+    path('recovery-email/', RecoveryEmailView.as_view(), name='recovery_email'),
+    path('recovery-email/confirm/', RecoveryEmailConfirmView.as_view(), name='recovery_email_confirm'),
     path('register/', UserRegistrationView.as_view(), name='register'),
     path('logout/', LogoutView.as_view(), name='logout'),
     path('google/', GoogleAuthView.as_view(), name='google_auth'),

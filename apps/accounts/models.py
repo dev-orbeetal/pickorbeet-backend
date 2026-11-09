@@ -69,6 +69,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     is_verified = models.BooleanField(default=False)
+    two_factor_enabled = models.BooleanField(default=False)
+    recovery_email = models.EmailField(blank=True, null=True, unique=True)
+    recovery_email_verified = models.BooleanField(default=False)
     
     date_joined = models.DateTimeField(default=timezone.now)
     last_login = models.DateTimeField(blank=True, null=True)
@@ -263,3 +266,107 @@ class PasswordResetToken(models.Model):
         token = secrets.token_urlsafe(32)
         expires_at = timezone.now() + timedelta(hours=1)
         return cls.objects.create(user=user, token=token, expires_at=expires_at)
+
+
+class AuthSession(models.Model):
+    """A signed-in device. Access and refresh tokens carry this row's id as `sid`."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='auth_sessions')
+    device_id = models.CharField(max_length=128, blank=True, default='')
+    device_name = models.CharField(max_length=120, blank=True, default='')
+    platform = models.CharField(max_length=20, blank=True, default='')
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(blank=True, default='')
+    refresh_jti = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_seen = models.DateTimeField(default=timezone.now)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = 'Auth session'
+        verbose_name_plural = 'Auth sessions'
+        ordering = ['-last_seen']
+        indexes = [
+            models.Index(fields=['user', 'revoked_at']),
+        ]
+
+    def __str__(self):
+        return f'{self.device_name or self.platform or "Device"} · {self.user.email}'
+
+
+class LoginEvent(models.Model):
+    """One attempt to sign in. Kept after the session is gone."""
+
+    PASSWORD = 'password'
+    GOOGLE = 'google'
+    TWO_FACTOR = 'two_factor'
+    VERIFICATION = 'verification'
+    METHOD_CHOICES = [
+        (PASSWORD, 'Password'),
+        (GOOGLE, 'Google'),
+        (TWO_FACTOR, 'Two-factor'),
+        (VERIFICATION, 'Email verification'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='login_events', null=True, blank=True)
+    email = models.EmailField(blank=True, default='')
+    success = models.BooleanField(default=False)
+    method = models.CharField(max_length=20, choices=METHOD_CHOICES)
+    device_id = models.CharField(max_length=128, blank=True, default='')
+    device_name = models.CharField(max_length=120, blank=True, default='')
+    platform = models.CharField(max_length=20, blank=True, default='')
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Login event'
+        verbose_name_plural = 'Login events'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', '-created_at']),
+        ]
+
+    def __str__(self):
+        outcome = 'ok' if self.success else 'failed'
+        return f'{self.email or self.user_id} {self.method} {outcome}'
+
+
+class SecurityCode(models.Model):
+    """Short-lived emailed code. The code and the challenge are stored as hashes."""
+
+    LOGIN = 'login_2fa'
+    ENABLE = 'enable_2fa'
+    DISABLE = 'disable_2fa'
+    RECOVERY = 'recovery_email'
+    PURPOSE_CHOICES = [
+        (LOGIN, 'Login'),
+        (ENABLE, 'Enable two-factor'),
+        (DISABLE, 'Disable two-factor'),
+        (RECOVERY, 'Recovery email'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='security_codes')
+    purpose = models.CharField(max_length=32, choices=PURPOSE_CHOICES)
+    code_hash = models.CharField(max_length=64)
+    challenge_hash = models.CharField(max_length=64, unique=True)
+    target_email = models.EmailField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_sent_at = models.DateTimeField(default=timezone.now)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        verbose_name = 'Security code'
+        verbose_name_plural = 'Security codes'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'purpose']),
+        ]
+
+    def __str__(self):
+        return f'{self.purpose} for {self.user.email}'

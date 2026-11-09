@@ -93,14 +93,20 @@ class UserSerializer(serializers.ModelSerializer):
     total_spent = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True, default=0)
     avatar = ProfileAvatarField(required=False, allow_null=True)
     clear_avatar = serializers.BooleanField(required=False, default=False, write_only=True)
+    has_password = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = ['id', 'email', 'phone', 'first_name', 'last_name', 'role',
                   'full_name', 'is_active', 'is_verified', 'date_joined',
                   'order_count', 'total_spent', 'address', 'city', 'postal_code',
-                  'avatar', 'clear_avatar']
-        read_only_fields = ['id', 'email', 'is_active', 'is_verified', 'date_joined', 'role']
+                  'avatar', 'clear_avatar', 'two_factor_enabled', 'recovery_email',
+                  'recovery_email_verified', 'has_password']
+        read_only_fields = ['id', 'email', 'is_active', 'is_verified', 'date_joined', 'role',
+                            'two_factor_enabled', 'recovery_email', 'recovery_email_verified']
+
+    def get_has_password(self, obj):
+        return obj.has_usable_password()
 
     def validate_first_name(self, value):
         value = (value or '').strip()
@@ -233,7 +239,7 @@ class AddressSerializer(serializers.ModelSerializer):
 class ChangePasswordSerializer(serializers.Serializer):
     """Serializer for password change."""
     
-    old_password = serializers.CharField(required=True)
+    old_password = serializers.CharField(required=False, allow_blank=True)
     new_password = serializers.CharField(required=True, validators=[validate_password])
     new_password_confirm = serializers.CharField(required=True)
 

@@ -3,7 +3,7 @@ Admin configuration for accounts app.
 """
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from .models import User, Address, BdDivision, BdDistrict, BdPostOffice
+from .models import AuthSession, LoginEvent, SecurityCode, User, Address, BdDivision, BdDistrict, BdPostOffice
 
 
 @admin.register(User)
@@ -19,6 +19,7 @@ class UserAdmin(BaseUserAdmin):
         (None, {'fields': ('email', 'password')}),
         ('Personal Info', {'fields': ('first_name', 'last_name', 'phone', 'avatar', 'address', 'city', 'postal_code')}),
         ('Role & Permissions', {'fields': ('role', 'is_active', 'is_staff', 'is_superuser', 'is_verified')}),
+        ('Security', {'fields': ('two_factor_enabled', 'recovery_email', 'recovery_email_verified')}),
         ('Groups', {'fields': ('groups', 'user_permissions')}),
         ('Important Dates', {'fields': ('last_login', 'date_joined')}),
     )
@@ -29,6 +30,30 @@ class UserAdmin(BaseUserAdmin):
             'fields': ('email', 'first_name', 'last_name', 'phone', 'role', 'password1', 'password2'),
         }),
     )
+
+
+@admin.register(AuthSession)
+class AuthSessionAdmin(admin.ModelAdmin):
+    list_display = ['user', 'device_name', 'platform', 'ip_address', 'last_seen', 'revoked_at']
+    list_filter = ['platform', 'revoked_at']
+    search_fields = ['user__email', 'device_name', 'device_id', 'ip_address']
+    raw_id_fields = ['user']
+
+
+@admin.register(LoginEvent)
+class LoginEventAdmin(admin.ModelAdmin):
+    list_display = ['email', 'method', 'success', 'device_name', 'ip_address', 'created_at']
+    list_filter = ['method', 'success', 'platform']
+    search_fields = ['email', 'device_name', 'ip_address']
+    raw_id_fields = ['user']
+
+
+@admin.register(SecurityCode)
+class SecurityCodeAdmin(admin.ModelAdmin):
+    list_display = ['user', 'purpose', 'created_at', 'expires_at', 'used_at', 'attempts']
+    list_filter = ['purpose']
+    search_fields = ['user__email', 'target_email']
+    raw_id_fields = ['user']
 
 
 @admin.register(Address)
