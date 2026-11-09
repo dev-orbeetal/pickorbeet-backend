@@ -14,6 +14,12 @@ def _png(name='photo.png', color=(40, 120, 200)):
     return SimpleUploadedFile(name, buf.getvalue(), content_type='image/png')
 
 
+def _jpeg(name='photo.jpg', content_type='image/jpeg'):
+    buf = BytesIO()
+    Image.new('RGB', (32, 32), (20, 20, 20)).save(buf, format='JPEG')
+    return SimpleUploadedFile(name, buf.getvalue(), content_type=content_type)
+
+
 class ProductSpecificationAndReviewTests(ShopTestCase):
     def setUp(self):
         super().setUp()
@@ -249,6 +255,30 @@ class ProductSpecificationAndReviewTests(ShopTestCase):
         by_star = APIClient().get(self.reviews_url(), {'rating': '3'})
         self.assertEqual(by_star.json()['filtered_count'], 1)
         self.assertEqual(by_star.json()['results'][0]['rating'], 3)
+
+        # The app sends gallery photos as application/octet-stream even when the bytes are JPEG.
+        untyped = self.api.post(
+            self.reviews_url(),
+            {
+                'rating': 5,
+                'comment': 'Received it in two days and it is authentic.',
+                'images': [_jpeg('scaled_100.jpg', 'application/octet-stream')],
+            },
+            format='multipart',
+        )
+        self.assertEqual(untyped.status_code, 200, untyped.content)
+        self.assertEqual(len(untyped.json()['images']), 1)
+
+        not_an_image = self.api.post(
+            self.reviews_url(),
+            {
+                'rating': 5,
+                'comment': 'This file is not a photo',
+                'images': [SimpleUploadedFile('notes.txt', b'not-a-photo', content_type='text/plain')],
+            },
+            format='multipart',
+        )
+        self.assertEqual(not_an_image.status_code, 400, not_an_image.content)
 
         too_many = self.api.post(
             self.reviews_url(),

@@ -44,6 +44,13 @@ REVIEW_IMAGE_MAX_BYTES = 5 * 1024 * 1024
 REVIEW_IMAGE_CONTENT_TYPES = {
     'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif',
 }
+_IMAGE_TYPE_ALIASES = {
+    'image/jpg': 'image/jpeg',
+    'image/pjpeg': 'image/jpeg',
+    'image/x-png': 'image/png',
+    'image/x-citrix-jpeg': 'image/jpeg',
+    'image/x-citrix-png': 'image/png',
+}
 
 
 def public_categories():
@@ -246,14 +253,47 @@ def _review_image_files(request):
     return list(files)
 
 
+def _declared_image_type(upload):
+    raw = (getattr(upload, 'content_type', None) or '').split(';', 1)[0].strip().lower()
+    return _IMAGE_TYPE_ALIASES.get(raw, raw)
+
+
+def _peek_header(upload, size=16):
+    """Read the start of an upload and put the cursor back so the file still saves whole."""
+    try:
+        position = upload.tell()
+        header = upload.read(size) or b''
+        upload.seek(position)
+    except Exception:
+        return b''
+    return header
+
+
+def _sniff_image_type(header):
+    if header.startswith(b'\xff\xd8\xff'):
+        return 'image/jpeg'
+    if header.startswith(b'\x89PNG\r\n\x1a\n'):
+        return 'image/png'
+    if header.startswith((b'GIF87a', b'GIF89a')):
+        return 'image/gif'
+    if len(header) >= 12 and header[:4] == b'RIFF' and header[8:12] == b'WEBP':
+        return 'image/webp'
+    return ''
+
+
 def _validate_review_images(files):
     if len(files) > REVIEW_IMAGE_MAX:
         raise ValidationError({
             'images': [f'You can attach up to {REVIEW_IMAGE_MAX} photos.'],
         })
     for upload in files:
-        content_type = (getattr(upload, 'content_type', None) or '').lower()
-        if content_type and content_type not in REVIEW_IMAGE_CONTENT_TYPES:
+        declared = _declared_image_type(upload)
+        # The app sends gallery photos as application/octet-stream. Trust the bytes.
+        sniffed = _sniff_image_type(_peek_header(upload))
+        if sniffed:
+            if declared != sniffed and hasattr(upload, 'content_type'):
+                upload.content_type = sniffed
+        elif declared not in REVIEW_IMAGE_CONTENT_TYPES:
             raise ValidationError({'images': ['Photos must be JPEG, PNG, WebP, or GIF.']})
         size = getattr(upload, 'size', None)
         if size is not None and size > REVIEW_IMAGE_MAX_BYTES:
