@@ -102,6 +102,7 @@ def send_order_confirmed_email(order):
             'meta_value': format_when(order.created_at, with_time=True),
             'items': _order_lines(order),
             'details_url': frontend('orders'),
+            'track_url': track_url(order),
             **_money(order),
         },
         order_email(order),

@@ -110,6 +110,8 @@ class OrderEmailTests(ShopTestCase):
         self.assertIn('৳70', body)
         self.assertIn('৳1,150', body)
         self.assertIn('Order Confirmed!', body)
+        self.assertIn(f'/track-order?order={order.order_number}', body)
+        self.assertIn('Track Your Order', body)
         self.assertNotIn('@keyframes', body)
 
     def test_checkout_sends_one_confirmation(self):

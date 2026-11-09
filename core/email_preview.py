@@ -71,6 +71,7 @@ def _confirmed(motion):
         'discount': '',
         'total': '৳1,150',
         'details_url': frontend('orders'),
+        'track_url': f'{frontend("track-order")}?order=PO783256',
     }, motion)
 
 
