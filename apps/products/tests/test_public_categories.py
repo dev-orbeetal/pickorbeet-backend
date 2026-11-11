@@ -1,7 +1,8 @@
+from django.core.files.base import ContentFile
 from rest_framework.test import APIClient
 
 from apps.orders.tests.factories import ShopTestCase, make_product
-from apps.products.models import Category, SubCategory
+from apps.products.models import Category, ProductImage, SubCategory
 
 
 class PublicCategoryVisibilityTests(ShopTestCase):
@@ -32,3 +33,27 @@ class PublicCategoryVisibilityTests(ShopTestCase):
         electronics_row = next(row for row in rows if row['name'] == 'Electronics')
         sub_names = [sub['name'] for sub in electronics_row['subcategories']]
         self.assertEqual(sub_names, ['TWS'])
+
+    def test_homepage_tile_uses_a_product_photo_when_the_subcategory_has_no_cover(self):
+        electronics = Category.objects.create(name='Cameras', is_active=True)
+        action = SubCategory.objects.create(category=electronics, name='Action Camera', is_active=True)
+        product = make_product(name='Action cam', category=electronics, subcategory=action, stock=1)
+        photo = ProductImage(product=product, is_primary=True, alt_text='Action cam')
+        photo.image.save('action-cam.png', ContentFile(b'photo'), save=True)
+
+        response = APIClient().get('/api/v1/products/categories/')
+        self.assertEqual(response.status_code, 200, response.content)
+        rows = response.json()
+        if isinstance(rows, dict):
+            rows = rows.get('results', [])
+        cameras = next(row for row in rows if row['name'] == 'Cameras')
+        self.assertIn('action-cam', cameras['subcategories'][0]['image'])
+
+        action.image.save('cover.png', ContentFile(b'cover'), save=True)
+        again = APIClient().get('/api/v1/products/categories/')
+        again_rows = again.json()
+        if isinstance(again_rows, dict):
+            again_rows = again_rows.get('results', [])
+        cameras = next(row for row in again_rows if row['name'] == 'Cameras')
+        self.assertIn('cover', cameras['subcategories'][0]['image'])
+        self.assertNotIn('action-cam', cameras['subcategories'][0]['image'])

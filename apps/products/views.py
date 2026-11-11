@@ -61,9 +61,21 @@ def public_categories():
         filter=Q(products__is_active=True),
         distinct=True,
     )
+    # Homepage tiles use this when a subcategory has no cover of its own.
+    cover = (
+        ProductImage.objects.filter(
+            product__subcategory=OuterRef('pk'),
+            product__is_active=True,
+        )
+        .order_by('-is_primary', 'display_order', 'id')
+        .values('image')[:1]
+    )
     active_subcategories = (
         SubCategory.objects.filter(is_active=True)
-        .annotate(_active_product_count=has_sellable_products)
+        .annotate(
+            _active_product_count=has_sellable_products,
+            _cover_image=Subquery(cover),
+        )
         .filter(_active_product_count__gt=0)
         .order_by('display_order', 'name')
     )

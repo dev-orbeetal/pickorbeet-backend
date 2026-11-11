@@ -1,6 +1,7 @@
 """
 Serializers for products app.
 """
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Avg, Count
 from rest_framework import serializers
@@ -176,11 +177,22 @@ class SubCategorySerializer(serializers.ModelSerializer):
 
 class SubCategoryListSerializer(serializers.ModelSerializer):
     """Minimal serializer for subcategory lists."""
-    image = RelativeImageField(required=False, allow_null=True)
+    image = serializers.SerializerMethodField()
 
     class Meta:
         model = SubCategory
         fields = ['id', 'name', 'slug', 'description', 'image', 'display_order']
+
+    def get_image(self, obj):
+        if obj.image:
+            try:
+                return obj.image.url
+            except ValueError:
+                pass
+        cover = getattr(obj, '_cover_image', None)
+        if not cover:
+            return None
+        return f'{settings.MEDIA_URL}{cover}'
 
 
 class CategorySerializer(serializers.ModelSerializer):
