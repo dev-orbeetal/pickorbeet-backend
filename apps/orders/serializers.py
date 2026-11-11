@@ -420,7 +420,7 @@ class OrderDetailSerializer(serializers.ModelSerializer):
 
 class CheckoutSerializer(serializers.Serializer):
     """Serializer for checkout process."""
-    # Guest info (optional if authenticated)
+    # Guest info. Email is required when the shopper is not signed in.
     guest_email = serializers.EmailField(required=False, allow_blank=True)
     guest_phone = serializers.CharField(required=False)
     guest_name = serializers.CharField(required=False)
@@ -473,6 +473,15 @@ class CheckoutSerializer(serializers.Serializer):
             attrs.get('billing_division') or attrs.get('billing_district')
         ):
             validate_bd_location(attrs, require_cascade=True, prefix='billing_')
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if user is None or not user.is_authenticated:
+            email = (attrs.get('guest_email') or '').strip()
+            if not email:
+                raise serializers.ValidationError({
+                    'guest_email': 'Enter an email so we can send your tracking link.',
+                })
+            attrs['guest_email'] = email
         return attrs
 
 

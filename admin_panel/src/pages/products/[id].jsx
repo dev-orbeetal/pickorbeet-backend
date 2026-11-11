@@ -450,7 +450,27 @@ export default function EditProductPage() {
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
-            <h1 className="text-2xl font-semibold text-gray-900">Edit Product</h1>
+            <div>
+              <h1 className="text-2xl font-semibold text-gray-900">Edit Product</h1>
+              {product.provider && (
+                <p className="text-sm text-gray-500">
+                  Imported from {product.provider === 'marvellous' ? 'Marvellous' : 'i-Tech'}
+                  {product.source_url ? (
+                    <>
+                      {' · '}
+                      <a
+                        href={product.source_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-primary-600 hover:underline"
+                      >
+                        Source page
+                      </a>
+                    </>
+                  ) : null}
+                </p>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <button

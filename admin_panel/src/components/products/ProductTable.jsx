@@ -8,10 +8,13 @@ import {
 import toast from 'react-hot-toast';
 import MoveProductModal from '@/components/products/MoveProductModal';
 import SupplyBadge from '@/components/products/SupplyBadge';
+import ProviderBadge from '@/components/products/ProviderBadge';
+import CatalogBatchBar from '@/components/products/CatalogBatchBar';
 import LoadError from '@/components/ui/LoadError';
 import Pager from '@/components/ui/Pager';
 import {
   useGetProductsQuery,
+  useGetCatalogImportsQuery,
   useDeleteProductMutation,
   useUpdateProductMutation,
   useUpdateVariantMutation,
@@ -48,14 +51,16 @@ export default function ProductTable() {
     category: '',
     is_active: '',
     supply_type: '',
+    provider: '',
   });
   const [expandedProducts, setExpandedProducts] = useState({});
   const [togglingKey, setTogglingKey] = useState(null);
   const [moving, setMoving] = useState(null);
+  const [batchId, setBatchId] = useState('');
 
   useEffect(() => {
     setPage(1);
-  }, [filters.search, filters.category, filters.is_active, filters.supply_type]);
+  }, [filters.search, filters.category, filters.is_active, filters.supply_type, filters.provider]);
 
   const queryParams = useMemo(() => {
     const params = { page };
@@ -63,8 +68,22 @@ export default function ProductTable() {
     if (filters.category) params.category = filters.category;
     if (filters.is_active) params.is_active = filters.is_active;
     if (filters.supply_type) params.supply_type = filters.supply_type;
+    if (filters.provider) params.provider = filters.provider;
     return params;
   }, [filters, page]);
+
+  const trackedProvider = filters.provider === 'itech' || filters.provider === 'marvellous'
+    ? filters.provider
+    : '';
+  const { data: importBatches, isLoading: importsLoading, isFetching: importsFetching } = useGetCatalogImportsQuery(
+    { provider: trackedProvider },
+    { skip: !trackedProvider },
+  );
+  const batches = Array.isArray(importBatches) ? importBatches : [];
+
+  useEffect(() => {
+    setBatchId(batches[0]?.id || '');
+  }, [trackedProvider, batches[0]?.id]);
 
   const { data: categoriesData } = useGetCategoriesQuery();
   const { data: productsData, isLoading: loading, isError, refetch } = useGetProductsQuery(queryParams);
@@ -158,6 +177,18 @@ export default function ProductTable() {
 
         <div className="flex flex-wrap items-center gap-3">
           <select
+            value={filters.provider}
+            onChange={(e) => setFilters({ ...filters, provider: e.target.value })}
+            className="input w-auto"
+            aria-label="Provider"
+          >
+            <option value="">All</option>
+            <option value="store">Store</option>
+            <option value="itech">i-Tech</option>
+            <option value="marvellous">Marvellous</option>
+          </select>
+
+          <select
             value={filters.category}
             onChange={(e) => setFilters({ ...filters, category: e.target.value })}
             className="input w-auto"
@@ -189,6 +220,15 @@ export default function ProductTable() {
           </select>
         </div>
       </div>
+
+      {trackedProvider && (
+        <CatalogBatchBar
+          batches={batches}
+          batchId={batchId}
+          onBatchChange={setBatchId}
+          loading={importsLoading || importsFetching}
+        />
+      )}
 
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
@@ -290,6 +330,7 @@ export default function ProductTable() {
                                     Trending
                                   </span>
                                 )}
+                                <ProviderBadge provider={product.provider} />
                                 {hasVariants && (
                                   <span className="flex items-center gap-1 text-xs text-gray-500">
                                     <Layers className="w-3 h-3" />

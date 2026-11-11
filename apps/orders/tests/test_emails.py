@@ -199,6 +199,42 @@ class OrderEmailTests(ShopTestCase):
         self.change(order, 'shipped')
         self.assertEqual(mail.outbox[1].to, ['guest@example.com'])
 
+    def test_guest_checkout_requires_an_email_for_the_tracking_mail(self):
+        api = APIClient()
+        product = make_product(price='1080.00')
+        added = api.post('/api/v1/orders/cart/add/', {'product_id': str(product.id)}, format='json')
+        self.assertEqual(added.status_code, 200, added.content)
+        payload = {
+            'guest_name': 'Guest Shopper',
+            'guest_phone': '01712345678',
+            'shipping_name': 'Guest Shopper',
+            'shipping_phone': '01712345678',
+            'shipping_address_line1': 'House 12, Road 4',
+            'shipping_division': 'Dhaka',
+            'shipping_city': 'Gulshan',
+            'shipping_district': 'Dhaka',
+            'shipping_post_office': 'Gulshan Model Town',
+            'shipping_postal_code': '1212',
+            'payment_method': 'cod',
+        }
+        missing = api.post('/api/v1/orders/checkout/', payload, format='json')
+        self.assertEqual(missing.status_code, 400, missing.content)
+        self.assertIn('guest_email', missing.json())
+        self.assertEqual(Order.objects.count(), 0)
+        self.assertEqual(len(mail.outbox), 0)
+
+        blank = api.post('/api/v1/orders/checkout/', {**payload, 'guest_email': ''}, format='json')
+        self.assertEqual(blank.status_code, 400, blank.content)
+
+        placed = api.post(
+            '/api/v1/orders/checkout/',
+            {**payload, 'guest_email': 'guest@example.com'},
+            format='json',
+        )
+        self.assertEqual(placed.status_code, 201, placed.content)
+        self.assertEqual(mail.outbox[0].to, ['guest@example.com'])
+        self.assertIn('/track-order?order=', html_of(mail.outbox[0]))
+
     def test_abandoned_cart_and_sale_are_callable_but_not_automatic(self):
         user = make_user()
         product = make_product(price='1080.00', compare_price='1500.00')

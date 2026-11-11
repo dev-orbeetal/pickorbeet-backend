@@ -95,6 +95,30 @@ class SubCategory(models.Model):
         return self.products.filter(is_active=True).count()
 
 
+class CatalogImport(models.Model):
+    """One import of a scraped shop. Staff use it to update that batch together."""
+
+    ITECH = 'itech'
+    MARVELLOUS = 'marvellous'
+    PROVIDER_CHOICES = [
+        (ITECH, 'i-Tech'),
+        (MARVELLOUS, 'Marvellous'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    provider = models.CharField(max_length=20, choices=PROVIDER_CHOICES)
+    label = models.CharField(max_length=120)
+    imported_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Catalog import'
+        verbose_name_plural = 'Catalog imports'
+        ordering = ['-imported_at']
+
+    def __str__(self):
+        return self.label
+
+
 class Product(models.Model):
     """Product model with stock management and an internal supply classification."""
     
@@ -187,7 +211,21 @@ class Product(models.Model):
         blank=True,
         related_name='supplied_products',
     )
-    
+    catalog_import = models.ForeignKey(
+        CatalogImport,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='products',
+        help_text='Imported shop batch. Empty for products added in this store.',
+    )
+    source_url = models.URLField(
+        max_length=800,
+        blank=True,
+        default='',
+        help_text='Original product page. Staff only; shoppers never see this.',
+    )
+
     is_active = models.BooleanField(default=True)
     is_featured = models.BooleanField(default=False)
     is_official = models.BooleanField(

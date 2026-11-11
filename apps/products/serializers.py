@@ -5,9 +5,9 @@ from django.db import transaction
 from django.db.models import Avg, Count
 from rest_framework import serializers
 from .models import (
-    Category, SubCategory, Product, ProductImage, ProductVideo, ProductVariant, ProductSpecification,
-    ProductReview, ProductReviewImage, ContactMessage, HomepageBanner, HomepageSection,
-    HomepageSectionProduct, purchase_ceiling,
+    CatalogImport, Category, SubCategory, Product, ProductImage, ProductVideo, ProductVariant,
+    ProductSpecification, ProductReview, ProductReviewImage, ContactMessage, HomepageBanner,
+    HomepageSection, HomepageSectionProduct, purchase_ceiling,
 )
 from .youtube import extract_youtube_id
 
@@ -358,7 +358,18 @@ class ProductDetailSerializer(LegacyStockCeilingMixin, serializers.ModelSerializ
         return review_stats(obj)['review_count']
 
 
-class AdminProductListSerializer(ProductListSerializer):
+class CatalogSourceMixin(serializers.Serializer):
+    """Staff-only import tracking. Public product serializers do not use this."""
+    provider = serializers.SerializerMethodField()
+    catalog_import = serializers.UUIDField(source='catalog_import_id', allow_null=True, read_only=True)
+    source_url = serializers.CharField(read_only=True)
+
+    def get_provider(self, obj):
+        batch = obj.catalog_import
+        return batch.provider if batch else None
+
+
+class AdminProductListSerializer(CatalogSourceMixin, ProductListSerializer):
     """Admin list payload. Adds stock and supply fields the public list omits."""
     supplied_by_name = serializers.SerializerMethodField()
     warehouse_stock = serializers.SerializerMethodField()
@@ -372,6 +383,7 @@ class AdminProductListSerializer(ProductListSerializer):
             'stock_quantity', 'low_stock_threshold', 'is_low_stock',
             'supply_type', 'supplied_by', 'supplied_by_name',
             'warehouse_stock', 'dealer_stock', 'dealer_available',
+            'provider', 'catalog_import', 'source_url',
         ]
 
     def get_supplied_by_name(self, obj):
@@ -400,7 +412,7 @@ class AdminProductListSerializer(ProductListSerializer):
         return int(obj.dealer_stock or 0)
 
 
-class AdminProductDetailSerializer(ProductDetailSerializer):
+class AdminProductDetailSerializer(CatalogSourceMixin, ProductDetailSerializer):
     """Admin detail payload. Adds stock and supply fields the public detail omits."""
     supplied_by_name = serializers.SerializerMethodField()
     is_low_stock = serializers.ReadOnlyField()
@@ -412,6 +424,7 @@ class AdminProductDetailSerializer(ProductDetailSerializer):
             'stock_quantity', 'is_low_stock',
             'supply_type', 'supplied_by', 'supplied_by_name', 'cost_price',
             'low_stock_threshold', 'warehouse_stock', 'dealer_stock', 'dealer_available',
+            'provider', 'catalog_import', 'source_url',
         ]
 
     def get_option_groups(self, obj):
@@ -421,6 +434,15 @@ class AdminProductDetailSerializer(ProductDetailSerializer):
     def get_supplied_by_name(self, obj):
         seller = getattr(obj, 'supplied_by', None)
         return seller.full_name if seller else None
+
+
+class CatalogImportSerializer(serializers.ModelSerializer):
+    """Staff list of imported shop batches and how many products each one holds."""
+    product_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = CatalogImport
+        fields = ['id', 'provider', 'label', 'imported_at', 'product_count']
 
 
 class ProductCreateUpdateSerializer(serializers.ModelSerializer):

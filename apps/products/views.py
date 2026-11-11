@@ -3,7 +3,7 @@ Views for products app.
 """
 import re
 import uuid
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from rest_framework import generics, status, filters
 from rest_framework.exceptions import ValidationError
@@ -11,21 +11,22 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django_filters.rest_framework import DjangoFilterBackend
-from django.db import models
+from django.db import models, transaction
 from django.db.models import (
     Avg, Count, F, FloatField, IntegerField, OuterRef, Prefetch, ProtectedError, Q, Subquery, Value,
 )
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from .models import (
-    Category, SubCategory, Product, ProductImage, ProductVideo, ProductVariant, ProductReview,
-    ProductReviewImage, ContactMessage, HomepageBanner, public_variant_queryset,
+    CatalogImport, Category, SubCategory, Product, ProductImage, ProductVideo, ProductVariant,
+    ProductReview, ProductReviewImage, ContactMessage, HomepageBanner, public_variant_queryset,
     with_catalog_stats, with_public_catalog,
 )
 from .serializers import (
     CategorySerializer, CategoryListSerializer, SubCategorySerializer, AdminCategorySerializer,
     ProductListSerializer, ProductDetailSerializer, ProductCreateUpdateSerializer,
-    AdminProductListSerializer, AdminProductDetailSerializer,
+    AdminProductListSerializer, AdminProductDetailSerializer, CatalogImportSerializer,
     ProductImageSerializer, ProductVideoSerializer, ProductVariantSerializer, BarcodeProductSerializer,
     ProductStockUpdateSerializer, StockTransferSerializer,
     ContactMessageSubmitSerializer, ContactMessageSerializer,
@@ -657,11 +658,18 @@ class AdminProductListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         queryset = with_catalog_stats(Product.objects.all().select_related(
-            'category', 'subcategory', 'supplied_by'
+            'category', 'subcategory', 'supplied_by', 'catalog_import'
         ).prefetch_related('variants'))
         if self.request.query_params.get('direct') == 'true':
             # Keeps null subcategories, and stale links to another category's subcategory.
             queryset = queryset.exclude(subcategory__category=F('category'))
+        provider = (self.request.query_params.get('provider') or '').strip().lower()
+        if provider == 'store':
+            queryset = queryset.filter(catalog_import__isnull=True)
+        elif provider in dict(CatalogImport.PROVIDER_CHOICES):
+            queryset = queryset.filter(catalog_import__provider=provider)
+        elif provider:
+            queryset = queryset.none()
         return queryset
 
     def create(self, request, *args, **kwargs):
@@ -689,7 +697,7 @@ class AdminProductDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
         return (
             Product.objects.all()
-            .select_related('supplied_by')
+            .select_related('supplied_by', 'catalog_import')
             .prefetch_related('images', 'videos', 'variants')
         )
 
@@ -709,6 +717,121 @@ class AdminProductDetailView(generics.RetrieveUpdateDestroyAPIView):
         for file in files:
             file.delete(save=False)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def _strict_bool(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {'1', 'true', 'yes'}:
+            return True
+        if lowered in {'0', 'false', 'no'}:
+            return False
+    return None
+
+
+class CatalogImportListView(generics.ListAPIView):
+    """Staff: imported shop batches, newest first."""
+    serializer_class = CatalogImportSerializer
+    permission_classes = [IsAuthenticated, IsStaffUser]
+    pagination_class = None
+
+    def get_queryset(self):
+        queryset = CatalogImport.objects.annotate(product_count=Count('products')).order_by('-imported_at')
+        provider = (self.request.query_params.get('provider') or '').strip().lower()
+        if provider:
+            queryset = queryset.filter(provider=provider)
+        return queryset
+
+
+class CatalogImportAdjustView(APIView):
+    """Staff: change price or listing flags for every product in one import batch.
+
+    A percent is applied to the current price, so a later change stacks on the last edit.
+    Compare price moves by the same percent when the product has one. Only fields present
+    in the request are written.
+    """
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def post(self, request, pk):
+        batch = get_object_or_404(CatalogImport, pk=pk)
+        flags = {}
+        if 'is_active' in request.data:
+            active = _strict_bool(request.data.get('is_active'))
+            if active is None:
+                return Response({'detail': 'is_active must be true or false.'}, status=status.HTTP_400_BAD_REQUEST)
+            flags['is_active'] = active
+        if 'dealer_available' in request.data:
+            dealer = _strict_bool(request.data.get('dealer_available'))
+            if dealer is None:
+                return Response(
+                    {'detail': 'dealer_available must be true or false.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            flags['dealer_available'] = dealer
+        if 'warranty_period' in request.data:
+            warranty = str(request.data.get('warranty_period') or '').strip()
+            if len(warranty) > 80:
+                return Response(
+                    {'detail': 'Warranty text must be 80 characters or fewer.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            flags['warranty_period'] = warranty
+
+        raw_percent = request.data.get('price_percent', None)
+        has_price = raw_percent not in (None, '')
+        if not has_price and not flags:
+            return Response(
+                {'detail': 'Send a price percent or a listing field to update.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        multiplier = None
+        if has_price:
+            try:
+                percent = Decimal(str(raw_percent))
+            except InvalidOperation:
+                return Response(
+                    {'detail': 'Enter a price percent such as 10 or -5.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            multiplier = (Decimal('100') + percent) / Decimal('100')
+            if multiplier < 0:
+                return Response(
+                    {'detail': 'A price cannot be reduced below zero.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        now = timezone.now()
+        with transaction.atomic():
+            if multiplier is None:
+                updated = batch.products.update(**flags, updated_at=now)
+            else:
+                updated = 0
+                products = batch.products.select_for_update().order_by('pk')
+                for product in products:
+                    product.price = (product.price * multiplier).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    update_fields = ['price', 'updated_at']
+                    if product.compare_price is not None:
+                        product.compare_price = (product.compare_price * multiplier).quantize(
+                            Decimal('0.01'), rounding=ROUND_HALF_UP,
+                        )
+                        update_fields.append('compare_price')
+                    for key, value in flags.items():
+                        setattr(product, key, value)
+                        update_fields.append(key)
+                    product.updated_at = now
+                    product.save(update_fields=update_fields)
+                    updated += 1
+
+        return Response({
+            'id': str(batch.id),
+            'provider': batch.provider,
+            'label': batch.label,
+            'updated': updated,
+            'product_count': batch.products.count(),
+        })
 
 
 class ProductImageUploadView(generics.CreateAPIView):

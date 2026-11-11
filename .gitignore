@@ -142,6 +142,10 @@ public
 # Files written by manage.py seed_demo_store
 /media/demo/
 
+# Photos copied by import_scraped_catalog. They stay on the server that runs the import.
+/media/products/imports/
+/media/categories/imports/
+
 # Firebase service account. Never commit this.
 firebase-adminsdk*.json
 *-firebase-adminsdk-*.json

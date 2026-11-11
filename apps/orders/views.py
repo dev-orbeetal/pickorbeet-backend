@@ -264,7 +264,7 @@ class CheckoutView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        serializer = CheckoutSerializer(data=request.data)
+        serializer = CheckoutSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         
         cart = request_cart(request)

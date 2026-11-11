@@ -21,6 +21,23 @@ export const productsApi = baseApi.injectEndpoints({
       providesTags: (result, error, id) => [{ type: 'Products', id }],
     }),
 
+    getCatalogImports: builder.query({
+      query: (params) => ({
+        url: '/products/admin/imports/',
+        params,
+      }),
+      providesTags: [{ type: 'Products', id: 'IMPORTS' }],
+    }),
+
+    adjustCatalogImport: builder.mutation({
+      query: ({ id, ...body }) => ({
+        url: `/products/admin/imports/${id}/adjust/`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: [{ type: 'Products' }],
+    }),
+
     createProduct: builder.mutation({
       query: (data) => ({
         url: '/products/admin/products/',
@@ -330,6 +347,8 @@ export const {
   useLazyGetProductsQuery,
   useGetProductQuery,
   useLazyGetProductQuery,
+  useGetCatalogImportsQuery,
+  useAdjustCatalogImportMutation,
   useCreateProductMutation,
   useUpdateProductMutation,
   useDeleteProductMutation,

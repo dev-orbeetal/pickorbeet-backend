@@ -4,9 +4,9 @@ Admin configuration for products app.
 from django.contrib import admin
 from django.utils.html import format_html
 from .models import (
-    Category, SubCategory, Product, ProductImage, ProductVideo, ProductVariant, ProductSpecification,
-    ProductReview, ProductReviewImage, StoreSettings, HomepageBanner, HomepageSection,
-    HomepageSectionProduct, HomepageBenefit,
+    CatalogImport, Category, SubCategory, Product, ProductImage, ProductVideo, ProductVariant,
+    ProductSpecification, ProductReview, ProductReviewImage, StoreSettings, HomepageBanner,
+    HomepageSection, HomepageSectionProduct, HomepageBenefit,
 )
 
 
@@ -85,14 +85,28 @@ class ProductSpecificationInline(admin.TabularInline):
     fields = ['name', 'value', 'sort_order']
 
 
+@admin.register(CatalogImport)
+class CatalogImportAdmin(admin.ModelAdmin):
+    list_display = ['label', 'provider', 'imported_at', 'product_count']
+    list_filter = ['provider']
+    search_fields = ['label']
+    readonly_fields = ['imported_at']
+    ordering = ['-imported_at']
+
+    def product_count(self, obj):
+        return obj.products.count()
+    product_count.short_description = 'Products'
+
+
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ['name', 'sku', 'category', 'subcategory', 'price', 'stock_quantity', 
-                    'stock_status', 'is_active', 'is_featured', 'image_preview']
-    list_filter = ['is_active', 'is_featured', 'category', 'subcategory', 'size', 'color']
+    list_display = ['name', 'sku', 'category', 'subcategory', 'price', 'stock_quantity',
+                    'stock_status', 'import_provider', 'is_active', 'is_featured', 'image_preview']
+    list_filter = ['is_active', 'is_featured', 'catalog_import__provider', 'category', 'subcategory', 'size', 'color']
+    list_select_related = ('category', 'subcategory', 'catalog_import')
     search_fields = ['name', 'sku', 'barcode', 'description']
     prepopulated_fields = {'slug': ('name',)}
-    readonly_fields = ['barcode_image']
+    readonly_fields = ['barcode_image', 'catalog_import', 'source_url']
     ordering = ['-created_at']
     inlines = [ProductImageInline, ProductVideoInline, ProductVariantInline, ProductSpecificationInline]
     
@@ -118,7 +132,16 @@ class ProductAdmin(admin.ModelAdmin):
         ('Status', {
             'fields': ('is_active', 'is_featured', 'is_official', 'warranty_period')
         }),
+        ('Import', {
+            'fields': ('catalog_import', 'source_url'),
+        }),
     )
+
+    def import_provider(self, obj):
+        if obj.catalog_import_id:
+            return obj.catalog_import.get_provider_display()
+        return '—'
+    import_provider.short_description = 'Provider'
 
     def stock_status(self, obj):
         if obj.is_out_of_stock:
