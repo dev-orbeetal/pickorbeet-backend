@@ -83,6 +83,7 @@ def public_categories():
         Category.objects.filter(is_active=True)
         .annotate(_active_product_count=has_sellable_products)
         .filter(_active_product_count__gt=0)
+        .order_by('display_order', 'name')
         .prefetch_related(Prefetch('subcategories', queryset=active_subcategories))
     )
 
@@ -126,7 +127,8 @@ class CategoryListView(generics.ListAPIView):
     """List all active categories with subcategories."""
     serializer_class = CategorySerializer
     permission_classes = [AllowAny]
-    
+    pagination_class = None
+
     def get_queryset(self):
         return public_categories()
 
