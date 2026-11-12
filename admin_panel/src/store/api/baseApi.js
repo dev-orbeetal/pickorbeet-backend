@@ -115,6 +115,7 @@ export const baseApi = createApi({
     'Staff',
     'Reports',
     'Payments',
+    'Customers',
     'Expenses',
     'Income',
     'Finance',

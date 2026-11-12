@@ -3,6 +3,7 @@ Views for accounts app.
 """
 import logging
 import time
+from decimal import Decimal
 
 from rest_framework import generics, status, permissions
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -11,6 +12,12 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import get_user_model
+from django.db import transaction
+from django.db.models import Count, DecimalField, OuterRef, Prefetch, Q, Subquery, Sum, Value
+from django.db.models.functions import Coalesce
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from core.pagination import AdminPagination
 from .security import current_sid, issue_login, revoke_other_sessions, revoke_session, session_for_sid
 from .security_views import LoginView
 from .models import Address, EmailVerificationToken, LoginEvent, PasswordResetToken
@@ -18,9 +25,9 @@ from .serializers import (
     UserSerializer, UserRegistrationSerializer,
     StaffUserSerializer, AddressSerializer, ChangePasswordSerializer,
     ForgotPasswordSerializer, ResetPasswordSerializer, EmailVerificationSerializer,
-    ResendVerificationSerializer
+    ResendVerificationSerializer, AdminCustomerSerializer, AdminCustomerDetailSerializer,
 )
-from .permissions import IsSuperAdmin, IsStaffUser
+from .permissions import IsSuperAdmin, IsSeller
 from .emails import (
     send_otp_email, send_welcome_email, send_google_welcome_email,
     send_password_reset_email, send_password_changed_email
@@ -203,31 +210,171 @@ class StaffUserDetailView(generics.RetrieveUpdateDestroyAPIView):
         return User.objects.filter(role__in=['seller', 'accountant', 'super_admin'])
 
 
+SPEND_EXCLUDED = ('cancelled', 'refunded')
+CUSTOMER_ORDERING = {
+    'date_joined', '-date_joined',
+    'last_login', '-last_login',
+    'order_count', '-order_count',
+    'total_spent', '-total_spent',
+}
+
+
+def _query_bool(value):
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if text in {'1', 'true', 'yes'}:
+        return True
+    if text in {'0', 'false', 'no'}:
+        return False
+    return None
+
+
+def customer_queryset():
+    """Customers with order count and spend, including people who never ordered.
+
+    Spend ignores cancelled and refunded orders. The subquery keeps that sum
+    off the same join as the count, so the two numbers do not multiply.
+    """
+    from apps.orders.models import Order
+
+    money = DecimalField(max_digits=14, decimal_places=2)
+    spent = (
+        Order.objects.filter(user_id=OuterRef('pk'))
+        .exclude(order_status__in=SPEND_EXCLUDED)
+        .order_by()
+        .values('user_id')
+        .annotate(spent=Sum('total'))
+        .values('spent')[:1]
+    )
+    return User.objects.filter(role='customer').annotate(
+        order_count=Count('orders'),
+        total_spent=Coalesce(
+            Subquery(spent, output_field=money),
+            Value(Decimal('0.00')),
+            output_field=money,
+        ),
+    )
+
+
+def customer_or_404(user_id):
+    return get_object_or_404(User, pk=user_id, role='customer')
+
+
 class CustomerListView(generics.ListAPIView):
-    """List all customers with order statistics."""
-    serializer_class = UserSerializer
-    permission_classes = [permissions.IsAuthenticated, IsStaffUser]
+    """Every customer account, whether or not they have placed an order."""
+
+    serializer_class = AdminCustomerSerializer
+    permission_classes = [permissions.IsAuthenticated, IsSeller]
+    pagination_class = AdminPagination
 
     def get_queryset(self):
-        from django.db.models import Count, Sum, Q
-        queryset = User.objects.filter(
-            role='customer'
-        ).annotate(
-            order_count=Count('orders'),
-            total_spent=Sum('orders__total')
-        ).filter(
-            order_count__gt=0
-        ).order_by('-date_joined')
-        
-        search = self.request.query_params.get('search', '')
+        queryset = customer_queryset()
+        params = self.request.query_params
+
+        search = (params.get('search') or '').strip()
         if search:
-            queryset = queryset.filter(
-                Q(first_name__icontains=search) |
-                Q(last_name__icontains=search) |
-                Q(email__icontains=search) |
-                Q(phone__icontains=search)
+            query = (
+                Q(first_name__icontains=search)
+                | Q(last_name__icontains=search)
+                | Q(email__icontains=search)
+                | Q(phone__icontains=search)
             )
-        return queryset
+            parts = search.split()
+            if len(parts) >= 2:
+                query |= Q(first_name__icontains=parts[0], last_name__icontains=parts[-1])
+            queryset = queryset.filter(query)
+
+        active = _query_bool(params.get('is_active'))
+        if active is not None:
+            queryset = queryset.filter(is_active=active)
+        verified = _query_bool(params.get('is_verified'))
+        if verified is not None:
+            queryset = queryset.filter(is_verified=verified)
+        has_orders = _query_bool(params.get('has_orders'))
+        if has_orders is True:
+            queryset = queryset.filter(order_count__gt=0)
+        elif has_orders is False:
+            queryset = queryset.filter(order_count=0)
+
+        ordering = (params.get('ordering') or '-date_joined').strip()
+        if ordering not in CUSTOMER_ORDERING:
+            ordering = '-date_joined'
+        return queryset.order_by(ordering, 'id')
+
+
+class CustomerSummaryView(APIView):
+    """Counts for the users page, independent of the current table filters."""
+
+    permission_classes = [permissions.IsAuthenticated, IsSeller]
+
+    def get(self, request):
+        now = timezone.localtime()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        customers = User.objects.filter(role='customer')
+        return Response({
+            'total': customers.count(),
+            'active': customers.filter(is_active=True).count(),
+            'new_this_month': customers.filter(date_joined__gte=month_start).count(),
+            'with_orders': customers.filter(orders__isnull=False).distinct().count(),
+        })
+
+
+class CustomerDetailView(generics.RetrieveUpdateAPIView):
+    """Read and update one customer. Deactivating the account signs them out."""
+
+    serializer_class = AdminCustomerDetailSerializer
+    permission_classes = [permissions.IsAuthenticated, IsSeller]
+    http_method_names = ['get', 'patch', 'head', 'options']
+
+    def get_queryset(self):
+        from apps.orders.models import Order
+
+        return customer_queryset().prefetch_related(
+            'addresses',
+            Prefetch(
+                'orders',
+                queryset=Order.objects.order_by('-created_at').only(
+                    'id', 'user', 'order_number', 'created_at', 'total',
+                    'order_status', 'payment_status',
+                )[:8],
+                to_attr='recent_order_list',
+            ),
+        )
+
+    def perform_update(self, serializer):
+        was_active = serializer.instance.is_active
+        with transaction.atomic():
+            user = serializer.save()
+            if was_active and not user.is_active:
+                revoke_other_sessions(user)
+
+
+class CustomerAddressListCreateView(generics.ListCreateAPIView):
+    """Saved addresses for one customer."""
+
+    serializer_class = AddressSerializer
+    permission_classes = [permissions.IsAuthenticated, IsSeller]
+    pagination_class = None
+
+    def get_queryset(self):
+        customer_or_404(self.kwargs['pk'])
+        return Address.objects.filter(user_id=self.kwargs['pk'])
+
+    def perform_create(self, serializer):
+        serializer.save(user=customer_or_404(self.kwargs['pk']))
+
+
+class CustomerAddressDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """Update or remove one saved address belonging to that customer."""
+
+    serializer_class = AddressSerializer
+    permission_classes = [permissions.IsAuthenticated, IsSeller]
+    lookup_url_kwarg = 'address_id'
+    http_method_names = ['get', 'patch', 'delete', 'head', 'options']
+
+    def get_queryset(self):
+        return Address.objects.filter(user_id=self.kwargs['pk'], user__role='customer')
 
 
 class GoogleAuthView(APIView):

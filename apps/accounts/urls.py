@@ -5,8 +5,10 @@ from django.urls import path
 from .views import (
     CustomTokenObtainPairView, UserRegistrationView, UserProfileView,
     ChangePasswordView, LogoutView, AddressListCreateView, AddressDetailView,
-    StaffUserListCreateView, StaffUserDetailView, CustomerListView, GoogleAuthView,
-    ForgotPasswordView, ResetPasswordView, VerifyEmailView, ResendVerificationView
+    StaffUserListCreateView, StaffUserDetailView, CustomerListView, CustomerSummaryView,
+    CustomerDetailView, CustomerAddressListCreateView, CustomerAddressDetailView,
+    GoogleAuthView, ForgotPasswordView, ResetPasswordView, VerifyEmailView,
+    ResendVerificationView,
 )
 from .security_views import (
     SessionTokenRefreshView, TwoFactorVerifyView, TwoFactorResendView,
@@ -54,4 +56,12 @@ urlpatterns = [
     path('staff/', StaffUserListCreateView.as_view(), name='staff_list'),
     path('staff/<uuid:pk>/', StaffUserDetailView.as_view(), name='staff_detail'),
     path('customers/', CustomerListView.as_view(), name='customer_list'),
+    path('customers/summary/', CustomerSummaryView.as_view(), name='customer_summary'),
+    path('customers/<uuid:pk>/', CustomerDetailView.as_view(), name='customer_detail'),
+    path('customers/<uuid:pk>/addresses/', CustomerAddressListCreateView.as_view(), name='customer_addresses'),
+    path(
+        'customers/<uuid:pk>/addresses/<uuid:address_id>/',
+        CustomerAddressDetailView.as_view(),
+        name='customer_address_detail',
+    ),
 ]

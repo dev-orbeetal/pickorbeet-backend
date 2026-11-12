@@ -28,7 +28,7 @@ export const MENU_GROUPS = [
   {
     label: 'People',
     items: [
-      { href: '/customers', label: 'Customers', icon: 'Users', roles: ['seller', 'super_admin'] },
+      { href: '/users', label: 'Users', icon: 'Users', roles: ['seller', 'super_admin'] },
       { href: '/contact', label: 'Contact Messages', icon: 'MessageSquare', roles: ['seller', 'super_admin'] },
       { href: '/career-applications', label: 'Career Applications', icon: 'GraduationCap', roles: ['seller', 'super_admin'] },
       { href: '/support', label: 'Support', icon: 'Headphones', roles: ['seller', 'super_admin'] },
@@ -51,6 +51,8 @@ const PAGE_ACCESS = MENU_GROUPS.flatMap((group) => group.items).concat([
   { href: '/categories', roles: ['seller', 'accountant', 'super_admin'] },
   // Legacy external-orders URL redirects to Orders → Add Order.
   { href: '/external-orders', roles: ['seller', 'super_admin'] },
+  // Old customers URL redirects to Users.
+  { href: '/customers', roles: ['seller', 'super_admin'] },
 ]);
 
 export function rolesForPath(pathname) {

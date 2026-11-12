@@ -7,6 +7,7 @@ from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
+from apps.orders.models import Order
 from .models import Address, BdDistrict, BdDivision, BdPostOffice
 
 MAX_AVATAR_BYTES = 2 * 1024 * 1024
@@ -234,6 +235,110 @@ class AddressSerializer(serializers.ModelSerializer):
         validate_bd_location(merged, require_cascade=True)
         attrs.update(merged)
         return attrs
+
+
+class AdminCustomerOrderSerializer(serializers.ModelSerializer):
+    """The few order fields shown on a customer in the admin panel."""
+
+    class Meta:
+        model = Order
+        fields = ['id', 'order_number', 'created_at', 'total', 'order_status', 'payment_status']
+        read_only_fields = fields
+
+
+class AdminCustomerSerializer(serializers.ModelSerializer):
+    """Customer account as edited from the admin users page.
+
+    Separate from UserSerializer so a customer still cannot change their own
+    email, role, or active flag through the profile API.
+    """
+
+    full_name = serializers.ReadOnlyField()
+    order_count = serializers.IntegerField(read_only=True)
+    total_spent = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+    avatar = serializers.ImageField(read_only=True)
+
+    class Meta:
+        model = User
+        fields = [
+            'id', 'email', 'phone', 'first_name', 'last_name', 'full_name', 'role',
+            'address', 'city', 'postal_code', 'avatar', 'is_active', 'is_verified',
+            'two_factor_enabled', 'recovery_email', 'date_joined', 'last_login',
+            'order_count', 'total_spent',
+        ]
+        read_only_fields = [
+            'id', 'role', 'avatar', 'two_factor_enabled', 'recovery_email',
+            'date_joined', 'last_login', 'order_count', 'total_spent',
+        ]
+
+    def validate(self, attrs):
+        initial = self.initial_data if isinstance(self.initial_data, dict) else {}
+        if 'password' in initial:
+            raise serializers.ValidationError({
+                'password': 'Passwords are not changed from the users page.',
+            })
+        if self.instance is not None and 'role' in initial:
+            incoming = str(initial.get('role') or '')
+            if incoming and incoming != self.instance.role:
+                raise serializers.ValidationError({
+                    'role': 'Change staff roles from the Staff page.',
+                })
+        return attrs
+
+    def validate_email(self, value):
+        email = User.objects.normalize_email((value or '').strip())
+        if not email:
+            raise serializers.ValidationError('Enter an email address.')
+        taken = User.objects.filter(email__iexact=email)
+        if self.instance is not None:
+            taken = taken.exclude(pk=self.instance.pk)
+        if taken.exists():
+            raise serializers.ValidationError('Another account already uses this email.')
+        return email
+
+    def validate_first_name(self, value):
+        value = (value or '').strip()
+        if not value:
+            raise serializers.ValidationError('Enter a first name.')
+        return value
+
+    def validate_last_name(self, value):
+        value = (value or '').strip()
+        if not value:
+            raise serializers.ValidationError('Enter a last name.')
+        return value
+
+    def validate_phone(self, value):
+        if value is None or not str(value).strip():
+            return ''
+        return _normalize_bd_mobile(value)
+
+    def validate_address(self, value):
+        return (value or '').strip()
+
+    def validate_city(self, value):
+        return (value or '').strip()
+
+    def validate_postal_code(self, value):
+        return (value or '').strip()
+
+
+class AdminCustomerDetailSerializer(AdminCustomerSerializer):
+    """One customer, with saved addresses and the latest orders."""
+
+    addresses = AddressSerializer(many=True, read_only=True)
+    recent_orders = serializers.SerializerMethodField()
+
+    class Meta(AdminCustomerSerializer.Meta):
+        fields = AdminCustomerSerializer.Meta.fields + ['addresses', 'recent_orders']
+
+    def get_recent_orders(self, obj):
+        orders = getattr(obj, 'recent_order_list', None)
+        if orders is None:
+            orders = obj.orders.order_by('-created_at').only(
+                'id', 'order_number', 'created_at', 'total', 'order_status', 'payment_status',
+            )[:8]
+        return AdminCustomerOrderSerializer(orders, many=True).data
 
 
 class ChangePasswordSerializer(serializers.Serializer):

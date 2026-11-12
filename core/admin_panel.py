@@ -10,6 +10,7 @@ from django.shortcuts import redirect
 PLACEHOLDER_PAGES = {
     'products': Path('products') / '_' / 'index.html',
     'orders': Path('orders') / '_' / 'index.html',
+    'users': Path('users') / '_' / 'index.html',
 }
 
 
