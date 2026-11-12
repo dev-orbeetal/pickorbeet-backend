@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     'apps.notifications',
     'apps.support',
     'apps.campaigns',
+    'apps.careers',
 ]
 
 MIDDLEWARE = [
@@ -133,6 +134,8 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 # Media files
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+# CVs and application photos. Not served from /media/.
+PRIVATE_MEDIA_ROOT = BASE_DIR / 'private_media'
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
@@ -159,6 +162,7 @@ REST_FRAMEWORK = {
         'device_register': config('DEVICE_REGISTER_RATE', default='30/hour'),
         'analytics_collect': config('ANALYTICS_COLLECT_RATE', default='120/min'),
         'invoice_download': config('INVOICE_DOWNLOAD_RATE', default='30/min'),
+        'career_apply': config('CAREER_APPLY_RATE', default='5/hour'),
     },
 }
 

@@ -5,6 +5,7 @@ import {
   LayoutDashboard, Package, ShoppingCart, Users, BarChart3, Activity,
   Settings, Tag, Receipt, UserCog, Truck, Bell,
   Warehouse, Ticket, MessageSquare, Headphones, Wallet, ClipboardList, LayoutTemplate,
+  GraduationCap,
 } from 'lucide-react';
 import { MENU_GROUPS } from '@/lib/access';
 
@@ -12,6 +13,7 @@ const ICONS = {
   LayoutDashboard, Package, ShoppingCart, Users, BarChart3, Activity,
   Settings, Tag, Receipt, UserCog, Truck, Bell,
   Warehouse, Ticket, MessageSquare, Headphones, Wallet, ClipboardList, LayoutTemplate,
+  GraduationCap,
 };
 
 export default function Sidebar() {

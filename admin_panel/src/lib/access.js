@@ -30,6 +30,7 @@ export const MENU_GROUPS = [
     items: [
       { href: '/customers', label: 'Customers', icon: 'Users', roles: ['seller', 'super_admin'] },
       { href: '/contact', label: 'Contact Messages', icon: 'MessageSquare', roles: ['seller', 'super_admin'] },
+      { href: '/career-applications', label: 'Career Applications', icon: 'GraduationCap', roles: ['seller', 'super_admin'] },
       { href: '/support', label: 'Support', icon: 'Headphones', roles: ['seller', 'super_admin'] },
       { href: '/staff', label: 'Staff', icon: 'UserCog', roles: ['super_admin'] },
     ],

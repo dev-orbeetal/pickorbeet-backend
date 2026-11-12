@@ -9,6 +9,7 @@ export * from './reportsApi';
 export * from './paymentsApi';
 export * from './customersApi';
 export * from './contactApi';
+export * from './careerApplicationsApi';
 export * from './supportApi';
 export * from './trafficApi';
 export * from './shippingApi';

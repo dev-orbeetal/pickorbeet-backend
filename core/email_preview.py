@@ -118,6 +118,18 @@ def _sale(motion):
     }, motion)
 
 
+def _career(motion):
+    return _html('emails/career_application.html', {
+        'preheader': 'Nusrat Jahan from the University of Dhaka applied.',
+        'applicant_name': 'Nusrat Jahan',
+        'university': 'University of Dhaka',
+        'department': 'Computer Science and Engineering',
+        'review_url': f'{settings.ADMIN_PANEL_URL.rstrip("/")}/career-applications',
+        'footer_mode': 'support',
+        'support_line': 'This note was sent because a student applied on the website.',
+    }, motion)
+
+
 def _cart(motion):
     return _html('emails/abandoned_cart.html', {
         'preheader': 'Your cart is waiting for you.',
@@ -137,6 +149,7 @@ BUILDERS = {
     'order-delivered': _delivered,
     'mega-sale': _sale,
     'abandoned-cart': _cart,
+    'career-application': _career,
 }
 
 TITLES = {
@@ -150,6 +163,7 @@ TITLES = {
     'order-delivered': 'Delivered',
     'mega-sale': 'Mega sale',
     'abandoned-cart': 'Still thinking',
+    'career-application': 'Student application',
 }
 
 

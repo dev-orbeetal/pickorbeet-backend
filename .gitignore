@@ -139,6 +139,9 @@ public
 
 /scripts/
 
+# Student CVs and portraits. Served only through the staff API.
+/private_media/
+
 # Files written by manage.py seed_demo_store
 /media/demo/
 
