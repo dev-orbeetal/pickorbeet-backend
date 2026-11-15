@@ -100,9 +100,11 @@ class CatalogImport(models.Model):
 
     ITECH = 'itech'
     MARVELLOUS = 'marvellous'
+    HEMALMART = 'hemalmart'
     PROVIDER_CHOICES = [
         (ITECH, 'i-Tech'),
         (MARVELLOUS, 'Marvellous'),
+        (HEMALMART, 'Hemal Mart'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -117,6 +119,43 @@ class CatalogImport(models.Model):
 
     def __str__(self):
         return self.label
+
+
+class ProductSource(models.Model):
+    """One provider's price for a product. Shoppers see the product once, at the lowest price."""
+
+    STORE = 'store'
+    PROVIDER_CHOICES = CatalogImport.PROVIDER_CHOICES + [(STORE, 'Store')]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    product = models.ForeignKey('Product', on_delete=models.CASCADE, related_name='sources')
+    provider = models.CharField(max_length=20, choices=PROVIDER_CHOICES)
+    catalog_import = models.ForeignKey(
+        CatalogImport,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='sources',
+    )
+    sku = models.CharField(max_length=50, blank=True, default='')
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+    compare_price = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    source_url = models.URLField(max_length=800, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Product source'
+        verbose_name_plural = 'Product sources'
+        ordering = ['price', 'created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['product', 'provider'],
+                name='unique_product_source_provider',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.get_provider_display()} {self.price}'
 
 
 class Product(models.Model):

@@ -673,7 +673,7 @@ class AdminProductListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         queryset = with_catalog_stats(Product.objects.all().select_related(
             'category', 'subcategory', 'supplied_by', 'catalog_import'
-        ).prefetch_related('variants'))
+        ).prefetch_related('variants', 'sources'))
         if self.request.query_params.get('direct') == 'true':
             # Keeps null subcategories, and stale links to another category's subcategory.
             queryset = queryset.exclude(subcategory__category=F('category'))
@@ -681,7 +681,9 @@ class AdminProductListCreateView(generics.ListCreateAPIView):
         if provider == 'store':
             queryset = queryset.filter(catalog_import__isnull=True)
         elif provider in dict(CatalogImport.PROVIDER_CHOICES):
-            queryset = queryset.filter(catalog_import__provider=provider)
+            queryset = queryset.filter(
+                Q(catalog_import__provider=provider) | Q(sources__provider=provider)
+            ).distinct()
         elif provider:
             queryset = queryset.none()
         return queryset
@@ -712,7 +714,7 @@ class AdminProductDetailView(generics.RetrieveUpdateDestroyAPIView):
         return (
             Product.objects.all()
             .select_related('supplied_by', 'catalog_import')
-            .prefetch_related('images', 'videos', 'variants')
+            .prefetch_related('images', 'videos', 'variants', 'sources')
         )
 
     def destroy(self, request, *args, **kwargs):
@@ -752,7 +754,13 @@ class CatalogImportListView(generics.ListAPIView):
     pagination_class = None
 
     def get_queryset(self):
-        queryset = CatalogImport.objects.annotate(product_count=Count('products')).order_by('-imported_at')
+        queryset = CatalogImport.objects.annotate(
+            product_count=Count('products', distinct=True) + Count(
+                'sources',
+                filter=Q(sources__product__catalog_import__isnull=True) | ~Q(sources__product__catalog_import=F('pk')),
+                distinct=True,
+            ),
+        ).order_by('-imported_at')
         provider = (self.request.query_params.get('provider') or '').strip().lower()
         if provider:
             queryset = queryset.filter(provider=provider)

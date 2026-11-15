@@ -72,7 +72,7 @@ export default function ProductTable() {
     return params;
   }, [filters, page]);
 
-  const trackedProvider = filters.provider === 'itech' || filters.provider === 'marvellous'
+  const trackedProvider = ['itech', 'marvellous', 'hemalmart'].includes(filters.provider)
     ? filters.provider
     : '';
   const { data: importBatches, isLoading: importsLoading, isFetching: importsFetching } = useGetCatalogImportsQuery(
@@ -186,6 +186,7 @@ export default function ProductTable() {
             <option value="store">Store</option>
             <option value="itech">i-Tech</option>
             <option value="marvellous">Marvellous</option>
+            <option value="hemalmart">Hemal Mart</option>
           </select>
 
           <select

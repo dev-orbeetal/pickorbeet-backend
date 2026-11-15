@@ -18,7 +18,7 @@ IMPORTS = '/api/v1/products/admin/imports/'
 PNG = base64.b64decode(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
 )
-HIDDEN = {'provider', 'catalog_import', 'source_url'}
+HIDDEN = {'provider', 'catalog_import', 'source_url', 'sources'}
 
 
 def payload_keys(value):
@@ -40,7 +40,7 @@ class CatalogImportTests(ShopTestCase):
         self.api.force_authenticate(self.staff)
         self.public = APIClient()
 
-    def write_catalog(self, root, *, price='100.00', sku='IT-1'):
+    def write_catalog(self, root, *, price='100.00', sku='IT-1', name='Fixture Monitor', compare_price='200.00'):
         root = Path(root)
         image_dir = root / 'images' / sku
         image_dir.mkdir(parents=True)
@@ -56,7 +56,7 @@ class CatalogImportTests(ShopTestCase):
             },
         ]), encoding='utf-8')
         (root / 'products.json').write_text(json.dumps([{
-            'name': 'Fixture Monitor',
+            'name': name,
             'slug': 'it-fixture-monitor',
             'sku': sku,
             'category_slug': 'monitor',
@@ -64,7 +64,7 @@ class CatalogImportTests(ShopTestCase):
             'description': 'A scraped monitor',
             'short_description': 'Fixture',
             'price': price,
-            'compare_price': '200.00',
+            'compare_price': compare_price,
             'color': 'White',
             'warranty_period': '1 year',
             'stock_quantity': 9,
@@ -110,6 +110,8 @@ class CatalogImportTests(ShopTestCase):
         self.assertTrue(image_name.startswith('products/imports/itech/IT-1/'))
         self.assertTrue((Path(settings.MEDIA_ROOT) / image_name).is_file())
         self.assertEqual(product.specifications.get().value, 'Esonic')
+        self.assertEqual(product.sources.get().provider, 'itech')
+        self.assertEqual(product.sources.get().price, Decimal('150.00'))
 
         detail = self.public.get(f'/api/v1/products/{product.slug}/')
         self.assertEqual(detail.status_code, 200, detail.content)
@@ -140,6 +142,35 @@ class CatalogImportTests(ShopTestCase):
         self.assertEqual(added.catalog_import.label, 'i-Tech 2')
         self.assertNotEqual(added.catalog_import_id, product.catalog_import_id)
         self.assertEqual(product.catalog_import.label, 'i-Tech')
+
+    def test_same_name_from_another_provider_is_one_product_at_the_lower_price(self):
+        self.import_fixture(price='100.00')
+        folder = tempfile.mkdtemp()
+        self.write_catalog(folder, price='40.00', sku='HM-1', name='Fixture Monitor', compare_price='90.00')
+        call_command('import_scraped_catalog', folder, provider='hemalmart')
+
+        self.assertEqual(Product.objects.filter(name='Fixture Monitor').count(), 1)
+        product = Product.objects.get(sku='IT-1')
+        self.assertFalse(Product.objects.filter(sku='HM-1').exists())
+        self.assertEqual(
+            set(product.sources.values_list('provider', flat=True)),
+            {'itech', 'hemalmart'},
+        )
+        self.assertEqual(product.price, Decimal('90.00'))
+        self.assertEqual(product.compare_price, Decimal('140.00'))
+        self.assertEqual(product.catalog_import.provider, 'itech')
+        detail = self.api.get(f'{PRODUCTS}{product.id}/')
+        self.assertEqual(detail.status_code, 200, detail.content)
+        self.assertEqual(len(detail.json()['sources']), 2)
+        public = self.public.get(f'/api/v1/products/{product.slug}/')
+        self.assertNotIn('sources', public.json())
+
+        folder = tempfile.mkdtemp()
+        self.write_catalog(folder, price='10.00', sku='HM-2', name='Other Lamp')
+        call_command('import_scraped_catalog', folder, provider='hemalmart')
+        self.assertTrue(Product.objects.filter(sku='HM-2').exists())
+        product.refresh_from_db()
+        self.assertEqual(product.price, Decimal('90.00'))
 
     def test_batch_percent_updates_only_that_batch(self):
         self.import_fixture()

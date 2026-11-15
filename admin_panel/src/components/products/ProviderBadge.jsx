@@ -1,6 +1,8 @@
 const LABELS = {
   itech: 'i-Tech',
   marvellous: 'Marvellous',
+  hemalmart: 'Hemal Mart',
+  store: 'Store',
 };
 
 export function providerLabel(provider) {

@@ -9,6 +9,7 @@ already exist, including any price changed since the import.
 """
 import json
 import re
+import unicodedata
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 
@@ -20,13 +21,10 @@ from django.utils.text import slugify
 
 from apps.products.catalog_pricing import raised_catalog_prices
 from apps.products.models import (
-    CatalogImport, Category, Product, ProductImage, ProductSpecification, SubCategory,
+    CatalogImport, Category, Product, ProductImage, ProductSource, ProductSpecification, SubCategory,
 )
 
-PROVIDER_LABELS = {
-    CatalogImport.ITECH: 'i-Tech',
-    CatalogImport.MARVELLOUS: 'Marvellous',
-}
+PROVIDER_LABELS = dict(CatalogImport.PROVIDER_CHOICES)
 CENT = Decimal('0.01')
 
 
@@ -77,6 +75,14 @@ def inside(root, relative):
     return path if path.is_file() else None
 
 
+def match_key(name):
+    """Fold a product title so the same item from two shops can be recognized."""
+    text = unicodedata.normalize('NFKD', str(name or '')).encode('ascii', 'ignore').decode()
+    text = text.lower().replace('&', ' and ')
+    text = re.sub(r'[^a-z0-9]+', ' ', text)
+    return re.sub(r'\s+', ' ', text).strip()
+
+
 def free_slug(preferred, name, sku):
     base = slugify(preferred) or slugify(name) or slugify(sku) or 'product'
     base = base[:270]
@@ -94,8 +100,11 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('catalog', help='Shop folder with categories.json, products.json, and images/')
-        parser.add_argument('--provider', required=True, choices=[CatalogImport.ITECH, CatalogImport.MARVELLOUS])
-        parser.add_argument('--label', default='', help='Batch name. Defaults to i-Tech or Marvellous.')
+        parser.add_argument(
+            '--provider', required=True,
+            choices=[choice for choice, _label in CatalogImport.PROVIDER_CHOICES],
+        )
+        parser.add_argument('--label', default='', help='Batch name. Defaults to the provider name.')
 
     def handle(self, *args, **options):
         root = Path(options['catalog']).expanduser().resolve()
@@ -119,27 +128,33 @@ class Command(BaseCommand):
         if not label:
             label = self._next_label(provider)
         batch = CatalogImport.objects.create(provider=provider, label=label)
+        self._index_existing_products()
         created = 0
+        linked = 0
         missing_images = 0
         for index, row in enumerate(pending, start=1):
             try:
                 with transaction.atomic():
-                    missing_images += self._create_product(
+                    outcome, missing = self._create_product(
                         root, provider, batch, row, departments, subcategories,
                     )
-                created += 1
+                missing_images += missing
+                if outcome == 'linked':
+                    linked += 1
+                else:
+                    created += 1
             except Exception as exc:
                 errors += 1
                 self.stderr.write(f'{row.get("sku")}: {exc}')
             if index % 100 == 0:
                 self.stdout.write(f'  {index} of {len(pending)}')
 
-        if created == 0:
+        if created == 0 and linked == 0:
             batch.delete()
             raise CommandError(f'No products imported. {errors} failed.')
 
         self.stdout.write(self.style.SUCCESS(
-            f'Imported {created} {label} products '
+            f'Imported {created} {label} products, linked {linked} that other providers already sell '
             f'({skipped} already in the store, {errors} failed, {missing_images} images missing).'
         ))
 
@@ -293,6 +308,12 @@ class Command(BaseCommand):
             source_url = ''
         price, compare = raised_catalog_prices(price, compare)
 
+        match = self._match_product(name, provider)
+        if match is not None:
+            self._attach_source(match, provider, batch, row, price, compare, source_url, sku)
+            self.stdout.write(f'Linked {sku} onto {match.sku or match.name}')
+            return 'linked', 0
+
         product = Product.objects.create(
             name=name,
             slug=free_slug(row.get('slug'), name, sku),
@@ -315,7 +336,94 @@ class Command(BaseCommand):
             source_url=source_url,
         )
         self._specifications(product, row.get('specifications') or [])
-        return self._images(root, provider, product, sku, row.get('images') or [])
+        self._remember_product(product, provider)
+        self._attach_source(
+            product, provider, batch, row, price, compare, source_url, sku, primary=True,
+        )
+        missing = self._images(root, provider, product, sku, row.get('images') or [])
+        return 'created', missing
+
+    def _index_existing_products(self):
+        self._by_name = {}
+        products = Product.objects.select_related('catalog_import').prefetch_related('sources')
+        for product in products:
+            self._remember_product(product)
+
+    def _remember_product(self, product, provider=None):
+        key = match_key(product.name)
+        if len(key) < 10:
+            return
+        self._by_name.setdefault(key, product)
+        known = getattr(product, '_provider_ids', None)
+        if known is None:
+            known = {source.provider for source in product.sources.all()}
+            if product.catalog_import_id and product.catalog_import.provider:
+                known.add(product.catalog_import.provider)
+            product._provider_ids = known
+        if provider:
+            known.add(provider)
+
+    def _match_product(self, name, provider):
+        key = match_key(name)
+        if len(key) < 10:
+            return None
+        product = self._by_name.get(key)
+        if product is None:
+            return None
+        if provider in getattr(product, '_provider_ids', ()):
+            return None
+        return product
+
+    def _attach_source(self, product, provider, batch, row, price, compare, source_url, sku, primary=False):
+        if not primary:
+            self._ensure_original_source(product)
+        if product.sources.filter(provider=provider).exists():
+            return
+        ProductSource.objects.create(
+            product=product,
+            provider=provider,
+            catalog_import=batch,
+            sku=sku,
+            price=price,
+            compare_price=compare,
+            source_url=source_url,
+        )
+        providers = getattr(product, '_provider_ids', None)
+        if providers is not None:
+            providers.add(provider)
+        self._apply_lowest_price(product)
+
+    def _ensure_original_source(self, product):
+        if product.sources.exists():
+            return
+        if product.catalog_import_id and product.catalog_import.provider:
+            origin = product.catalog_import.provider
+            origin_batch = product.catalog_import
+        else:
+            origin = ProductSource.STORE
+            origin_batch = None
+        ProductSource.objects.create(
+            product=product,
+            provider=origin,
+            catalog_import=origin_batch,
+            sku=product.sku or '',
+            price=product.price,
+            compare_price=product.compare_price,
+            source_url=product.source_url or '',
+        )
+        providers = getattr(product, '_provider_ids', None)
+        if providers is not None:
+            providers.add(origin)
+
+    def _apply_lowest_price(self, product):
+        lowest = product.sources.order_by('price', 'created_at').first()
+        if lowest is None:
+            return
+        if product.price == lowest.price and product.compare_price == lowest.compare_price:
+            return
+        product.price = lowest.price
+        product.compare_price = lowest.compare_price
+        product.save(update_fields=['price', 'compare_price', 'updated_at'])
 
     def _specifications(self, product, rows):
         specs = []

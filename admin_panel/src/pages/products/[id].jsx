@@ -21,6 +21,7 @@ import {
 import JsBarcode from 'jsbarcode';
 import { getMediaUrl, routeId } from '@/lib/utils';
 import SpecificationFields, { cleanSpecifications } from '@/components/products/SpecificationFields';
+import { providerLabel } from '@/components/products/ProviderBadge';
 import VariantOptions from '@/components/products/VariantOptions';
 import ProductVideosEditor from '@/components/products/ProductVideosEditor';
 
@@ -37,6 +38,51 @@ function variantSelections(variant) {
 function selectionsMatch(left, right) {
   if (!left?.length || !right?.length || left.length !== right.length) return false;
   return left.every((item) => right.some((other) => other.name === item.name && other.label === item.label));
+}
+
+function ProductSources({ product }) {
+  const sources = Array.isArray(product.sources) ? product.sources : [];
+  const [selected, setSelected] = useState(sources[0]?.id || '');
+  if (!sources.length) {
+    if (!product.provider) return null;
+    return (
+      <p className="text-sm text-gray-500">
+        Imported from {providerLabel(product.provider)}
+        {product.source_url ? (
+          <>
+            {' · '}
+            <a href={product.source_url} target="_blank" rel="noreferrer" className="text-primary-600 hover:underline">
+              Source page
+            </a>
+          </>
+        ) : null}
+      </p>
+    );
+  }
+  const current = sources.find((source) => source.id === selected) || sources[0];
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-gray-500">
+      <label htmlFor="product-source">Providers</label>
+      <select
+        id="product-source"
+        value={current.id}
+        onChange={(event) => setSelected(event.target.value)}
+        className="input w-auto py-1"
+      >
+        {sources.map((source) => (
+          <option key={source.id} value={source.id}>
+            {providerLabel(source.provider)} — ৳{source.price}
+          </option>
+        ))}
+      </select>
+      {current.source_url ? (
+        <a href={current.source_url} target="_blank" rel="noreferrer" className="text-primary-600 hover:underline">
+          Source page
+        </a>
+      ) : null}
+      <span>Customer price is the lowest provider.</span>
+    </div>
+  );
 }
 
 function variantLabel(variant) {
@@ -452,24 +498,7 @@ export default function EditProductPage() {
             </button>
             <div>
               <h1 className="text-2xl font-semibold text-gray-900">Edit Product</h1>
-              {product.provider && (
-                <p className="text-sm text-gray-500">
-                  Imported from {product.provider === 'marvellous' ? 'Marvellous' : 'i-Tech'}
-                  {product.source_url ? (
-                    <>
-                      {' · '}
-                      <a
-                        href={product.source_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-primary-600 hover:underline"
-                      >
-                        Source page
-                      </a>
-                    </>
-                  ) : null}
-                </p>
-              )}
+              <ProductSources product={product} />
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -627,6 +656,9 @@ export default function EditProductPage() {
                     min="0"
                     required
                   />
+                  {Array.isArray(product.sources) && product.sources.length > 1 && (
+                    <p className="text-xs text-gray-500 mt-1">Lowest price across providers</p>
+                  )}
                 </div>
 
                 <div>

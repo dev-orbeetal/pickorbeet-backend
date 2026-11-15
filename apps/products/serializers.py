@@ -6,7 +6,7 @@ from django.db import transaction
 from django.db.models import Avg, Count
 from rest_framework import serializers
 from .models import (
-    CatalogImport, Category, SubCategory, Product, ProductImage, ProductVideo, ProductVariant,
+    CatalogImport, Category, SubCategory, Product, ProductImage, ProductSource, ProductVideo, ProductVariant,
     ProductSpecification, ProductReview, ProductReviewImage, ContactMessage, HomepageBanner,
     HomepageSection, HomepageSectionProduct, purchase_ceiling,
 )
@@ -370,11 +370,20 @@ class ProductDetailSerializer(LegacyStockCeilingMixin, serializers.ModelSerializ
         return review_stats(obj)['review_count']
 
 
+class ProductSourceSerializer(serializers.ModelSerializer):
+    """One provider price. Staff only; the shop lists the product once."""
+
+    class Meta:
+        model = ProductSource
+        fields = ['id', 'provider', 'price', 'compare_price', 'source_url', 'sku']
+
+
 class CatalogSourceMixin(serializers.Serializer):
     """Staff-only import tracking. Public product serializers do not use this."""
     provider = serializers.SerializerMethodField()
     catalog_import = serializers.UUIDField(source='catalog_import_id', allow_null=True, read_only=True)
     source_url = serializers.CharField(read_only=True)
+    sources = ProductSourceSerializer(many=True, read_only=True)
 
     def get_provider(self, obj):
         batch = obj.catalog_import
@@ -395,7 +404,7 @@ class AdminProductListSerializer(CatalogSourceMixin, ProductListSerializer):
             'stock_quantity', 'low_stock_threshold', 'is_low_stock',
             'supply_type', 'supplied_by', 'supplied_by_name',
             'warehouse_stock', 'dealer_stock', 'dealer_available',
-            'provider', 'catalog_import', 'source_url',
+            'provider', 'catalog_import', 'source_url', 'sources',
         ]
 
     def get_supplied_by_name(self, obj):
@@ -436,7 +445,7 @@ class AdminProductDetailSerializer(CatalogSourceMixin, ProductDetailSerializer):
             'stock_quantity', 'is_low_stock',
             'supply_type', 'supplied_by', 'supplied_by_name', 'cost_price',
             'low_stock_threshold', 'warehouse_stock', 'dealer_stock', 'dealer_available',
-            'provider', 'catalog_import', 'source_url',
+            'provider', 'catalog_import', 'source_url', 'sources',
         ]
 
     def get_option_groups(self, obj):
