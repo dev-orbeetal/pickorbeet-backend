@@ -136,7 +136,7 @@ class CatalogImportTests(ShopTestCase):
         self.assertEqual(product.price, Decimal('50.00'))
         self.assertEqual(CatalogImport.objects.count(), 1)
 
-        self.import_fixture(sku='IT-2')
+        self.import_fixture(sku='IT-2', name='Second Monitor')
         added = Product.objects.get(sku='IT-2')
         product.refresh_from_db()
         self.assertEqual(added.catalog_import.label, 'i-Tech 2')
@@ -171,6 +171,46 @@ class CatalogImportTests(ShopTestCase):
         self.assertTrue(Product.objects.filter(sku='HM-2').exists())
         product.refresh_from_db()
         self.assertEqual(product.price, Decimal('90.00'))
+
+    def test_same_name_from_the_same_provider_stays_one_product(self):
+        folder = tempfile.mkdtemp()
+        root = Path(folder)
+        self.write_catalog(folder, price='300.00', sku='DX-1', name='Anker 336 Charger')
+        second_dir = root / 'images' / 'DX-2'
+        second_dir.mkdir()
+        (second_dir / '01.png').write_bytes(PNG)
+        rows = json.loads((root / 'products.json').read_text())
+        cheaper = dict(rows[0])
+        cheaper.update({
+            'sku': 'DX-2',
+            'slug': 'dx-anker-336-charger-2',
+            'price': '200.00',
+            'compare_price': '400.00',
+            'images': [{
+                'image': 'images/DX-2/01.png',
+                'alt_text': 'Anker 336 Charger',
+                'is_primary': True,
+                'display_order': 0,
+            }],
+            'source': {
+                'site': 'https://shop.deximpo.com.bd',
+                'url': 'https://shop.deximpo.com.bd/product/anker-336/',
+                'external_id': '2',
+            },
+        })
+        rows.append(cheaper)
+        (root / 'products.json').write_text(json.dumps(rows))
+        call_command('import_scraped_catalog', folder, provider='deximpo')
+
+        self.assertEqual(Product.objects.filter(name='Anker 336 Charger').count(), 1)
+        product = Product.objects.get(name='Anker 336 Charger')
+        self.assertEqual(product.sources.count(), 2)
+        self.assertEqual(set(product.sources.values_list('provider', flat=True)), {'deximpo'})
+        self.assertEqual(product.price, Decimal('250.00'))
+        self.assertEqual(product.compare_price, Decimal('450.00'))
+        self.assertFalse(Product.objects.filter(sku='DX-2').exists())
+        self.assertTrue(product.sources.filter(sku='DX-2').exists())
+        self.assertEqual(Product.objects.filter(name='Anker 336 Charger', is_active=True).count(), 1)
 
     def test_batch_percent_updates_only_that_batch(self):
         self.import_fixture()

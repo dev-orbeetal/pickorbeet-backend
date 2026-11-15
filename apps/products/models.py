@@ -101,10 +101,12 @@ class CatalogImport(models.Model):
     ITECH = 'itech'
     MARVELLOUS = 'marvellous'
     HEMALMART = 'hemalmart'
+    DEXIMPO = 'deximpo'
     PROVIDER_CHOICES = [
         (ITECH, 'i-Tech'),
         (MARVELLOUS, 'Marvellous'),
         (HEMALMART, 'Hemal Mart'),
+        (DEXIMPO, 'Deximpo'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -149,13 +151,22 @@ class ProductSource(models.Model):
         ordering = ['price', 'created_at']
         constraints = [
             models.UniqueConstraint(
-                fields=['product', 'provider'],
-                name='unique_product_source_provider',
+                fields=['sku'],
+                condition=~models.Q(sku=''),
+                name='unique_product_source_sku',
             ),
         ]
 
     def __str__(self):
         return f'{self.get_provider_display()} {self.price}'
+
+
+def lowest_source(product):
+    """The offer that sets the selling price. A missing price does not beat a real one."""
+    offer = product.sources.filter(price__gt=0).order_by('price', 'created_at').first()
+    if offer is not None:
+        return offer
+    return product.sources.order_by('price', 'created_at').first()
 
 
 class Product(models.Model):
@@ -288,6 +299,18 @@ class Product(models.Model):
 
     def __str__(self):
         return self.name
+
+    def sync_lowest_source_price(self):
+        """Set the selling price from the cheapest provider offer."""
+        offer = lowest_source(self)
+        if offer is None:
+            return False
+        if self.price == offer.price and self.compare_price == offer.compare_price:
+            return False
+        self.price = offer.price
+        self.compare_price = offer.compare_price
+        self.save(update_fields=['price', 'compare_price', 'updated_at'])
+        return True
 
     def save(self, *args, **kwargs):
         if not self.slug:

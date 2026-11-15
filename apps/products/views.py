@@ -19,7 +19,7 @@ from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from .models import (
-    CatalogImport, Category, SubCategory, Product, ProductImage, ProductVideo, ProductVariant,
+    CatalogImport, Category, SubCategory, Product, ProductImage, ProductSource, ProductVideo, ProductVariant,
     ProductReview, ProductReviewImage, ContactMessage, HomepageBanner, public_variant_queryset,
     with_catalog_stats, with_public_catalog,
 )
@@ -830,21 +830,38 @@ class CatalogImportAdjustView(APIView):
             if multiplier is None:
                 updated = batch.products.update(**flags, updated_at=now)
             else:
-                updated = 0
-                products = batch.products.select_for_update().order_by('pk')
-                for product in products:
-                    product.price = (product.price * multiplier).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-                    update_fields = ['price', 'updated_at']
-                    if product.compare_price is not None:
-                        product.compare_price = (product.compare_price * multiplier).quantize(
+                priced_ids = set()
+                offers = ProductSource.objects.select_for_update().filter(catalog_import=batch).order_by('pk')
+                for offer in offers:
+                    offer.price = (offer.price * multiplier).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    offer_fields = ['price']
+                    if offer.compare_price is not None:
+                        offer.compare_price = (offer.compare_price * multiplier).quantize(
                             Decimal('0.01'), rounding=ROUND_HALF_UP,
                         )
-                        update_fields.append('compare_price')
-                    for key, value in flags.items():
-                        setattr(product, key, value)
-                        update_fields.append(key)
-                    product.updated_at = now
-                    product.save(update_fields=update_fields)
+                        offer_fields.append('compare_price')
+                    offer.save(update_fields=offer_fields)
+                    priced_ids.add(offer.product_id)
+                owned_ids = set(batch.products.values_list('pk', flat=True))
+                updated = 0
+                products = Product.objects.select_for_update().filter(pk__in=priced_ids | owned_ids).order_by('pk')
+                for product in products:
+                    if product.id in priced_ids:
+                        product.sync_lowest_source_price()
+                    else:
+                        product.price = (product.price * multiplier).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                        update_fields = ['price', 'updated_at']
+                        if product.compare_price is not None:
+                            product.compare_price = (product.compare_price * multiplier).quantize(
+                                Decimal('0.01'), rounding=ROUND_HALF_UP,
+                            )
+                            update_fields.append('compare_price')
+                        product.updated_at = now
+                        product.save(update_fields=update_fields)
+                    if flags and product.catalog_import_id == batch.id:
+                        for key, value in flags.items():
+                            setattr(product, key, value)
+                        product.save(update_fields=[*flags.keys(), 'updated_at'])
                     updated += 1
 
         return Response({

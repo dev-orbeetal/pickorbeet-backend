@@ -83,6 +83,52 @@ def match_key(name):
     return re.sub(r'\s+', ' ', text).strip()
 
 
+def collapse_repeated_catalog_products():
+    """Keep one active listing when a catalog already has the same title twice."""
+    grouped = {}
+    products = (
+        Product.objects.filter(is_active=True, catalog_import__isnull=False)
+        .select_related('catalog_import')
+        .order_by('price', 'created_at')
+    )
+    for product in products:
+        key = match_key(product.name)
+        if len(key) < 10:
+            continue
+        grouped.setdefault(key, []).append(product)
+    collapsed = 0
+    for group in grouped.values():
+        if len(group) < 2:
+            continue
+        keeper = group[0]
+        record_catalog_offer(keeper, keeper)
+        for other in group[1:]:
+            record_catalog_offer(keeper, other)
+            other.is_active = False
+            other.save(update_fields=['is_active', 'updated_at'])
+            collapsed += 1
+        keeper.sync_lowest_source_price()
+    return collapsed
+
+
+def record_catalog_offer(target, source_product):
+    sku = source_product.sku or ''
+    if sku and ProductSource.objects.filter(sku=sku).exists():
+        return
+    batch = source_product.catalog_import
+    if batch is None:
+        return
+    ProductSource.objects.create(
+        product=target,
+        provider=batch.provider,
+        catalog_import=batch,
+        sku=sku,
+        price=source_product.price,
+        compare_price=source_product.compare_price,
+        source_url=source_product.source_url or '',
+    )
+
+
 def free_slug(preferred, name, sku):
     base = slugify(preferred) or slugify(name) or slugify(sku) or 'product'
     base = base[:270]
@@ -117,6 +163,9 @@ class Command(BaseCommand):
             raise CommandError('categories.json and products.json must be lists')
 
         departments, subcategories = self._import_categories(root, provider, categories)
+        collapsed = collapse_repeated_catalog_products()
+        if collapsed:
+            self.stdout.write(f'Combined {collapsed} repeated catalog listings into the cheaper one.')
         pending, skipped, errors = self._pending_products(products)
         if not pending:
             self.stdout.write(self.style.WARNING(
@@ -271,7 +320,7 @@ class Command(BaseCommand):
                 self.stderr.write(f'Skipping a product with a missing or repeated SKU: {row.get("name")}')
                 continue
             seen.add(sku)
-            if Product.objects.filter(sku=sku).exists():
+            if Product.objects.filter(sku=sku).exists() or ProductSource.objects.filter(sku=sku).exists():
                 skipped += 1
                 continue
             pending.append(row)
@@ -370,14 +419,12 @@ class Command(BaseCommand):
         product = self._by_name.get(key)
         if product is None:
             return None
-        if provider in getattr(product, '_provider_ids', ()):
-            return None
         return product
 
     def _attach_source(self, product, provider, batch, row, price, compare, source_url, sku, primary=False):
         if not primary:
             self._ensure_original_source(product)
-        if product.sources.filter(provider=provider).exists():
+        if sku and ProductSource.objects.filter(sku=sku).exists():
             return
         ProductSource.objects.create(
             product=product,
@@ -416,14 +463,7 @@ class Command(BaseCommand):
             providers.add(origin)
 
     def _apply_lowest_price(self, product):
-        lowest = product.sources.order_by('price', 'created_at').first()
-        if lowest is None:
-            return
-        if product.price == lowest.price and product.compare_price == lowest.compare_price:
-            return
-        product.price = lowest.price
-        product.compare_price = lowest.compare_price
-        product.save(update_fields=['price', 'compare_price', 'updated_at'])
+        product.sync_lowest_source_price()
 
     def _specifications(self, product, rows):
         specs = []

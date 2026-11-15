@@ -2,6 +2,7 @@ const LABELS = {
   itech: 'i-Tech',
   marvellous: 'Marvellous',
   hemalmart: 'Hemal Mart',
+  deximpo: 'Deximpo',
   store: 'Store',
 };
 
