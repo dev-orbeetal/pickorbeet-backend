@@ -76,10 +76,13 @@ def inside(root, relative):
 
 
 def match_key(name):
-    """Fold a product title so the same item from two shops can be recognized."""
-    text = unicodedata.normalize('NFKD', str(name or '')).encode('ascii', 'ignore').decode()
-    text = text.lower().replace('&', ' and ')
-    text = re.sub(r'[^a-z0-9]+', ' ', text)
+    """Fold a product title so the same item from two shops can be recognized.
+
+    Letters from every language stay in the key. Dropping them would treat
+    different Bengali titles as the same product when the English words match.
+    """
+    text = unicodedata.normalize('NFKC', str(name or '')).casefold()
+    text = re.sub(r'[^\w]+', ' ', text, flags=re.UNICODE)
     return re.sub(r'\s+', ' ', text).strip()
 
 
