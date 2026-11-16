@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, Fragment } from 'react';
 import Link from 'next/link';
 import {
   Search, Edit, Trash2, Info, FolderInput,
-  ChevronDown, ChevronRight,
+  ChevronDown, ChevronRight, ArrowDown, ArrowUp, ArrowUpDown,
   Package, Layers, Home,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -57,20 +57,21 @@ export default function ProductTable() {
   const [togglingKey, setTogglingKey] = useState(null);
   const [moving, setMoving] = useState(null);
   const [batchId, setBatchId] = useState('');
+  const [ordering, setOrdering] = useState('-created_at');
 
   useEffect(() => {
     setPage(1);
-  }, [filters.search, filters.category, filters.is_active, filters.supply_type, filters.provider]);
+  }, [filters.search, filters.category, filters.is_active, filters.supply_type, filters.provider, ordering]);
 
   const queryParams = useMemo(() => {
-    const params = { page };
+    const params = { page, ordering };
     if (filters.search) params.search = filters.search;
     if (filters.category) params.category = filters.category;
     if (filters.is_active) params.is_active = filters.is_active;
     if (filters.supply_type) params.supply_type = filters.supply_type;
     if (filters.provider) params.provider = filters.provider;
     return params;
-  }, [filters, page]);
+  }, [filters, page, ordering]);
 
   const trackedProvider = ['itech', 'marvellous', 'hemalmart', 'deximpo'].includes(filters.provider)
     ? filters.provider
@@ -220,6 +221,18 @@ export default function ProductTable() {
             <option value="available_stock">Available Stock</option>
             <option value="seller_provided">Seller-Provided</option>
           </select>
+
+          <select
+            value={ordering}
+            onChange={(e) => setOrdering(e.target.value)}
+            className="input w-auto"
+            aria-label="Sort products"
+          >
+            <option value="-created_at">Newest first</option>
+            <option value="created_at">Oldest first</option>
+            <option value="name">Similar names together</option>
+            <option value="-name">Similar names, reverse</option>
+          </select>
         </div>
       </div>
 
@@ -238,7 +251,21 @@ export default function ProductTable() {
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="text-left py-3 px-4 text-xs font-semibold text-gray-600 uppercase">
-                  Product
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 uppercase hover:text-gray-900"
+                    aria-label="Sort by similar product name"
+                    onClick={() => setOrdering((current) => (current === 'name' ? '-name' : 'name'))}
+                  >
+                    Product
+                    {ordering === 'name' ? (
+                      <ArrowUp className="w-3.5 h-3.5" />
+                    ) : ordering === '-name' ? (
+                      <ArrowDown className="w-3.5 h-3.5" />
+                    ) : (
+                      <ArrowUpDown className="w-3.5 h-3.5 text-gray-400" />
+                    )}
+                  </button>
                 </th>
                 <th className="text-left py-3 px-4 text-xs font-semibold text-gray-600 uppercase">
                   SKU

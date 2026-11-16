@@ -192,6 +192,8 @@ class Product(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255)
+    # Family key used by the admin list. Similar models sort into one block.
+    name_sort = models.CharField(max_length=600, editable=False, blank=True, default='', db_index=True)
     slug = models.SlugField(max_length=280, unique=True, blank=True)
     sku = models.CharField(max_length=50, unique=True, blank=True, null=True)  # Optional SKU
     barcode = models.CharField(max_length=50, unique=True, blank=True, null=True)
@@ -313,6 +315,13 @@ class Product(models.Model):
         return True
 
     def save(self, *args, **kwargs):
+        update_fields = kwargs.get('update_fields')
+        if update_fields is None or 'name' in update_fields or not self.name_sort:
+            from apps.products.name_sort import similar_name_key
+            self.name_sort = similar_name_key(self.name)
+            if update_fields is not None and 'name_sort' not in update_fields:
+                kwargs['update_fields'] = [*update_fields, 'name_sort']
+
         if not self.slug:
             # Generate slug from name and a unique identifier
             base_slug = slugify(self.name)

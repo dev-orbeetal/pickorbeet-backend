@@ -657,6 +657,15 @@ class AdminSubCategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = SubCategory.objects.all()
 
 
+# Name order uses the family key, so color and wattage stay inside one model.
+_ADMIN_PRODUCT_ORDER = {
+    'name': ('name_sort', 'name', 'id'),
+    '-name': ('-name_sort', '-name', '-id'),
+    'created_at': ('created_at', 'id'),
+    '-created_at': ('-created_at', '-id'),
+}
+
+
 class AdminProductListCreateView(generics.ListCreateAPIView):
     """Admin: List and create products."""
     permission_classes = [IsAuthenticated, IsStaffUser]
@@ -686,7 +695,11 @@ class AdminProductListCreateView(generics.ListCreateAPIView):
             ).distinct()
         elif provider:
             queryset = queryset.none()
-        return queryset
+        ordering = _ADMIN_PRODUCT_ORDER.get(
+            (self.request.query_params.get('ordering') or '').strip(),
+            _ADMIN_PRODUCT_ORDER['-created_at'],
+        )
+        return queryset.order_by(*ordering)
 
     def create(self, request, *args, **kwargs):
         try:
