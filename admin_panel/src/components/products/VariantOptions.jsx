@@ -26,14 +26,63 @@ function nextKey() {
   return `opt-${keySequence}`;
 }
 
-function skuToken(label) {
-  const cleaned = String(label || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-  return cleaned.slice(0, 8) || 'X';
+const COLOR_WORDS = new Set(['beige', 'black', 'blue', 'bronze', 'brown', 'burgundy', 'champagne', 'charcoal', 'clear', 'copper', 'cream', 'cyan', 'gold', 'graphite', 'gray', 'green', 'grey', 'ivory', 'khaki', 'magenta', 'maroon', 'midnight', 'mint', 'navy', 'olive', 'orange', 'pink', 'purple', 'red', 'rose', 'silver', 'starlight', 'teal', 'transparent', 'violet', 'white', 'yellow']);
+const COLOR_MODIFIERS = new Set(['aurora', 'dark', 'deep', 'hot', 'ice', 'jet', 'light', 'matte', 'metallic', 'pastel', 'platinum', 'sapphire', 'sky', 'space']);
+const LETTER_SIZES = { s: 'sm', m: 'md', l: 'lg' };
+const WORD_SIZES = { xs: 'xs', sm: 'sm', small: 'sm', md: 'md', medium: 'md', lg: 'lg', large: 'lg', xl: 'xl', xxl: 'xxl', '2xl': 'xxl', xxxl: 'xxxl', '3xl': 'xxxl', free: 'free' };
+
+function wordsOf(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(Boolean);
 }
 
-function previewSku(productSku, labels) {
-  const base = String(productSku || 'ITEM').replace(/[^A-Za-z0-9-]/g, '').toUpperCase().slice(0, 20) || 'ITEM';
-  return [base, ...labels.map(skuToken)].join('-').slice(0, 50);
+function colorToken(value) {
+  const words = wordsOf(value).filter((word) => !/^\d+$/.test(word));
+  if (!words.length || words.length > 4) return '';
+  if (words.some((word) => !COLOR_WORDS.has(word) && !COLOR_MODIFIERS.has(word))) return '';
+  if (!words.some((word) => COLOR_WORDS.has(word))) return '';
+  return words.join('-');
+}
+
+function sizeToken(value) {
+  const words = wordsOf(value);
+  if (!words.length || words.some((word) => /^\d+$/.test(word))) return '';
+  const key = words.join(' ');
+  return WORD_SIZES[key] || LETTER_SIZES[key] || '';
+}
+
+function slugToken(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24);
+}
+
+function labelParts(labels) {
+  let color = '';
+  let size = '';
+  const others = [];
+  labels.forEach((label) => {
+    const asSize = sizeToken(label);
+    const asColor = colorToken(label);
+    if (asSize && !asColor && !size) size = asSize;
+    else if (asColor && !color) color = asColor;
+    else {
+      const token = slugToken(label);
+      if (token && !others.includes(token)) others.push(token);
+    }
+  });
+  return [color, size, ...others].filter(Boolean);
+}
+
+function skuNumber(productSku) {
+  const groups = String(productSku || '').match(/\d+/g);
+  if (!groups || !groups.length) return null;
+  const number = parseInt(groups[groups.length - 1], 10);
+  if (!number || number >= 100000000) return null;
+  return number;
+}
+
+function previewSku(productSku, labels, number) {
+  const parts = labelParts(labels);
+  const body = [...(parts.length ? parts : ['item']), String(number)].join('-');
+  return body.slice(0, 50);
 }
 
 function sameSelection(left, right) {
@@ -50,12 +99,11 @@ function assignSkus(productSku, rows) {
   return rows.map((row) => {
     if (row.id && row.sku) return row;
     const labels = row.selections.map((item) => item.label);
-    let sku = previewSku(productSku, labels);
-    let number = 2;
+    let number = skuNumber(productSku) || 1000;
+    let sku = previewSku(productSku, labels, number);
     while (taken.has(sku)) {
-      const suffix = `-${number}`;
-      sku = `${previewSku(productSku, labels).slice(0, 50 - suffix.length)}${suffix}`;
       number += 1;
+      sku = previewSku(productSku, labels, number);
     }
     taken.add(sku);
     return { ...row, sku };

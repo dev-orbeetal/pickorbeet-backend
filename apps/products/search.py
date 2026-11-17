@@ -44,5 +44,11 @@ def filter_product_search(queryset, raw):
 
     text = Q()
     for term in phrase.split(' '):
-        text &= Q(name__icontains=term) | Q(description__icontains=term) | Q(sku__icontains=term)
-    return queryset.filter(text | _catalog_products(phrase))
+        text &= (
+            Q(name__icontains=term)
+            | Q(description__icontains=term)
+            | Q(sku__icontains=term)
+            | Q(variants__sku__icontains=term)
+            | Q(sources__sku__icontains=term)
+        )
+    return queryset.filter(text | _catalog_products(phrase)).distinct()

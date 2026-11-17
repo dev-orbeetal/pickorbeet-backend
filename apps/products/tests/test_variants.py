@@ -49,7 +49,7 @@ class VariantOptionTests(ShopTestCase):
         )
         self.assertEqual(saved.status_code, 200, saved.content)
         variant = saved.json()['variants'][0]
-        self.assertEqual(variant['sku'], 'ORA-OEB-311-M-MIDNIGHT-128GB')
+        self.assertEqual(variant['sku'], 'midnight-md-128gb-311')
         self.assertEqual(variant['size'], 'M')
         self.assertEqual(variant['color'], 'Midnight')
         self.assertEqual(variant['options'][1]['color_hex'], '#0B1F3A')
@@ -64,7 +64,7 @@ class VariantOptionTests(ShopTestCase):
         color = body['option_groups'][1]['values'][0]
         self.assertEqual(color['label'], 'Midnight')
         self.assertEqual(color['color_hex'], '#0B1F3A')
-        self.assertEqual(body['variants'][0]['sku'], 'ORA-OEB-311-M-MIDNIGHT-128GB')
+        self.assertEqual(body['variants'][0]['sku'], 'midnight-md-128gb-311')
 
         # Stock in the payload is ignored — new variants start at 0; purchases update stock later.
         self.assertEqual(variant['stock_quantity'], 0)
@@ -80,7 +80,7 @@ class VariantOptionTests(ShopTestCase):
         )
         self.assertEqual(again.status_code, 200, again.content)
         kept = again.json()['variants'][0]
-        self.assertEqual(kept['sku'], 'ORA-OEB-311-M-MIDNIGHT-128GB')
+        self.assertEqual(kept['sku'], 'midnight-md-128gb-311')
         self.assertEqual(kept['stock_quantity'], 0)
 
     def test_duplicate_combination_is_rejected(self):

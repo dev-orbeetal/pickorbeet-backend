@@ -15,26 +15,11 @@ class SetupError(Exception):
         super().__init__(message)
 
 
-def sku_token(label):
-    cleaned = re.sub(r'[^A-Za-z0-9]', '', label or '').upper()
-    return cleaned[:8] or 'X'
-
-
 def build_variant_sku(product_sku, labels, taken):
-    base = re.sub(r'[^A-Za-z0-9-]', '', (product_sku or 'ITEM')).upper()[:20] or 'ITEM'
-    sku = '-'.join([base, *[sku_token(label) for label in labels]])[:50]
-    if sku not in taken:
-        taken.add(sku)
-        return sku
-    number = 2
-    while number < 1000:
-        suffix = f'-{number}'
-        candidate = f'{sku[:50 - len(suffix)]}{suffix}'
-        if candidate not in taken:
-            taken.add(candidate)
-            return candidate
-        number += 1
-    raise SetupError('Could not build a unique SKU.')
+    """Color, size, then the product number: white-lg-998."""
+    from apps.products.sku_code import claim_variant_sku
+
+    return claim_variant_sku(product_sku, labels, taken)
 
 
 def variant_options(variant):

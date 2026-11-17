@@ -672,7 +672,7 @@ class AdminProductListCreateView(generics.ListCreateAPIView):
     pagination_class = AdminPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_fields = ['category', 'subcategory', 'is_active', 'is_featured', 'supply_type']
-    search_fields = ['name', 'sku', 'barcode']
+    search_fields = ['name', 'sku', 'barcode', 'variants__sku', 'sources__sku']
 
     def get_serializer_class(self):
         if self.request.method == 'POST':
@@ -1213,7 +1213,8 @@ class InventoryItemsView(APIView):
                 Q(sku__icontains=search) |
                 Q(barcode__icontains=search) |
                 Q(variants__sku__icontains=search) |
-                Q(variants__barcode__icontains=search)
+                Q(variants__barcode__icontains=search) |
+                Q(sources__sku__icontains=search)
             ).distinct()
 
         if category_id:
