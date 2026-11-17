@@ -58,20 +58,21 @@ export default function ProductTable() {
   const [moving, setMoving] = useState(null);
   const [batchId, setBatchId] = useState('');
   const [ordering, setOrdering] = useState('-created_at');
+  const [pageSize, setPageSize] = useState(20);
 
   useEffect(() => {
     setPage(1);
-  }, [filters.search, filters.category, filters.is_active, filters.supply_type, filters.provider, ordering]);
+  }, [filters.search, filters.category, filters.is_active, filters.supply_type, filters.provider, ordering, pageSize]);
 
   const queryParams = useMemo(() => {
-    const params = { page, ordering };
+    const params = { page, ordering, page_size: pageSize };
     if (filters.search) params.search = filters.search;
     if (filters.category) params.category = filters.category;
     if (filters.is_active) params.is_active = filters.is_active;
     if (filters.supply_type) params.supply_type = filters.supply_type;
     if (filters.provider) params.provider = filters.provider;
     return params;
-  }, [filters, page, ordering]);
+  }, [filters, page, ordering, pageSize]);
 
   const trackedProvider = ['itech', 'marvellous', 'hemalmart', 'deximpo'].includes(filters.provider)
     ? filters.provider
@@ -232,6 +233,17 @@ export default function ProductTable() {
             <option value="created_at">Oldest first</option>
             <option value="name">Similar names together</option>
             <option value="-name">Similar names, reverse</option>
+          </select>
+
+          <select
+            value={pageSize}
+            onChange={(e) => setPageSize(Number(e.target.value))}
+            className="input w-auto"
+            aria-label="Products per page"
+          >
+            {[20, 50, 100, 200, 500].map((size) => (
+              <option key={size} value={size}>{size} / page</option>
+            ))}
           </select>
         </div>
       </div>
@@ -520,7 +532,7 @@ export default function ProductTable() {
             <span>{products.reduce((sum, p) => sum + (p.variants?.length || 0), 0)} variants on this page</span>
           </div>
         )}
-        <Pager page={page} count={productsData?.count} onPage={setPage} />
+        <Pager page={page} count={productsData?.count} pageSize={pageSize} onPage={setPage} />
       </div>
 
       {moving && <MoveProductModal product={moving} onClose={() => setMoving(null)} />}

@@ -34,7 +34,7 @@ from .serializers import (
     ProductReviewWriteSerializer,
 )
 from apps.accounts.permissions import IsStaffUser, IsSeller
-from core.pagination import AdminPagination
+from core.pagination import AdminPagination, ProductAdminPagination
 from .costing import StockError, apply_stock_operation, remove_units, transfer_stock
 from .homepage import curated_product_sections_queryset
 from .search import filter_product_search, search_names_catalog
@@ -669,7 +669,7 @@ _ADMIN_PRODUCT_ORDER = {
 class AdminProductListCreateView(generics.ListCreateAPIView):
     """Admin: List and create products."""
     permission_classes = [IsAuthenticated, IsStaffUser]
-    pagination_class = AdminPagination
+    pagination_class = ProductAdminPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_fields = ['category', 'subcategory', 'is_active', 'is_featured', 'supply_type']
     search_fields = ['name', 'sku', 'barcode', 'variants__sku', 'sources__sku']
