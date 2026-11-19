@@ -107,8 +107,8 @@ function buildFinanceBody(fields, { file = null, clearProof = false } = {}) {
   const body = new FormData();
   Object.entries(fields).forEach(([key, value]) => {
     if (value === undefined || value === null) return;
-    if (key === 'line_inputs') {
-      body.append(key, JSON.stringify(value));
+    if (key === 'line_inputs' || key === 'draft_payload') {
+      body.append(key, typeof value === 'string' ? value : JSON.stringify(value));
       return;
     }
     body.append(key, value);
@@ -222,6 +222,7 @@ export default function FinancePage() {
   const [costForm, setCostForm] = useState(null);
   const printRef = useRef(null);
   const purchaseKeyRef = useRef(null);
+  const saveIntent = useRef('post');
 
   const { data: income, isLoading: incomeLoading, isError: incomeError, refetch: refetchIncome } = useGetIncomeQuery(dateRange);
   const { data: expensesData, isLoading: expensesLoading, isError: expensesError, refetch: refetchExpenses } = useGetExpensesQuery(dateRange);
@@ -250,8 +251,9 @@ export default function FinancePage() {
   const products = inventory?.items || [];
   const isProductBuying = expenseForm.category === 'product_buying';
   const editingReceipt = editingExpense?.purchase_receipt || null;
+  const editingDraft = editingExpense?.status === 'draft';
   const purchaseLocked = Boolean(editingExpense?.is_purchase_voucher && !editingReceipt);
-  const receiptEditable = isProductBuying && (!editingExpense || Boolean(editingReceipt));
+  const receiptEditable = isProductBuying && (!editingExpense || Boolean(editingReceipt) || editingDraft);
   const savingExpense = creatingExpense || updatingExpense || creatingReceipt || updatingReceipt;
   const savingIncome = creatingIncome || updatingIncome;
   const categoryOptions = editingExpense?.category === 'inventory_purchase'
@@ -325,6 +327,8 @@ export default function FinancePage() {
   const openEditExpense = (expense) => {
     setEditingExpense(expense);
     const receipt = expense.purchase_receipt;
+    const payload = expense.status === 'draft' ? (expense.draft_payload || {}) : {};
+    const draftLines = Array.isArray(payload.lines) ? payload.lines : [];
     setExpenseForm({
       expense_date: receipt?.purchase_date || expense.expense_date,
       category: expense.category,
@@ -334,12 +338,28 @@ export default function FinancePage() {
       payment_method: receipt?.payment_method || expense.payment_method || '',
       payee: receipt?.payee || expense.payee || '',
       product: expense.product || '',
-      invoice_number: receipt?.invoice_number || '',
-      additional_discount_type: receipt?.additional_discount_type === 'fixed' ? 'fixed' : 'percent',
-      additional_discount_value: receipt?.additional_discount_type === 'none' || !Number(receipt?.additional_discount_value)
-        ? ''
-        : String(receipt?.additional_discount_value ?? ''),
-      lines: receipt?.lines?.length
+      invoice_number: payload.invoice_number || receipt?.invoice_number || '',
+      additional_discount_type: (payload.additional_discount_type || receipt?.additional_discount_type) === 'fixed'
+        ? 'fixed'
+        : 'percent',
+      additional_discount_value: payload.additional_discount_value
+        || (receipt?.additional_discount_type === 'none' || !Number(receipt?.additional_discount_value)
+          ? ''
+          : String(receipt?.additional_discount_value ?? '')),
+      lines: draftLines.length
+        ? draftLines.map((line) => {
+          lineKey += 1;
+          return {
+            key: `line-${lineKey}`,
+            product: line.product || '',
+            variant: line.variant || '',
+            quantity: String(line.quantity ?? 1),
+            unit_cost: line.unit_cost == null ? '' : String(line.unit_cost),
+            discount_type: line.discount_type === 'fixed' ? 'fixed' : 'percent',
+            discount_value: line.discount_value == null ? '' : String(line.discount_value),
+          };
+        })
+        : receipt?.lines?.length
         ? receipt.lines.map((line) => {
           lineKey += 1;
           const discountType = line.discount_type === 'fixed' ? 'fixed' : 'percent';
@@ -486,8 +506,66 @@ export default function FinancePage() {
     printVouchers(items);
   };
 
+  const expenseDraftBody = () => buildFinanceBody({
+    status: 'draft',
+    expense_date: expenseForm.expense_date,
+    category: expenseForm.category,
+    description: expenseForm.description || '',
+    amount: isProductBuying
+      ? String(purchaseSummary.grandTotal || 0)
+      : (expenseForm.amount === '' || expenseForm.amount == null ? '0' : expenseForm.amount),
+    product: expenseForm.product || null,
+    payment_method: expenseForm.payment_method || '',
+    comments: expenseForm.comments || '',
+    payee: expenseForm.payee || '',
+    draft_payload: isProductBuying ? {
+      invoice_number: expenseForm.invoice_number || '',
+      additional_discount_type: expenseForm.additional_discount_type || 'percent',
+      additional_discount_value: expenseForm.additional_discount_value || '',
+      lines: expenseForm.lines.map((line) => ({
+        product: line.product || '',
+        variant: line.variant || '',
+        quantity: line.quantity || '',
+        unit_cost: line.unit_cost || '',
+        discount_type: line.discount_type || 'percent',
+        discount_value: line.discount_value || '',
+      })),
+    } : null,
+  }, { file: expenseProofFile, clearProof: clearExpenseProof });
+
   const saveExpense = async (event) => {
     event.preventDefault();
+    const asDraft = saveIntent.current === 'draft';
+    saveIntent.current = 'post';
+    if (asDraft) {
+      try {
+        const payload = expenseDraftBody();
+        if (editingExpense) {
+          await updateExpense({ id: editingExpense.id, data: payload }).unwrap();
+          toast.success('Expense draft saved');
+        } else {
+          const created = await createExpense(payload).unwrap();
+          toast.success(`Draft ${created.voucher_number} saved`);
+        }
+        setExpenseFormOpen(false);
+      } catch (error) {
+        toast.error(errorText(error, 'Could not save the draft'));
+      }
+      return;
+    }
+    if (isProductBuying && editingDraft) {
+      const payload = expenseDraftBody();
+      if (payload instanceof FormData) payload.set('status', 'posted');
+      else payload.status = 'posted';
+      try {
+        await updateExpense({ id: editingExpense.id, data: payload }).unwrap();
+        toast.success('Purchase posted and stock updated');
+        setExpenseFormOpen(false);
+      } catch (error) {
+        toast.error(errorText(error, 'Could not post the purchase'));
+      }
+      return;
+    }
     if (isProductBuying && receiptEditable) {
       if (!(expenseForm.payee || '').trim()) {
         toast.error('Dealer/seller name is required for Product Buying');
@@ -559,6 +637,7 @@ export default function FinancePage() {
     }
 
     const payload = buildFinanceBody({
+      status: 'posted',
       expense_date: expenseForm.expense_date,
       category: expenseForm.category,
       description: expenseForm.description,
@@ -584,21 +663,24 @@ export default function FinancePage() {
 
   const saveIncome = async (event) => {
     event.preventDefault();
+    const asDraft = saveIntent.current === 'draft';
+    saveIntent.current = 'post';
     const payload = buildFinanceBody({
+      status: asDraft ? 'draft' : 'posted',
       income_date: incomeForm.income_date,
       category: 'share',
       share_partner: incomeForm.share_partner,
       description: incomeForm.description || '',
       comments: incomeForm.comments || '',
-      amount: incomeForm.amount,
+      amount: asDraft && (incomeForm.amount === '' || incomeForm.amount == null) ? '0' : incomeForm.amount,
     }, { file: incomeProofFile, clearProof: clearIncomeProof });
     try {
       if (editingIncome) {
         await updateManualIncome({ id: editingIncome.id, data: payload }).unwrap();
-        toast.success('Income updated');
+        toast.success(asDraft ? 'Income draft saved' : 'Income updated');
       } else {
         const created = await createManualIncome(payload).unwrap();
-        toast.success(`Income ${created.voucher_number} recorded`);
+        toast.success(asDraft ? `Draft ${created.voucher_number} saved` : `Income ${created.voucher_number} recorded`);
       }
       setIncomeFormOpen(false);
     } catch (error) {
@@ -977,7 +1059,12 @@ export default function FinancePage() {
                         <td className="max-w-xs truncate px-5 py-3.5 text-sm text-gray-700">{row.description || '—'}</td>
                         <td className="max-w-xs truncate px-5 py-3.5 text-sm text-gray-600">{row.comments || '—'}</td>
                         <td className="px-5 py-3.5 text-sm font-bold text-emerald-600">{money(row.amount)}</td>
-                        <td className="px-5 py-3.5 font-mono text-xs text-gray-500">{row.reference}</td>
+                        <td className="px-5 py-3.5 font-mono text-xs text-gray-500">
+                          {row.reference}
+                          {row.status === 'draft' && (
+                            <span className="ml-2 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Draft</span>
+                          )}
+                        </td>
                         <td className="whitespace-nowrap px-5 py-3.5 text-right">
                           <button type="button" onClick={() => printIncomeVoucher(row)} className="mr-3 text-sm text-gray-600">Print</button>
                           <button type="button" onClick={() => openEditIncome(row)} className="mr-3 text-sm text-gray-600">Edit</button>
@@ -1055,7 +1142,12 @@ export default function FinancePage() {
                         aria-label={`Select ${expense.voucher_number}`}
                       />
                     </td>
-                    <td className="px-4 py-3 text-sm font-mono">{expense.voucher_number}</td>
+                    <td className="px-4 py-3 text-sm font-mono">
+                      {expense.voucher_number}
+                      {expense.status === 'draft' && (
+                        <span className="ml-2 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Draft</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-sm">{expense.expense_date}</td>
                     <td className="px-4 py-3 text-sm">{expense.category_label}</td>
                     <td className="px-4 py-3 text-sm max-w-xs truncate">{expense.description}</td>
@@ -1311,10 +1403,25 @@ export default function FinancePage() {
                 />
               </Field>
             </div>
-            <div className="p-5 border-t flex justify-end gap-2">
+            <div className="p-5 border-t flex flex-wrap items-center justify-end gap-2">
+              <p className="mr-auto text-xs text-gray-500">Save draft keeps this out of the books until you post it.</p>
               <button type="button" onClick={() => setIncomeFormOpen(false)} className="btn btn-secondary">Cancel</button>
-              <button type="submit" disabled={savingIncome} className="btn btn-primary">
-                {savingIncome ? 'Saving…' : 'Save'}
+              <button
+                type="submit"
+                disabled={savingIncome}
+                onClick={() => { saveIntent.current = 'post'; }}
+                className="btn btn-primary"
+              >
+                {savingIncome ? 'Saving…' : (editingIncome?.status === 'draft' ? 'Post' : 'Save')}
+              </button>
+              <button
+                type="submit"
+                formNoValidate
+                disabled={savingIncome}
+                onClick={() => { saveIntent.current = 'draft'; }}
+                className="btn btn-secondary order-2"
+              >
+                Save draft
               </button>
             </div>
           </form>
@@ -1788,11 +1895,32 @@ export default function FinancePage() {
               )}
             </div>
 
-            <div className="p-5 border-t flex justify-end gap-2">
+            <div className="p-5 border-t flex flex-wrap items-center justify-end gap-2">
+              {!purchaseLocked && (
+                <p className="mr-auto max-w-sm text-xs text-gray-500">
+                  Save draft keeps this out of the books and does not change stock.
+                </p>
+              )}
               <button type="button" onClick={() => setExpenseFormOpen(false)} className="btn btn-secondary">Cancel</button>
-              <button type="submit" disabled={savingExpense} className="btn btn-primary">
-                {savingExpense ? 'Saving…' : (receiptEditable ? 'Save Purchase' : 'Save')}
+              <button
+                type="submit"
+                disabled={savingExpense}
+                onClick={() => { saveIntent.current = 'post'; }}
+                className="btn btn-primary"
+              >
+                {savingExpense ? 'Saving…' : (editingDraft ? 'Post' : (receiptEditable ? 'Save Purchase' : 'Save'))}
               </button>
+              {!purchaseLocked && (
+                <button
+                  type="submit"
+                  formNoValidate
+                  disabled={savingExpense}
+                  onClick={() => { saveIntent.current = 'draft'; }}
+                  className="btn btn-secondary"
+                >
+                  Save draft
+                </button>
+              )}
             </div>
           </form>
         </div>

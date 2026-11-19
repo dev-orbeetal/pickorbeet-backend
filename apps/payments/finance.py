@@ -98,15 +98,17 @@ def finance_summary():
     delivery = _sum(completed_orders, 'delivery_charge')
     discounts = _sum(completed_orders, 'discount')
 
+    posted_expenses = Expense.objects.filter(status=Expense.STATUS_POSTED)
+    posted_income = ManualIncome.objects.filter(status=ManualIncome.STATUS_POSTED)
     purchase_vouchers = _sum(
-        Expense.objects.filter(category__in=PURCHASE_CATEGORIES), 'amount',
+        posted_expenses.filter(category__in=PURCHASE_CATEGORIES), 'amount',
     )
     opening = _sum(Product.objects.all(), 'opening_cost_value')
     additional = _sum(
-        Expense.objects.exclude(category__in=PURCHASE_CATEGORIES), 'amount',
+        posted_expenses.exclude(category__in=PURCHASE_CATEGORIES), 'amount',
     )
     losses = _sum(Product.objects.all(), 'shrinkage_cost')
-    manual_income = _sum(ManualIncome.objects.all(), 'amount')
+    manual_income = _sum(posted_income, 'amount')
 
     selling_value = ZERO
     remaining_cost = ZERO
@@ -170,14 +172,18 @@ def product_finance():
     }
     purchase_cost = {
         row['product_id']: money(row['total'])
-        for row in Expense.objects.filter(category__in=PURCHASE_CATEGORIES)
+        for row in Expense.objects.filter(
+            status=Expense.STATUS_POSTED, category__in=PURCHASE_CATEGORIES,
+        )
         .exclude(product_id__isnull=True)
         .values('product_id')
         .annotate(total=Sum('amount'))
     }
     allocated = {
         row['product_id']: money(row['total'])
-        for row in Expense.objects.exclude(category__in=PURCHASE_CATEGORIES)
+        for row in Expense.objects.filter(status=Expense.STATUS_POSTED).exclude(
+            category__in=PURCHASE_CATEGORIES,
+        )
         .exclude(product_id__isnull=True)
         .values('product_id')
         .annotate(total=Sum('amount'))

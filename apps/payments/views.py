@@ -510,7 +510,7 @@ class ExpenseByProductView(APIView):
 
     def get(self, request):
         queryset = _bounded(
-            Expense.objects.all(),
+            Expense.objects.filter(status=Expense.STATUS_POSTED),
             'expense_date',
             request.query_params.get('start_date'),
             request.query_params.get('end_date'),
@@ -592,10 +592,12 @@ class AdminIncomeView(APIView):
         manual_total = 0.0
         for entry in manuals.order_by('-income_date', '-created_at'):
             amount = float(entry.amount)
-            manual_total += amount
+            if entry.status != ManualIncome.STATUS_DRAFT:
+                manual_total += amount
             lines.append({
                 'id': str(entry.id),
                 'entry_type': 'manual',
+                'status': entry.status,
                 'date': entry.income_date.isoformat(),
                 'source': 'manual',
                 'category': 'share' if entry.category == ManualIncome.CATEGORY_SHARE else entry.category,
@@ -708,6 +710,7 @@ class LatestTransactionsView(APIView):
                 'share_partner_label': '',
                 'product_name': expense.product.name if expense.product_id else '',
                 'comments': expense.comments or '',
+                'status': expense.status,
                 'created_at': expense.created_at.isoformat(),
             })
 
@@ -732,6 +735,7 @@ class LatestTransactionsView(APIView):
                 'share_partner_label': entry.get_share_partner_display() if entry.share_partner else '',
                 'product_name': '',
                 'comments': entry.comments or '',
+                'status': entry.status,
                 'created_at': entry.created_at.isoformat(),
             })
 

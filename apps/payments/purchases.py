@@ -471,3 +471,53 @@ def cancel_purchase_receipt(receipt, *, user=None):
         if expense is not None:
             expense.delete()
         return receipt
+
+
+def _draft_purchase_lines(payload):
+    lines = []
+    for raw in (payload or {}).get('lines') or []:
+        if not raw.get('product'):
+            continue
+        discount_value = raw.get('discount_value') or 0
+        lines.append({
+            'product': raw.get('product'),
+            'variant': raw.get('variant') or None,
+            'quantity': raw.get('quantity') or 0,
+            'unit_cost': raw.get('unit_cost') or 0,
+            'discount_type': raw.get('discount_type') or 'none',
+            'discount_value': discount_value,
+        })
+    return lines
+
+
+@transaction.atomic
+def post_expense_draft(expense, *, user=None):
+    """Turn a Product Buying draft into a posted receipt. Stock changes only here."""
+    if expense.status != Expense.STATUS_DRAFT:
+        raise StockError('Only a draft can be posted.')
+    if expense.category != 'product_buying':
+        raise StockError('This draft is not a product purchase.')
+    payload = expense.draft_payload or {}
+    discount_value = payload.get('additional_discount_value') or 0
+    receipt, created = create_purchase_receipt(
+        purchase_date=expense.expense_date,
+        payee=expense.payee,
+        lines=_draft_purchase_lines(payload),
+        invoice_number=payload.get('invoice_number') or '',
+        comments=expense.comments,
+        payment_method=expense.payment_method,
+        additional_discount_type=payload.get('additional_discount_type') or 'none',
+        additional_discount_value=discount_value,
+        user=user,
+    )
+    posted = created or getattr(receipt, 'expense', None)
+    if posted is None:
+        raise StockError('Purchase receipt is missing its expense voucher.')
+    proof_name = expense.payment_proof.name if expense.payment_proof else ''
+    if proof_name and not posted.payment_proof:
+        expense.payment_proof = None
+        expense.save(update_fields=['payment_proof'])
+        posted.payment_proof.name = proof_name
+        posted.save(update_fields=['payment_proof', 'updated_at'])
+    expense.delete()
+    return posted

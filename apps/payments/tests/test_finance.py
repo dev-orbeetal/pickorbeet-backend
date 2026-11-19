@@ -779,3 +779,83 @@ class FinanceApiTests(ShopTestCase):
         response = self.api.post('/api/v1/payments/admin/expenses/', payload, format='json')
         self.assertEqual(response.status_code, 201, response.content)
         return response.json()
+
+    def test_emergency_drafts_stay_out_of_the_books_until_posted(self):
+        self.product.refresh_from_db()
+        stock_before = self.product.warehouse_stock
+
+        expense = self.api.post('/api/v1/payments/admin/expenses/', {
+            'status': 'draft',
+            'expense_date': date.today().isoformat(),
+            'category': 'transportation',
+            'description': '',
+            'amount': '0',
+        }, format='json')
+        self.assertEqual(expense.status_code, 201, expense.content)
+        self.assertEqual(expense.json()['status'], 'draft')
+        self.assertEqual(expense.json()['description'], 'Draft')
+
+        income = self.api.post('/api/v1/payments/admin/manual-income/', {
+            'status': 'draft',
+            'income_date': date.today().isoformat(),
+            'share_partner': '',
+            'description': 'Cash arrived, partner not confirmed',
+            'amount': '0',
+        }, format='json')
+        self.assertEqual(income.status_code, 201, income.content)
+
+        purchase = self.api.post('/api/v1/payments/admin/expenses/', {
+            'status': 'draft',
+            'expense_date': date.today().isoformat(),
+            'category': 'product_buying',
+            'payee': 'Night supplier',
+            'amount': '0',
+            'draft_payload': {
+                'invoice_number': 'EM-1',
+                'lines': [{
+                    'product': str(self.product.id),
+                    'quantity': 3,
+                    'unit_cost': '20.00',
+                }],
+            },
+        }, format='json')
+        self.assertEqual(purchase.status_code, 201, purchase.content)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.warehouse_stock, stock_before)
+
+        summary = self.api.get('/api/v1/payments/admin/finance/summary/').json()
+        self.assertEqual(summary['actual']['additional_expenses'], '0.00')
+        self.assertEqual(summary['actual']['manual_income_total'], '0.00')
+        self.assertEqual(summary['actual']['purchase_vouchers_total'], '0.00')
+
+        listed = self.api.get('/api/v1/payments/admin/income/').json()
+        self.assertEqual(listed['manual_income_total'], 0)
+        draft_row = next(row for row in listed['income'] if row['id'] == income.json()['id'])
+        self.assertEqual(draft_row['status'], 'draft')
+
+        blocked = self.api.patch(
+            f"/api/v1/payments/admin/expenses/{expense.json()['id']}/",
+            {'status': 'posted', 'amount': '15.00', 'description': 'Emergency fare'},
+            format='json',
+        )
+        self.assertEqual(blocked.status_code, 200, blocked.content)
+        summary = self.api.get('/api/v1/payments/admin/finance/summary/').json()
+        self.assertEqual(summary['actual']['additional_expenses'], '15.00')
+        locked = self.api.patch(
+            f"/api/v1/payments/admin/expenses/{expense.json()['id']}/",
+            {'status': 'draft'},
+            format='json',
+        )
+        self.assertEqual(locked.status_code, 400, locked.content)
+
+        posted = self.api.patch(
+            f"/api/v1/payments/admin/expenses/{purchase.json()['id']}/",
+            {'status': 'posted'},
+            format='json',
+        )
+        self.assertEqual(posted.status_code, 200, posted.content)
+        self.assertEqual(posted.json()['status'], 'posted')
+        self.assertNotEqual(posted.json()['id'], purchase.json()['id'])
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.warehouse_stock, stock_before + 3)
+        self.assertFalse(Expense.objects.filter(pk=purchase.json()['id']).exists())

@@ -278,8 +278,19 @@ class Expense(models.Model):
         ('mobile_banking', 'Mobile Banking'),
     ]
 
+    STATUS_POSTED = 'posted'
+    STATUS_DRAFT = 'draft'
+    RECORD_STATUS_CHOICES = [
+        (STATUS_POSTED, 'Posted'),
+        (STATUS_DRAFT, 'Draft'),
+    ]
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     voucher_number = models.CharField(max_length=24, unique=True)
+    status = models.CharField(
+        max_length=16, choices=RECORD_STATUS_CHOICES, default=STATUS_POSTED,
+        help_text='Drafts stay out of finance totals and do not change stock.',
+    )
     expense_date = models.DateField()
     category = models.CharField(max_length=32, choices=CATEGORY_CHOICES)
     description = models.TextField()
@@ -323,6 +334,10 @@ class Expense(models.Model):
         null=True,
         help_text='Optional image or PDF proving the payment.',
     )
+    draft_payload = models.JSONField(
+        null=True, blank=True,
+        help_text='Unfinished purchase lines kept until a Product Buying draft is posted.',
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -362,8 +377,19 @@ class ManualIncome(models.Model):
         ('nahiyan', 'Nahiyan'),
     ]
 
+    STATUS_POSTED = 'posted'
+    STATUS_DRAFT = 'draft'
+    RECORD_STATUS_CHOICES = [
+        (STATUS_POSTED, 'Posted'),
+        (STATUS_DRAFT, 'Draft'),
+    ]
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     voucher_number = models.CharField(max_length=24, unique=True)
+    status = models.CharField(
+        max_length=16, choices=RECORD_STATUS_CHOICES, default=STATUS_POSTED,
+        help_text='Drafts stay out of finance totals until they are posted.',
+    )
     income_date = models.DateField()
     category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default=CATEGORY_SHARE)
     share_partner = models.CharField(

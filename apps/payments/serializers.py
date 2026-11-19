@@ -2,6 +2,7 @@
 Serializers for payments app.
 """
 import json
+from decimal import Decimal
 
 from django.db import IntegrityError, transaction
 from rest_framework import serializers
@@ -433,10 +434,10 @@ class ExpenseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Expense
         fields = [
-            'id', 'voucher_number', 'expense_date', 'category', 'category_label',
+            'id', 'voucher_number', 'status', 'expense_date', 'category', 'category_label',
             'description', 'comments', 'amount', 'quantity', 'unit_cost',
             'payment_method', 'payment_method_label', 'payment_proof', 'clear_payment_proof',
-            'payee', 'product', 'product_name', 'stock_movement',
+            'payee', 'product', 'product_name', 'draft_payload', 'stock_movement',
             'purchase_receipt_id', 'purchase_receipt', 'is_purchase_voucher',
             'created_by', 'created_by_name', 'created_at', 'updated_at',
         ]
@@ -448,9 +449,12 @@ class ExpenseSerializer(serializers.ModelSerializer):
             'payment_method': {'allow_blank': True, 'required': False},
             'payee': {'allow_blank': True, 'required': False},
             'comments': {'allow_blank': True, 'required': False},
+            'description': {'allow_blank': True, 'required': False},
             'product': {'allow_null': True, 'required': False},
             'quantity': {'required': False, 'allow_null': True},
             'unit_cost': {'required': False, 'allow_null': True},
+            'draft_payload': {'required': False, 'allow_null': True},
+            'status': {'required': False},
         }
 
     def get_product_name(self, obj):
@@ -472,7 +476,24 @@ class ExpenseSerializer(serializers.ModelSerializer):
             return None
         return PurchaseReceiptSerializer(receipt, context=self.context).data
 
+    def _record_status(self, attrs=None):
+        if attrs and attrs.get('status') in (Expense.STATUS_DRAFT, Expense.STATUS_POSTED):
+            return attrs['status']
+        raw = None
+        initial = getattr(self, 'initial_data', None)
+        if initial is not None:
+            raw = initial.get('status')
+        if raw in (Expense.STATUS_DRAFT, Expense.STATUS_POSTED):
+            return raw
+        if self.instance is not None:
+            return self.instance.status
+        return Expense.STATUS_POSTED
+
     def validate_amount(self, value):
+        if self._record_status() == Expense.STATUS_DRAFT:
+            if value < 0:
+                raise serializers.ValidationError('Amount cannot be negative.')
+            return value
         if value <= 0:
             raise serializers.ValidationError('Amount must be greater than zero.')
         return value
@@ -480,9 +501,25 @@ class ExpenseSerializer(serializers.ModelSerializer):
     def validate_payment_method(self, value):
         return value or ''
 
+    def validate_status(self, value):
+        if value not in (Expense.STATUS_DRAFT, Expense.STATUS_POSTED):
+            raise serializers.ValidationError('Status must be draft or posted.')
+        if (
+            self.instance is not None
+            and self.instance.status == Expense.STATUS_POSTED
+            and value == Expense.STATUS_DRAFT
+        ):
+            raise serializers.ValidationError('A posted voucher cannot be turned back into a draft.')
+        return value
+
     def validate(self, attrs):
+        status = self._record_status(attrs)
         category = attrs.get('category', getattr(self.instance, 'category', None))
-        if category == 'product_buying' and self.instance is None:
+        if (
+            category == 'product_buying'
+            and self.instance is None
+            and status != Expense.STATUS_DRAFT
+        ):
             raise serializers.ValidationError({
                 'category': (
                     'Product Buying must be recorded as a purchase receipt so inventory '
@@ -490,10 +527,27 @@ class ExpenseSerializer(serializers.ModelSerializer):
                 ),
             })
         payee = attrs.get('payee', getattr(self.instance, 'payee', '') if self.instance else '')
-        if category == 'product_buying' and not (payee or '').strip():
+        if (
+            category == 'product_buying'
+            and status != Expense.STATUS_DRAFT
+            and not (payee or '').strip()
+        ):
             raise serializers.ValidationError({
                 'payee': 'Dealer/seller name is required for Product Buying expenses.',
             })
+        description = attrs.get(
+            'description',
+            getattr(self.instance, 'description', '') if self.instance else '',
+        )
+        if status == Expense.STATUS_DRAFT:
+            if not (description or '').strip():
+                attrs['description'] = 'Draft'
+            if 'amount' not in attrs and self.instance is None:
+                attrs['amount'] = Decimal('0.00')
+        elif not (description or '').strip():
+            raise serializers.ValidationError({'description': 'Description is required.'})
+        elif category != 'product_buying':
+            attrs['draft_payload'] = None
         return attrs
 
     def update(self, instance, validated_data):
@@ -516,9 +570,23 @@ class ExpenseSerializer(serializers.ModelSerializer):
                     errors['product'] = 'This purchase voucher follows the stock purchase and cannot change this field.'
             if errors:
                 raise serializers.ValidationError(errors)
+        posting_purchase = (
+            instance.status == Expense.STATUS_DRAFT
+            and validated_data.get('status') == Expense.STATUS_POSTED
+            and validated_data.get('category', instance.category) == 'product_buying'
+        )
+        if posting_purchase:
+            validated_data['status'] = Expense.STATUS_DRAFT
         instance = super().update(instance, validated_data)
         if proof is not serializers.empty or clear_proof:
             _apply_payment_proof(instance, proof, clear=clear_proof)
+        if posting_purchase:
+            from apps.products.costing import StockError
+            from .purchases import post_expense_draft
+            try:
+                instance = post_expense_draft(instance, user=self.context['request'].user)
+            except StockError as exc:
+                raise serializers.ValidationError({'detail': exc.message}) from exc
         return instance
 
     def create(self, validated_data):
@@ -555,7 +623,7 @@ class ManualIncomeSerializer(serializers.ModelSerializer):
     class Meta:
         model = ManualIncome
         fields = [
-            'id', 'voucher_number', 'income_date', 'category', 'category_label',
+            'id', 'voucher_number', 'status', 'income_date', 'category', 'category_label',
             'share_partner', 'share_partner_label', 'description', 'comments',
             'amount', 'payment_proof', 'clear_payment_proof',
             'created_by', 'created_by_name', 'created_at', 'updated_at',
@@ -567,6 +635,7 @@ class ManualIncomeSerializer(serializers.ModelSerializer):
             'share_partner': {'allow_blank': True, 'required': False},
             'description': {'allow_blank': True, 'required': False},
             'comments': {'allow_blank': True, 'required': False},
+            'status': {'required': False},
         }
 
     def get_share_partner_label(self, obj):
@@ -576,7 +645,35 @@ class ManualIncomeSerializer(serializers.ModelSerializer):
         user = getattr(obj, 'created_by', None)
         return user.full_name if user else None
 
+    def _record_status(self, attrs=None):
+        if attrs and attrs.get('status') in (ManualIncome.STATUS_DRAFT, ManualIncome.STATUS_POSTED):
+            return attrs['status']
+        raw = None
+        initial = getattr(self, 'initial_data', None)
+        if initial is not None:
+            raw = initial.get('status')
+        if raw in (ManualIncome.STATUS_DRAFT, ManualIncome.STATUS_POSTED):
+            return raw
+        if self.instance is not None:
+            return self.instance.status
+        return ManualIncome.STATUS_POSTED
+
+    def validate_status(self, value):
+        if value not in (ManualIncome.STATUS_DRAFT, ManualIncome.STATUS_POSTED):
+            raise serializers.ValidationError('Status must be draft or posted.')
+        if (
+            self.instance is not None
+            and self.instance.status == ManualIncome.STATUS_POSTED
+            and value == ManualIncome.STATUS_DRAFT
+        ):
+            raise serializers.ValidationError('A posted voucher cannot be turned back into a draft.')
+        return value
+
     def validate_amount(self, value):
+        if self._record_status() == ManualIncome.STATUS_DRAFT:
+            if value < 0:
+                raise serializers.ValidationError('Amount cannot be negative.')
+            return value
         if value <= 0:
             raise serializers.ValidationError('Amount must be greater than zero.')
         return value
@@ -584,6 +681,7 @@ class ManualIncomeSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         # Manual income is share contributions only — product sales come from orders.
         attrs['category'] = ManualIncome.CATEGORY_SHARE
+        status = self._record_status(attrs)
         partner = attrs.get(
             'share_partner',
             getattr(self.instance, 'share_partner', '') if self.instance else '',
@@ -592,6 +690,12 @@ class ManualIncomeSerializer(serializers.ModelSerializer):
             'description',
             getattr(self.instance, 'description', '') if self.instance else '',
         )
+        if status == ManualIncome.STATUS_DRAFT:
+            if not (description or '').strip():
+                attrs['description'] = 'Draft'
+            if 'amount' not in attrs and self.instance is None:
+                attrs['amount'] = Decimal('0.00')
+            return attrs
         if not partner:
             raise serializers.ValidationError({
                 'share_partner': 'Select a share partner for Share Amount.',

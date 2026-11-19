@@ -44,6 +44,25 @@ function FlagToggle({ checked, onToggle, disabled, ariaLabel, onLabel, offLabel 
   );
 }
 
+function StatusButton({ active, onToggle, disabled, ariaLabel }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={disabled}
+      aria-label={ariaLabel}
+      aria-pressed={active}
+      className={`inline-flex items-center justify-center rounded-full border px-3 py-1 text-xs font-medium transition-colors disabled:cursor-wait disabled:opacity-60 ${
+        active
+          ? 'border-green-200 bg-green-100 text-green-700 hover:bg-green-200'
+          : 'border-gray-200 bg-gray-100 text-gray-500 hover:bg-gray-200'
+      }`}
+    >
+      {active ? 'Active' : 'Inactive'}
+    </button>
+  );
+}
+
 export default function ProductTable() {
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState({
@@ -146,6 +165,36 @@ export default function ProductTable() {
       toast.success(next ? 'Added to homepage Trending' : 'Removed from homepage Trending');
     } catch (error) {
       toast.error(error?.data?.detail || 'Could not update trending status');
+    } finally {
+      setTogglingKey(null);
+    }
+  };
+
+  const handleActive = async (product) => {
+    const next = !product.is_active;
+    setTogglingKey(`${product.id}:active`);
+    try {
+      await updateProduct({ id: product.id, is_active: next }).unwrap();
+      toast.success(next ? 'Product is active' : 'Product is inactive');
+    } catch (error) {
+      toast.error(error?.data?.detail || 'Could not update status');
+    } finally {
+      setTogglingKey(null);
+    }
+  };
+
+  const handleVariantActive = async (product, variant) => {
+    const next = !variant.is_active;
+    setTogglingKey(`${variant.id}:active`);
+    try {
+      await updateVariant({
+        productId: product.id,
+        variantId: variant.id,
+        is_active: next,
+      }).unwrap();
+      toast.success(next ? 'Variant is active' : 'Variant is inactive');
+    } catch (error) {
+      toast.error(error?.data?.detail || 'Could not update variant status');
     } finally {
       setTogglingKey(null);
     }
@@ -445,9 +494,12 @@ export default function ProductTable() {
                         </td>
 
                         <td className="py-3 px-4 text-center">
-                          <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${product.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                            {product.is_active ? 'Active' : 'Inactive'}
-                          </span>
+                          <StatusButton
+                            active={Boolean(product.is_active)}
+                            onToggle={() => handleActive(product)}
+                            disabled={togglingKey === `${product.id}:active`}
+                            ariaLabel={`${product.is_active ? 'Deactivate' : 'Activate'} ${product.name}`}
+                          />
                         </td>
 
                         <td className="py-3 px-4 text-center">
@@ -510,9 +562,12 @@ export default function ProductTable() {
                             </td>
                             <td className="py-2.5 px-4 text-center text-xs text-gray-400">—</td>
                             <td className="py-2.5 px-4 text-center">
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${variant.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                                {variant.is_active ? 'Active' : 'Inactive'}
-                              </span>
+                              <StatusButton
+                                active={Boolean(variant.is_active)}
+                                onToggle={() => handleVariantActive(product, variant)}
+                                disabled={togglingKey === `${variant.id}:active`}
+                                ariaLabel={`${variant.is_active ? 'Deactivate' : 'Activate'} ${product.name} ${vLabel}`}
+                              />
                             </td>
                             <td className="py-2.5 px-4" />
                           </tr>

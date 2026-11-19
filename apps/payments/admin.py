@@ -112,14 +112,14 @@ class PurchaseReceiptAdmin(admin.ModelAdmin):
 
 @admin.register(Expense)
 class ExpenseAdmin(admin.ModelAdmin):
-    list_display = ['voucher_number', 'expense_date', 'category', 'amount', 'payee', 'product']
-    list_filter = ['category', 'expense_date']
+    list_display = ['voucher_number', 'status', 'expense_date', 'category', 'amount', 'payee', 'product']
+    list_filter = ['status', 'category', 'expense_date']
     search_fields = ['voucher_number', 'description', 'payee', 'product__name']
     readonly_fields = [
         'voucher_number', 'stock_movement', 'purchase_receipt', 'created_by', 'created_at', 'updated_at',
     ]
     fields = [
-        'voucher_number', 'expense_date', 'category', 'description', 'comments', 'amount',
+        'voucher_number', 'status', 'expense_date', 'category', 'description', 'comments', 'amount',
         'quantity', 'unit_cost', 'payment_method', 'payee', 'product', 'payment_proof',
         'stock_movement', 'purchase_receipt', 'created_by', 'created_at', 'updated_at',
     ]
@@ -128,12 +128,12 @@ class ExpenseAdmin(admin.ModelAdmin):
 @admin.register(ManualIncome)
 class ManualIncomeAdmin(admin.ModelAdmin):
     list_display = [
-        'voucher_number', 'income_date', 'category', 'share_partner', 'amount', 'created_by',
+        'voucher_number', 'status', 'income_date', 'category', 'share_partner', 'amount', 'created_by',
     ]
-    list_filter = ['category', 'share_partner', 'income_date']
+    list_filter = ['status', 'category', 'share_partner', 'income_date']
     search_fields = ['voucher_number', 'description', 'comments']
     readonly_fields = ['voucher_number', 'created_by', 'created_at', 'updated_at']
     fields = [
-        'voucher_number', 'income_date', 'category', 'share_partner', 'description', 'comments',
+        'voucher_number', 'status', 'income_date', 'category', 'share_partner', 'description', 'comments',
         'amount', 'payment_proof', 'created_by', 'created_at', 'updated_at',
     ]
