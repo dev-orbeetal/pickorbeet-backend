@@ -11,8 +11,10 @@ Guests who check out without an account do not get a device or a socket. Staff s
 3. A Daphne process for the socket only:
 
 ```bash
-daphne -b 127.0.0.1 -p 8016 core.asgi:application
+daphne -b 127.0.0.1 -p 8021 core.asgi:application
 ```
+
+On this VPS, port 8016 already belongs to another project. Daphne listens on `127.0.0.1:8021`, and the unit is `pickorbeet-daphne`.
 
 4. A Celery worker so checkout and payment callbacks are not blocked on push:
 
@@ -24,7 +26,7 @@ celery -A core worker -l info
 
 ```nginx
 location /ws/ {
-    proxy_pass http://127.0.0.1:8016;
+    proxy_pass http://127.0.0.1:8021;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";

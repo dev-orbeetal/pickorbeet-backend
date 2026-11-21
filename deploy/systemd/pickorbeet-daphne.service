@@ -1,0 +1,20 @@
+# Install once on the VPS. This file is not copied into the git checkout.
+#   cp deploy/systemd/pickorbeet-daphne.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now pickorbeet-daphne
+# Nginx sends only /ws/ here. Gunicorn on 8015 keeps serving /api/.
+# 8016 is already another project on this host, so this process uses 8021.
+[Unit]
+Description=Daphne websocket server for PickOrbeet
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+User=www
+Group=www
+WorkingDirectory=/www/wwwroot/pickorbeet-backend
+ExecStart=/www/wwwroot/pickorbeet-backend/venv/bin/daphne -b 127.0.0.1 -p 8021 core.asgi:application
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
