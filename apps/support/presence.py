@@ -1,7 +1,9 @@
-"""Staff are online while a support socket is connected.
+"""Who is in support chat right now.
 
-Gunicorn serves the API and Daphne serves the socket, so the count lives in
-Redis. Tests keep it in memory.
+Staff presence is any staff support socket. Customer presence is that
+customer's support socket, or the HTTP pulse the shop app sends while the
+chat screen is open. Gunicorn serves the API and Daphne serves the socket,
+so both counts live in Redis. Tests keep them in memory.
 """
 import logging
 import time
@@ -11,8 +13,10 @@ from django.conf import settings
 logger = logging.getLogger(__name__)
 
 _KEY = 'support:staff'
+_CUSTOMERS = 'support:customers'
 _TTL = 45
 _local = {}
+_local_customers = {}
 
 
 def _client():
@@ -75,3 +79,73 @@ def online():
     except Exception:
         logger.warning('Could not read support presence', exc_info=True)
         return _local_online(now)
+
+
+def _decode(value):
+    return value.decode() if isinstance(value, bytes) else str(value)
+
+
+def _customer_ids(now):
+    stale = [name for name, (user_id, expiry) in _local_customers.items() if expiry < now]
+    for name in stale:
+        _local_customers.pop(name, None)
+    return {user_id for user_id, expiry in _local_customers.values()}
+
+
+def _matching_customer(client, user_id, now):
+    """True when this customer still has an unexpired chat connection."""
+    user_id = str(user_id)
+    still = False
+    stale = []
+    for name, raw in client.hgetall(_CUSTOMERS).items():
+        text = _decode(raw)
+        uid, _, expiry = text.partition('|')
+        channel = _decode(name)
+        if not expiry or int(expiry) < now:
+            stale.append(channel)
+            continue
+        if uid == user_id:
+            still = True
+    if stale:
+        client.hdel(_CUSTOMERS, *stale)
+    return still
+
+
+def join_customer(channel_name, user_id):
+    user_id = str(user_id)
+    expiry = int(time.time()) + _TTL
+    try:
+        client = _client()
+        if client is None:
+            _local_customers[channel_name] = (user_id, expiry)
+            return True
+        client.hset(_CUSTOMERS, channel_name, f'{user_id}|{expiry}')
+    except Exception:
+        logger.warning('Could not mark support customer online', exc_info=True)
+        _local_customers[channel_name] = (user_id, expiry)
+    return True
+
+
+def leave_customer(channel_name, user_id):
+    try:
+        client = _client()
+        if client is None:
+            _local_customers.pop(channel_name, None)
+            return customer_online(user_id)
+        client.hdel(_CUSTOMERS, channel_name)
+    except Exception:
+        logger.warning('Could not mark support customer offline', exc_info=True)
+        _local_customers.pop(channel_name, None)
+    return customer_online(user_id)
+
+
+def customer_online(user_id):
+    now = int(time.time())
+    try:
+        client = _client()
+        if client is None:
+            return str(user_id) in _customer_ids(now)
+        return _matching_customer(client, user_id, now)
+    except Exception:
+        logger.warning('Could not read support customer presence', exc_info=True)
+        return str(user_id) in _customer_ids(now)

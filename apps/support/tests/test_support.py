@@ -193,3 +193,41 @@ class SupportThreadTests(ShopTestCase):
         self.assertTrue(sample.dedupe_key.startswith('support-message:'))
         self.assertEqual(rows.filter(dedupe_key=sample.dedupe_key).count(), 3)
         self.assertIn('Nadia', sample.title)
+
+    def test_staff_sees_the_customer_online_only_while_their_chat_is_open(self):
+        from apps.support.presence import join_customer, leave_customer
+
+        customer = make_user()
+        seller = make_user(role='seller')
+        customer_api = APIClient()
+        staff_api = APIClient()
+        customer_api.force_authenticate(customer)
+        staff_api.force_authenticate(seller)
+
+        opened = customer_api.get('/api/v1/support/conversation/')
+        conversation_id = opened.json()['id']
+        thread = staff_api.get(f'/api/v1/support/inbox/{conversation_id}/')
+        self.assertFalse(thread.json()['customer_online'])
+
+        pulse = customer_api.post('/api/v1/support/presence/', {'active': True}, format='json')
+        self.assertEqual(pulse.status_code, 204, pulse.content)
+        online = staff_api.get(f'/api/v1/support/inbox/{conversation_id}/presence/')
+        self.assertTrue(online.json()['customer_online'])
+        inbox = staff_api.get('/api/v1/support/inbox/')
+        row = next(item for item in inbox.json()['results'] if item['id'] == conversation_id)
+        self.assertTrue(row['customer_online'])
+
+        gone = customer_api.post('/api/v1/support/presence/', {'active': False}, format='json')
+        self.assertEqual(gone.status_code, 204, gone.content)
+        offline = staff_api.get(f'/api/v1/support/inbox/{conversation_id}/presence/')
+        self.assertFalse(offline.json()['customer_online'])
+
+        staff_pulse = staff_api.post('/api/v1/support/presence/', {'active': True}, format='json')
+        self.assertEqual(staff_pulse.status_code, 403)
+
+        join_customer('socket-1', customer.id)
+        still = staff_api.get(f'/api/v1/support/inbox/{conversation_id}/presence/')
+        self.assertTrue(still.json()['customer_online'])
+        leave_customer('socket-1', customer.id)
+        left = staff_api.get(f'/api/v1/support/inbox/{conversation_id}/presence/')
+        self.assertFalse(left.json()['customer_online'])

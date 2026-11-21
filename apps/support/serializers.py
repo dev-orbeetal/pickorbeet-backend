@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from .models import Message
-from .presence import online
+from .presence import customer_online, online
 from .profile import load_profile
 from .services import customer_name, messages_for, order_card
 
@@ -79,5 +79,6 @@ def conversation_payload(conversation, *, include_customer=False):
         payload['customer_name'] = customer_name(customer)
         payload['customer_email'] = customer.email or ''
         payload['customer_avatar'] = customer_avatar_url(customer)
+        payload['customer_online'] = customer_online(customer.id)
     return payload
 

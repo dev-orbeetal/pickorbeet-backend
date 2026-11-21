@@ -7,8 +7,14 @@ from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 
 from .models import Conversation
-from .presence import join, leave
-from .realtime import CUSTOMERS_GROUP, STAFF_GROUP, customer_group, publish_presence
+from .presence import join, join_customer, leave, leave_customer
+from .realtime import (
+    CUSTOMERS_GROUP,
+    STAFF_GROUP,
+    announce_customer,
+    customer_group,
+    publish_presence,
+)
 
 STAFF_ROLES = {'seller', 'super_admin'}
 
@@ -27,6 +33,7 @@ class SupportConsumer(AsyncWebsocketConsumer):
         super().__init__(*args, **kwargs)
         self.groups_joined = []
         self.counts_presence = False
+        self.counts_customer = False
         self._pulse = None
 
     async def connect(self):
@@ -54,10 +61,15 @@ class SupportConsumer(AsyncWebsocketConsumer):
             await self.channel_layer.group_add(group, self.channel_name)
             await self.channel_layer.group_add(CUSTOMERS_GROUP, self.channel_name)
             self.groups_joined.extend([group, CUSTOMERS_GROUP])
+            self.counts_customer = True
+            await database_sync_to_async(join_customer)(self.channel_name, user.id)
+            self._pulse = asyncio.create_task(self._heartbeat())
             agent_online = await database_sync_to_async(_agent_online)()
         await self.accept()
         if self.staff:
             await database_sync_to_async(publish_presence)(agent_online)
+        elif self.counts_customer:
+            await database_sync_to_async(announce_customer)(user.id, True)
         await self.send(text_data=json.dumps({'type': 'presence', 'agent_online': bool(agent_online)}))
 
     async def disconnect(self, code):
@@ -70,6 +82,10 @@ class SupportConsumer(AsyncWebsocketConsumer):
             self.counts_presence = False
             agent_online = await database_sync_to_async(leave)(self.channel_name)
             await database_sync_to_async(publish_presence)(agent_online)
+        if self.counts_customer:
+            self.counts_customer = False
+            still = await database_sync_to_async(leave_customer)(self.channel_name, self.user.id)
+            await database_sync_to_async(announce_customer)(self.user.id, still)
 
     async def receive(self, text_data):
         try:
@@ -121,6 +137,14 @@ class SupportConsumer(AsyncWebsocketConsumer):
             'agent_online': event['agent_online'],
         }))
 
+    async def support_customer_presence(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'customer.presence',
+            'customer_id': event['customer_id'],
+            'conversation_id': event['conversation_id'],
+            'customer_online': event['customer_online'],
+        }))
+
     async def support_typing(self, event):
         await self.send(text_data=json.dumps({
             'type': 'typing',
@@ -133,7 +157,11 @@ class SupportConsumer(AsyncWebsocketConsumer):
         try:
             while True:
                 await asyncio.sleep(20)
-                await database_sync_to_async(join)(self.channel_name)
+                if self.staff:
+                    await database_sync_to_async(join)(self.channel_name)
+                elif self.counts_customer:
+                    await database_sync_to_async(join_customer)(self.channel_name, self.user.id)
+                    await database_sync_to_async(announce_customer)(self.user.id, True)
         except asyncio.CancelledError:
             return
 

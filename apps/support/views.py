@@ -12,7 +12,8 @@ from rest_framework.views import APIView
 from apps.accounts.permissions import IsSeller
 
 from .models import Conversation, Message
-from .presence import online
+from .presence import customer_online, join_customer, leave_customer, online
+from .realtime import announce_customer
 from .serializers import MessageSerializer, conversation_payload, customer_avatar_url
 from .services import customer_name, mark_read, open_conversation, post_customer_message, post_staff_reply
 
@@ -75,6 +76,27 @@ class CustomerReadView(APIView):
         return Response({'customer_unread': 0})
 
 
+class CustomerPresenceView(APIView):
+    """The shop app pulses this while the customer is looking at the chat."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if getattr(request.user, 'role', '') != 'customer':
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        active = request.data.get('active', True)
+        if isinstance(active, str):
+            active = active.strip().lower() not in {'0', 'false', 'no'}
+        channel = f'http:{request.user.id}'
+        if active:
+            join_customer(channel, request.user.id)
+            still = True
+        else:
+            still = leave_customer(channel, request.user.id)
+        announce_customer(request.user.id, still)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class StaffInboxView(APIView):
     permission_classes = [IsSeller]
 
@@ -103,6 +125,7 @@ class StaffInboxView(APIView):
                 'topic_label': Message.TOPIC_LABELS.get(row.topic, ''),
                 'preview': preview,
                 'staff_unread': row.staff_unread,
+                'customer_online': customer_online(row.customer_id),
                 'last_message_at': row.last_message_at,
             })
         return Response({'agent_online': online(), 'results': results})
@@ -140,6 +163,16 @@ class StaffThreadView(APIView):
         )
         mark_read(conversation, by_staff=True)
         return Response(conversation_payload(conversation, include_customer=True))
+
+
+class StaffCustomerPresenceView(APIView):
+    """Whether this conversation's customer currently has the chat open."""
+
+    permission_classes = [IsSeller]
+
+    def get(self, request, pk):
+        conversation = get_object_or_404(Conversation, pk=pk)
+        return Response({'customer_online': customer_online(conversation.customer_id)})
 
 
 class StaffReadView(APIView):

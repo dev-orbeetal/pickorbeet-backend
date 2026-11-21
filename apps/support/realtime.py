@@ -54,3 +54,19 @@ def publish_presence(agent_online):
     event = {'type': 'support.presence', 'agent_online': bool(agent_online)}
     _send(CUSTOMERS_GROUP, event)
     _send(STAFF_GROUP, event)
+
+
+def announce_customer(user_id, customer_online):
+    """Tell staff whether this customer currently has the chat open."""
+    from .models import Conversation
+
+    conversation_id = (
+        Conversation.objects.filter(customer_id=user_id).values_list('id', flat=True).first()
+    )
+    event = {
+        'type': 'support.customer_presence',
+        'customer_id': str(user_id),
+        'conversation_id': '' if conversation_id is None else str(conversation_id),
+        'customer_online': bool(customer_online),
+    }
+    _send(STAFF_GROUP, event)
