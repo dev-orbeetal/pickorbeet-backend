@@ -78,8 +78,8 @@ export default function AdminLayout({ children, title = 'Admin Panel' }) {
                 <p className="mt-2 text-sm text-gray-500">
                   This section is not available for your role.
                 </p>
-                <Link href="/dashboard" className="btn btn-primary mt-4 inline-flex">
-                  Back to dashboard
+                <Link href={user?.role === 'finance_manager' ? '/finance' : '/dashboard'} className="btn btn-primary mt-4 inline-flex">
+                  {user?.role === 'finance_manager' ? 'Back to finance' : 'Back to dashboard'}
                 </Link>
               </div>
             ) : children}

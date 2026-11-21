@@ -175,12 +175,17 @@ class StaffUserSerializer(serializers.ModelSerializer):
                   'full_name', 'is_active', 'is_staff', 'password', 'date_joined']
         read_only_fields = ['id', 'date_joined']
 
+    def validate_role(self, value):
+        if value not in User.STAFF_ROLES:
+            raise serializers.ValidationError('Choose a staff role.')
+        return value
+
     def create(self, validated_data):
         password = validated_data.pop('password', None)
         user = User(**validated_data)
         if password:
             user.set_password(password)
-        user.is_staff = validated_data.get('role') in ['seller', 'accountant', 'super_admin']
+        user.is_staff = user.role in User.STAFF_ROLES
         user.save()
         return user
 
@@ -190,6 +195,7 @@ class StaffUserSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
         if password:
             instance.set_password(password)
+        instance.is_staff = instance.role in User.STAFF_ROLES
         instance.save()
         return instance
 

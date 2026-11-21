@@ -51,8 +51,10 @@ class User(AbstractBaseUser, PermissionsMixin):
         ('customer', 'Customer'),
         ('seller', 'Seller'),
         ('accountant', 'Accountant'),
+        ('finance_manager', 'Finance Manager'),
         ('super_admin', 'Super Admin'),
     ]
+    STAFF_ROLES = ('seller', 'accountant', 'finance_manager', 'super_admin')
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     email = models.EmailField(unique=True)
@@ -98,6 +100,9 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def is_accountant(self):
         return self.role == 'accountant'
+
+    def is_finance_manager(self):
+        return self.role == 'finance_manager'
 
     def is_super_admin(self):
         return self.role == 'super_admin'

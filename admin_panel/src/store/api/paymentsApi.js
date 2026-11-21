@@ -68,6 +68,15 @@ export const paymentsApi = baseApi.injectEndpoints({
       invalidatesTags: ['Income', 'Finance', 'Transactions'],
     }),
 
+    reviewFinance: builder.mutation({
+      query: (body) => ({
+        url: '/payments/admin/finance/reviews/',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Income', 'Expenses', 'Finance', 'Transactions'],
+    }),
+
     getFinanceSummary: builder.query({
       query: () => '/payments/admin/finance/summary/',
       providesTags: ['Finance'],
@@ -179,6 +188,7 @@ export const {
   useCreateManualIncomeMutation,
   useUpdateManualIncomeMutation,
   useDeleteManualIncomeMutation,
+  useReviewFinanceMutation,
   useGetFinanceSummaryQuery,
   useGetProductFinanceQuery,
   useGetLatestTransactionsQuery,

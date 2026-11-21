@@ -421,3 +421,55 @@ class ManualIncome(models.Model):
 
     def __str__(self):
         return self.voucher_number
+
+
+class FinanceReview(models.Model):
+    """A finance manager's review of one income or expense transaction."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    expense = models.OneToOneField(
+        Expense,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='finance_review',
+    )
+    manual_income = models.OneToOneField(
+        ManualIncome,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='finance_review',
+    )
+    order = models.OneToOneField(
+        'orders.Order',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='finance_review',
+    )
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='finance_reviews',
+    )
+    reviewed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Finance Review'
+        verbose_name_plural = 'Finance Reviews'
+        constraints = [
+            models.CheckConstraint(
+                check=(
+                    models.Q(expense__isnull=False, manual_income__isnull=True, order__isnull=True)
+                    | models.Q(expense__isnull=True, manual_income__isnull=False, order__isnull=True)
+                    | models.Q(expense__isnull=True, manual_income__isnull=True, order__isnull=False)
+                ),
+                name='finance_review_one_target',
+            ),
+        ]
+
+    def __str__(self):
+        target = self.expense_id or self.manual_income_id or self.order_id
+        return f'Review {target}'

@@ -44,25 +44,6 @@ function FlagToggle({ checked, onToggle, disabled, ariaLabel, onLabel, offLabel 
   );
 }
 
-function StatusButton({ active, onToggle, disabled, ariaLabel }) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      disabled={disabled}
-      aria-label={ariaLabel}
-      aria-pressed={active}
-      className={`inline-flex items-center justify-center rounded-full border px-3 py-1 text-xs font-medium transition-colors disabled:cursor-wait disabled:opacity-60 ${
-        active
-          ? 'border-green-200 bg-green-100 text-green-700 hover:bg-green-200'
-          : 'border-gray-200 bg-gray-100 text-gray-500 hover:bg-gray-200'
-      }`}
-    >
-      {active ? 'Active' : 'Inactive'}
-    </button>
-  );
-}
-
 export default function ProductTable() {
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState({
@@ -493,12 +474,14 @@ export default function ProductTable() {
                           />
                         </td>
 
-                        <td className="py-3 px-4 text-center">
-                          <StatusButton
-                            active={Boolean(product.is_active)}
+                        <td className="py-3 px-4">
+                          <FlagToggle
+                            checked={Boolean(product.is_active)}
                             onToggle={() => handleActive(product)}
                             disabled={togglingKey === `${product.id}:active`}
                             ariaLabel={`${product.is_active ? 'Deactivate' : 'Activate'} ${product.name}`}
+                            onLabel="Active"
+                            offLabel="Inactive"
                           />
                         </td>
 
@@ -561,12 +544,14 @@ export default function ProductTable() {
                               />
                             </td>
                             <td className="py-2.5 px-4 text-center text-xs text-gray-400">—</td>
-                            <td className="py-2.5 px-4 text-center">
-                              <StatusButton
-                                active={Boolean(variant.is_active)}
+                            <td className="py-2.5 px-4">
+                              <FlagToggle
+                                checked={Boolean(variant.is_active)}
                                 onToggle={() => handleVariantActive(product, variant)}
                                 disabled={togglingKey === `${variant.id}:active`}
                                 ariaLabel={`${variant.is_active ? 'Deactivate' : 'Activate'} ${product.name} ${vLabel}`}
+                                onLabel="Active"
+                                offLabel="Inactive"
                               />
                             </td>
                             <td className="py-2.5 px-4" />

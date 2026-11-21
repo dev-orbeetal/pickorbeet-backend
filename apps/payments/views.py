@@ -23,7 +23,8 @@ from .serializers import (
 from apps.orders.models import Order
 from apps.orders.services import change_order_status, record_online_payment
 from apps.notifications.services import notify_refund_requested
-from apps.accounts.permissions import IsStaffUser, IsAccountant
+from apps.accounts.permissions import CanReadFinance, IsAccountant, IsFinanceManager, IsStaffUser
+from .reviews import review_state, toggle_review
 
 
 class InitiatePaymentView(APIView):
@@ -363,6 +364,7 @@ def _expense_queryset():
     return (
         Expense.objects.select_related(
             'product', 'created_by', 'purchase_receipt',
+            'finance_review', 'finance_review__reviewed_by',
         )
         .prefetch_related(
             'purchase_receipt__lines__product',
@@ -374,7 +376,7 @@ def _expense_queryset():
 class ExpenseListCreateView(generics.ListCreateAPIView):
     """Accountant: list and record expenses. Not copied from sales."""
     serializer_class = ExpenseSerializer
-    permission_classes = [IsAuthenticated, IsAccountant]
+    permission_classes = [IsAuthenticated, CanReadFinance]
     parser_classes = [JSONParser, MultiPartParser, FormParser]
     pagination_class = None
 
@@ -391,7 +393,7 @@ class ExpenseListCreateView(generics.ListCreateAPIView):
 class ExpenseDetailView(generics.RetrieveUpdateDestroyAPIView):
     """Accountant: review, correct, or remove one expense voucher."""
     serializer_class = ExpenseSerializer
-    permission_classes = [IsAuthenticated, IsAccountant]
+    permission_classes = [IsAuthenticated, CanReadFinance]
     parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def get_queryset(self):
@@ -462,7 +464,7 @@ class PurchaseReceiptDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 class FinanceSummaryView(APIView):
     """Current financial position. Actual totals stay separate from estimates."""
-    permission_classes = [IsAuthenticated, IsAccountant]
+    permission_classes = [IsAuthenticated, CanReadFinance]
 
     def get(self, request):
         from .finance import finance_summary
@@ -471,7 +473,7 @@ class FinanceSummaryView(APIView):
 
 class ProductFinanceView(APIView):
     """Product profit from purchases, completed sales, and stock still on hand."""
-    permission_classes = [IsAuthenticated, IsAccountant]
+    permission_classes = [IsAuthenticated, CanReadFinance]
 
     def get(self, request):
         from .finance import product_finance
@@ -506,7 +508,7 @@ class RecordProductCostView(APIView):
 
 class ExpenseByProductView(APIView):
     """Sum of recorded expenses grouped by product."""
-    permission_classes = [IsAuthenticated, IsAccountant]
+    permission_classes = [IsAuthenticated, CanReadFinance]
 
     def get(self, request):
         queryset = _bounded(
@@ -536,12 +538,14 @@ class AdminIncomeView(APIView):
     A completed payment is used once and is not added again as the order total.
     Manual income is listed separately and never duplicates an order payment.
     """
-    permission_classes = [IsAuthenticated, IsAccountant]
+    permission_classes = [IsAuthenticated, CanReadFinance]
 
     def get(self, request):
         start_date = request.query_params.get('start_date')
         end_date = request.query_params.get('end_date')
-        orders = Order.objects.filter(payment_status='paid').select_related('user').prefetch_related('payments')
+        orders = Order.objects.filter(payment_status='paid').select_related(
+            'user', 'finance_review', 'finance_review__reviewed_by',
+        ).prefetch_related('payments')
         if start_date:
             orders = orders.filter(created_at__date__gte=start_date)
         if end_date:
@@ -581,10 +585,14 @@ class AdminIncomeView(APIView):
                 'share_partner_label': '',
                 'comments': '',
                 'amount': amount,
+                'review_target': 'order',
+                **review_state(order),
             })
 
         manuals = _bounded(
-            ManualIncome.objects.select_related('created_by'),
+            ManualIncome.objects.select_related(
+                'created_by', 'finance_review', 'finance_review__reviewed_by',
+            ),
             'income_date',
             start_date,
             end_date,
@@ -615,6 +623,8 @@ class AdminIncomeView(APIView):
                 'voucher_number': entry.voucher_number,
                 'payment_proof': entry.payment_proof.url if entry.payment_proof else None,
                 'created_by_name': entry.created_by.full_name if entry.created_by_id else None,
+                'review_target': 'manual_income',
+                **review_state(entry),
             })
 
         lines.sort(key=lambda row: (row['date'], row['reference']), reverse=True)
@@ -657,12 +667,14 @@ class AdminIncomeView(APIView):
 class ManualIncomeListCreateView(generics.ListCreateAPIView):
     """Accountant: list and record manual income entries."""
     serializer_class = ManualIncomeSerializer
-    permission_classes = [IsAuthenticated, IsAccountant]
+    permission_classes = [IsAuthenticated, CanReadFinance]
     parser_classes = [JSONParser, MultiPartParser, FormParser]
     pagination_class = None
 
     def get_queryset(self):
-        queryset = ManualIncome.objects.select_related('created_by')
+        queryset = ManualIncome.objects.select_related(
+            'created_by', 'finance_review', 'finance_review__reviewed_by',
+        )
         params = self.request.query_params
         return _bounded(queryset, 'income_date', params.get('start_date'), params.get('end_date'))
 
@@ -670,14 +682,34 @@ class ManualIncomeListCreateView(generics.ListCreateAPIView):
 class ManualIncomeDetailView(generics.RetrieveUpdateDestroyAPIView):
     """Accountant: review, correct, or remove one manual income entry."""
     serializer_class = ManualIncomeSerializer
-    permission_classes = [IsAuthenticated, IsAccountant]
+    permission_classes = [IsAuthenticated, CanReadFinance]
     parser_classes = [JSONParser, MultiPartParser, FormParser]
-    queryset = ManualIncome.objects.select_related('created_by')
+    queryset = ManualIncome.objects.select_related(
+        'created_by', 'finance_review', 'finance_review__reviewed_by',
+    )
+
+
+class FinanceReviewView(APIView):
+    """Finance manager marks one income or expense as reviewed, or clears that mark."""
+    permission_classes = [IsAuthenticated, IsFinanceManager]
+
+    def post(self, request):
+        target = request.data.get('target')
+        record_id = request.data.get('id')
+        if target not in ('expense', 'manual_income', 'order') or not record_id:
+            return Response(
+                {'detail': 'Choose an income or expense transaction to review.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        state = toggle_review(request.user, target, record_id)
+        if state is None:
+            return Response({'detail': 'Transaction not found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'target': target, 'id': str(record_id), **state})
 
 
 class LatestTransactionsView(APIView):
     """Merged income and expense lines for the Latest Transactions panel."""
-    permission_classes = [IsAuthenticated, IsAccountant]
+    permission_classes = [IsAuthenticated, CanReadFinance]
 
     def get(self, request):
         start_date = request.query_params.get('start_date')
@@ -690,7 +722,9 @@ class LatestTransactionsView(APIView):
         transactions = []
 
         expenses = _bounded(
-            Expense.objects.select_related('product', 'created_by'),
+            Expense.objects.select_related(
+                'product', 'created_by', 'finance_review', 'finance_review__reviewed_by',
+            ),
             'expense_date',
             start_date,
             end_date,
@@ -712,10 +746,15 @@ class LatestTransactionsView(APIView):
                 'comments': expense.comments or '',
                 'status': expense.status,
                 'created_at': expense.created_at.isoformat(),
+                'record_id': str(expense.id),
+                'review_target': 'expense',
+                **review_state(expense),
             })
 
         manuals = _bounded(
-            ManualIncome.objects.select_related('created_by'),
+            ManualIncome.objects.select_related(
+                'created_by', 'finance_review', 'finance_review__reviewed_by',
+            ),
             'income_date',
             start_date,
             end_date,
@@ -737,6 +776,9 @@ class LatestTransactionsView(APIView):
                 'comments': entry.comments or '',
                 'status': entry.status,
                 'created_at': entry.created_at.isoformat(),
+                'record_id': str(entry.id),
+                'review_target': 'manual_income',
+                **review_state(entry),
             })
 
         transactions.sort(

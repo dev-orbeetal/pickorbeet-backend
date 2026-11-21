@@ -5,7 +5,13 @@ export default function HomePage() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace('/dashboard');
+    let role = '';
+    try {
+      role = JSON.parse(localStorage.getItem('admin_user_data') || '{}')?.role || '';
+    } catch {
+      role = '';
+    }
+    router.replace(role === 'finance_manager' ? '/finance' : '/dashboard');
   }, [router]);
 
   return null;

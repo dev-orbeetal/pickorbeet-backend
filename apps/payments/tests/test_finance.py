@@ -859,3 +859,86 @@ class FinanceApiTests(ShopTestCase):
         self.product.refresh_from_db()
         self.assertEqual(self.product.warehouse_stock, stock_before + 3)
         self.assertFalse(Expense.objects.filter(pk=purchase.json()['id']).exists())
+
+
+class FinanceReviewTests(ShopTestCase):
+    def setUp(self):
+        super().setUp()
+        self.manager = make_user(
+            role='finance_manager', is_staff=True, first_name='Mina', last_name='Khan',
+        )
+        self.accountant = make_user(role='accountant', is_staff=True)
+        self.api = APIClient()
+        self.category = Category.objects.create(name='Reviewed Goods')
+        self.product = make_product(name='Reviewed Mug', category=self.category, price='400.00')
+
+    def test_finance_manager_reviews_income_and_expenses(self):
+        self.api.force_authenticate(self.accountant)
+        expense = self.api.post('/api/v1/payments/admin/expenses/', {
+            'expense_date': date.today().isoformat(),
+            'category': 'others',
+            'description': 'Lunch',
+            'amount': '900.00',
+        }, format='json')
+        self.assertEqual(expense.status_code, 201, expense.content)
+        income = self.api.post('/api/v1/payments/admin/manual-income/', {
+            'income_date': date.today().isoformat(),
+            'category': 'share',
+            'share_partner': 'rakib',
+            'description': 'Capital',
+            'amount': '1000.00',
+        }, format='json')
+        self.assertEqual(income.status_code, 201, income.content)
+        order = make_order(products=[self.product], status='delivered', payment_status='paid')
+
+        denied = self.api.post('/api/v1/payments/admin/finance/reviews/', {
+            'target': 'expense',
+            'id': expense.json()['id'],
+        }, format='json')
+        self.assertEqual(denied.status_code, 403, denied.content)
+
+        self.api.force_authenticate(self.manager)
+        blocked = self.api.post('/api/v1/payments/admin/expenses/', {
+            'expense_date': date.today().isoformat(),
+            'category': 'others',
+            'description': 'Tea',
+            'amount': '50.00',
+        }, format='json')
+        self.assertEqual(blocked.status_code, 403, blocked.content)
+
+        reviewed = self.api.post('/api/v1/payments/admin/finance/reviews/', {
+            'target': 'expense',
+            'id': expense.json()['id'],
+        }, format='json')
+        self.assertEqual(reviewed.status_code, 200, reviewed.content)
+        self.assertTrue(reviewed.json()['finance_reviewed'])
+        self.assertEqual(reviewed.json()['finance_reviewed_by_name'], 'Mina Khan')
+
+        listed = self.api.get('/api/v1/payments/admin/expenses/')
+        self.assertEqual(listed.status_code, 200, listed.content)
+        row = next(item for item in listed.json() if item['id'] == expense.json()['id'])
+        self.assertTrue(row['finance_reviewed'])
+
+        share = self.api.post('/api/v1/payments/admin/finance/reviews/', {
+            'target': 'manual_income',
+            'id': income.json()['id'],
+        }, format='json')
+        self.assertEqual(share.status_code, 200, share.content)
+        self.assertTrue(share.json()['finance_reviewed'])
+
+        order_review = self.api.post('/api/v1/payments/admin/finance/reviews/', {
+            'target': 'order',
+            'id': str(order.id),
+        }, format='json')
+        self.assertEqual(order_review.status_code, 200, order_review.content)
+        lines = self.api.get('/api/v1/payments/admin/income/').json()['income']
+        order_line = next(item for item in lines if item['id'] == str(order.id))
+        self.assertTrue(order_line['finance_reviewed'])
+        self.assertEqual(order_line['review_target'], 'order')
+
+        cleared = self.api.post('/api/v1/payments/admin/finance/reviews/', {
+            'target': 'expense',
+            'id': expense.json()['id'],
+        }, format='json')
+        self.assertEqual(cleared.status_code, 200, cleared.content)
+        self.assertFalse(cleared.json()['finance_reviewed'])

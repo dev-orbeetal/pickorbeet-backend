@@ -8,7 +8,7 @@ from .views import (
     PaymentDetailView, RefundListCreateView, ProcessRefundView,
     ExpenseListCreateView, ExpenseDetailView, ExpenseByProductView, AdminIncomeView,
     FinanceSummaryView, ProductFinanceView, RecordProductCostView,
-    ManualIncomeListCreateView, ManualIncomeDetailView, LatestTransactionsView,
+    ManualIncomeListCreateView, ManualIncomeDetailView, FinanceReviewView, LatestTransactionsView,
     PurchaseReceiptListCreateView, PurchaseReceiptDetailView,
 )
 
@@ -33,6 +33,7 @@ urlpatterns = [
         LatestTransactionsView.as_view(),
         name='finance_transactions',
     ),
+    path('admin/finance/reviews/', FinanceReviewView.as_view(), name='finance_review'),
     path('admin/expenses/', ExpenseListCreateView.as_view(), name='expense_list'),
     path('admin/expenses/by-product/', ExpenseByProductView.as_view(), name='expense_by_product'),
     path('admin/expenses/<uuid:pk>/', ExpenseDetailView.as_view(), name='expense_detail'),

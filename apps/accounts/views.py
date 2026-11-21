@@ -198,7 +198,7 @@ class StaffUserListCreateView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticated, IsSuperAdmin]
 
     def get_queryset(self):
-        return User.objects.filter(role__in=['seller', 'accountant', 'super_admin'])
+        return User.objects.filter(role__in=User.STAFF_ROLES)
 
 
 class StaffUserDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -207,7 +207,7 @@ class StaffUserDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [permissions.IsAuthenticated, IsSuperAdmin]
 
     def get_queryset(self):
-        return User.objects.filter(role__in=['seller', 'accountant', 'super_admin'])
+        return User.objects.filter(role__in=User.STAFF_ROLES)
 
 
 SPEND_EXCLUDED = ('cancelled', 'refunded')

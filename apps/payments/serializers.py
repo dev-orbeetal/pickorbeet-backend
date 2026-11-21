@@ -7,6 +7,7 @@ from decimal import Decimal
 from django.db import IntegrityError, transaction
 from rest_framework import serializers
 from .models import Expense, ManualIncome, Payment, PurchaseReceipt, PurchaseReceiptLine, Refund
+from .reviews import review_state
 from apps.orders.models import Order
 
 MAX_PAYMENT_PROOF_BYTES = 5 * 1024 * 1024
@@ -423,6 +424,9 @@ class ExpenseSerializer(serializers.ModelSerializer):
     """Staff expense voucher. The voucher number is assigned on create."""
     product_name = serializers.SerializerMethodField()
     created_by_name = serializers.SerializerMethodField()
+    finance_reviewed = serializers.SerializerMethodField()
+    finance_reviewed_at = serializers.SerializerMethodField()
+    finance_reviewed_by_name = serializers.SerializerMethodField()
     category_label = serializers.CharField(source='get_category_display', read_only=True)
     payment_method_label = serializers.SerializerMethodField()
     is_purchase_voucher = serializers.SerializerMethodField()
@@ -439,10 +443,12 @@ class ExpenseSerializer(serializers.ModelSerializer):
             'payment_method', 'payment_method_label', 'payment_proof', 'clear_payment_proof',
             'payee', 'product', 'product_name', 'draft_payload', 'stock_movement',
             'purchase_receipt_id', 'purchase_receipt', 'is_purchase_voucher',
+            'finance_reviewed', 'finance_reviewed_at', 'finance_reviewed_by_name',
             'created_by', 'created_by_name', 'created_at', 'updated_at',
         ]
         read_only_fields = [
             'id', 'voucher_number', 'stock_movement', 'purchase_receipt_id',
+            'finance_reviewed', 'finance_reviewed_at', 'finance_reviewed_by_name',
             'created_by', 'created_at', 'updated_at',
         ]
         extra_kwargs = {
@@ -463,6 +469,15 @@ class ExpenseSerializer(serializers.ModelSerializer):
     def get_created_by_name(self, obj):
         user = getattr(obj, 'created_by', None)
         return user.full_name if user else None
+
+    def get_finance_reviewed(self, obj):
+        return review_state(obj)['finance_reviewed']
+
+    def get_finance_reviewed_at(self, obj):
+        return review_state(obj)['finance_reviewed_at']
+
+    def get_finance_reviewed_by_name(self, obj):
+        return review_state(obj)['finance_reviewed_by_name']
 
     def get_payment_method_label(self, obj):
         return obj.get_payment_method_display() if obj.payment_method else ''
@@ -617,6 +632,9 @@ class ManualIncomeSerializer(serializers.ModelSerializer):
     category_label = serializers.CharField(source='get_category_display', read_only=True)
     share_partner_label = serializers.SerializerMethodField()
     created_by_name = serializers.SerializerMethodField()
+    finance_reviewed = serializers.SerializerMethodField()
+    finance_reviewed_at = serializers.SerializerMethodField()
+    finance_reviewed_by_name = serializers.SerializerMethodField()
     payment_proof = PaymentProofField(required=False, allow_null=True)
     clear_payment_proof = serializers.BooleanField(write_only=True, required=False, default=False)
 
@@ -626,10 +644,12 @@ class ManualIncomeSerializer(serializers.ModelSerializer):
             'id', 'voucher_number', 'status', 'income_date', 'category', 'category_label',
             'share_partner', 'share_partner_label', 'description', 'comments',
             'amount', 'payment_proof', 'clear_payment_proof',
+            'finance_reviewed', 'finance_reviewed_at', 'finance_reviewed_by_name',
             'created_by', 'created_by_name', 'created_at', 'updated_at',
         ]
         read_only_fields = [
             'id', 'voucher_number', 'created_by', 'created_at', 'updated_at',
+            'finance_reviewed', 'finance_reviewed_at', 'finance_reviewed_by_name',
         ]
         extra_kwargs = {
             'share_partner': {'allow_blank': True, 'required': False},
@@ -644,6 +664,15 @@ class ManualIncomeSerializer(serializers.ModelSerializer):
     def get_created_by_name(self, obj):
         user = getattr(obj, 'created_by', None)
         return user.full_name if user else None
+
+    def get_finance_reviewed(self, obj):
+        return review_state(obj)['finance_reviewed']
+
+    def get_finance_reviewed_at(self, obj):
+        return review_state(obj)['finance_reviewed_at']
+
+    def get_finance_reviewed_by_name(self, obj):
+        return review_state(obj)['finance_reviewed_by_name']
 
     def _record_status(self, attrs=None):
         if attrs and attrs.get('status') in (ManualIncome.STATUS_DRAFT, ManualIncome.STATUS_POSTED):

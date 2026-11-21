@@ -10,7 +10,7 @@ import { setCredentials, setError, clearError } from '@/store/slices/authSlice';
 export default function LoginPage() {
   const router = useRouter();
   const dispatch = useDispatch();
-  const { isAuthenticated, error } = useSelector((state) => state.auth);
+  const { isAuthenticated, error, user } = useSelector((state) => state.auth);
 
   const [login, { isLoading }] = useLoginMutation();
   const [showPassword, setShowPassword] = useState(false);
@@ -18,9 +18,9 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      router.push('/dashboard');
+      router.push(user?.role === 'finance_manager' ? '/finance' : '/dashboard');
     }
-  }, [isAuthenticated, router]);
+  }, [isAuthenticated, router, user?.role]);
 
   useEffect(() => {
     if (error) {
@@ -35,7 +35,7 @@ export default function LoginPage() {
       const response = await login(formData).unwrap();
       const { access, refresh, user } = response;
 
-      if (!['seller', 'accountant', 'super_admin'].includes(user.role)) {
+      if (!['seller', 'accountant', 'finance_manager', 'super_admin'].includes(user.role)) {
         dispatch(setError('Access denied. Staff only.'));
         return;
       }
@@ -47,7 +47,7 @@ export default function LoginPage() {
       localStorage.setItem('admin_access_token', access);
       localStorage.setItem('admin_refresh_token', refresh);
       dispatch(setCredentials(user)); // This also saves user data to localStorage
-      router.push('/dashboard');
+      router.push(user.role === 'finance_manager' ? '/finance' : '/dashboard');
     } catch (err) {
       dispatch(setError(err?.data?.detail || err?.message || 'Login failed'));
     }

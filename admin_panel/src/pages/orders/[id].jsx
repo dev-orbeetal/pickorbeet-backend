@@ -186,6 +186,13 @@ export default function OrderDetailPage() {
     router.push('/orders');
   }, [loadFailed, router]);
 
+  useEffect(() => {
+    if (!order || router.query.edit !== '1') return;
+    if (order.order_type === 'external' && order.order_status !== 'cancelled' && order.order_status !== 'refunded') {
+      setEditOpen(true);
+    }
+  }, [order, router.query.edit]);
+
   const openCustomerChat = async () => {
     if (!order?.user || openingChat) return;
     try {

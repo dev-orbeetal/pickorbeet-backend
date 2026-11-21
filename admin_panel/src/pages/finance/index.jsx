@@ -1,12 +1,14 @@
-import { forwardRef, useEffect, useRef, useState } from 'react';
+import { Fragment, forwardRef, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useSelector } from 'react-redux';
 import {
-  BarChart3, Calendar, Check, Minus, Package, Plus, Printer, Receipt,
+  BarChart3, Calendar, Check, ChevronDown, ChevronRight, Minus, Package, Plus, Printer, Receipt,
   RotateCcw, ShoppingBag, ShoppingCart, Trash2, Upload, Users, Wallet, X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useReactToPrint } from 'react-to-print';
 import AdminLayout from '@/components/layout/AdminLayout';
+import { FinanceReviewButton, FinanceReviewTick } from '@/components/finance/FinanceReviewMark';
 import LoadError from '@/components/ui/LoadError';
 import SearchableSelect from '@/components/ui/SearchableSelect';
 import { getMediaUrl, newIdempotencyKey } from '@/lib/utils';
@@ -23,6 +25,7 @@ import {
   useGetProductFinanceQuery,
   useRecordProductCostMutation,
   useUpdateExpenseMutation,
+  useReviewFinanceMutation,
   useUpdateManualIncomeMutation,
   useUpdatePurchaseReceiptMutation,
 } from '@/store/api/paymentsApi';
@@ -176,6 +179,87 @@ function rowsOf(data) {
   return data?.results || [];
 }
 
+function groupExpensesByDate(expenses) {
+  const groups = [];
+  const indexByDate = new Map();
+  expenses.forEach((expense) => {
+    const date = expense.expense_date;
+    const index = indexByDate.get(date);
+    if (index == null) {
+      indexByDate.set(date, groups.length);
+      groups.push({ date, expenses: [expense] });
+      return;
+    }
+    groups[index].expenses.push(expense);
+  });
+  return groups;
+}
+
+function expenseAmountTotal(expenses) {
+  return expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+}
+
+function ExpenseSelectBox({ checked, indeterminate, onChange, label }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = Boolean(indeterminate) && !checked;
+  }, [checked, indeterminate]);
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={checked}
+      onChange={onChange}
+      aria-label={label}
+    />
+  );
+}
+
+function ExpenseTableRow({ expense, selected, onToggle, onView, onPrint, onEdit, onRemove, reviewMark, reviewAction }) {
+  const canRemove = !expense.is_purchase_voucher || expense.purchase_receipt_id || expense.purchase_receipt;
+  return (
+    <tr className="hover:bg-gray-50">
+      <td className="px-4 py-3">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={() => onToggle(expense.id)}
+          aria-label={`Select ${expense.voucher_number}`}
+        />
+      </td>
+      <td className="px-4 py-3 text-sm font-mono">
+        <span className="inline-flex items-center">
+          {expense.voucher_number}
+          {reviewMark}
+        </span>
+        {expense.status === 'draft' && (
+          <span className="ml-2 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Draft</span>
+        )}
+      </td>
+      <td className="px-4 py-3 text-sm">{expense.expense_date}</td>
+      <td className="px-4 py-3 text-sm">{expense.category_label}</td>
+      <td className="px-4 py-3 text-sm max-w-xs truncate">{expense.description}</td>
+      <td className="px-4 py-3 text-sm">
+        {expense.payee || expense.product_name || '—'}
+      </td>
+      <td className="px-4 py-3 text-sm font-semibold text-red-700">{money(expense.amount)}</td>
+      <td className="px-4 py-3 text-right whitespace-nowrap">
+        {reviewAction}
+        <button type="button" onClick={() => onView(expense)} className="text-sm text-primary-600 mr-3">View</button>
+        <button type="button" onClick={() => onPrint(expense)} className="text-sm text-gray-600 mr-3">Print</button>
+        {onEdit && (
+          <button type="button" onClick={() => onEdit(expense)} className="text-sm text-gray-600 mr-3">Edit</button>
+        )}
+        {onRemove && canRemove && (
+          <button type="button" onClick={() => onRemove(expense)} className="text-sm text-red-600">
+            {expense.purchase_receipt_id || expense.purchase_receipt ? 'Cancel' : 'Delete'}
+          </button>
+        )}
+      </td>
+    </tr>
+  );
+}
+
 function localISODate(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -196,6 +280,9 @@ function financePresetRange(preset, today = new Date()) {
 }
 
 export default function FinancePage() {
+  const role = useSelector((state) => state.auth.user?.role);
+  const canReviewFinance = role === 'finance_manager' || role === 'super_admin';
+  const canManageFinance = role === 'accountant' || role === 'super_admin';
   const [dateRange, setDateRange] = useState({
     start_date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     end_date: new Date().toISOString().split('T')[0],
@@ -218,6 +305,7 @@ export default function FinancePage() {
   const [printItems, setPrintItems] = useState([]);
   const [shouldPrint, setShouldPrint] = useState(false);
   const [selectedExpenseIds, setSelectedExpenseIds] = useState([]);
+  const [expandedExpenseDates, setExpandedExpenseDates] = useState(() => new Set());
   const [selectedIncomeIds, setSelectedIncomeIds] = useState([]);
   const [costForm, setCostForm] = useState(null);
   const printRef = useRef(null);
@@ -246,6 +334,7 @@ export default function FinancePage() {
   const [updateManualIncome, { isLoading: updatingIncome }] = useUpdateManualIncomeMutation();
   const [deleteManualIncome] = useDeleteManualIncomeMutation();
   const [recordProductCost, { isLoading: recordingCost }] = useRecordProductCostMutation();
+  const [reviewFinance, { isLoading: reviewing }] = useReviewFinanceMutation();
 
   const expenses = rowsOf(expensesData);
   const products = inventory?.items || [];
@@ -479,10 +568,57 @@ export default function FinancePage() {
   const printExpenseVoucher = (expense) => printVouchers([toExpensePrintItem(expense)]);
   const printIncomeVoucher = (row) => printVouchers([toIncomePrintItem(row)]);
 
+  const toggleReview = async (target, id) => {
+    try {
+      await reviewFinance({ target, id }).unwrap();
+    } catch (error) {
+      toast.error(errorText(error, 'Could not update the finance review'));
+    }
+  };
+
+  const expenseReview = (expense) => ({
+    reviewMark: (
+      <FinanceReviewTick
+        reviewed={expense.finance_reviewed}
+        reviewerName={expense.finance_reviewed_by_name}
+        canReview={canReviewFinance}
+        pending={reviewing}
+        onToggle={() => toggleReview('expense', expense.id)}
+      />
+    ),
+    reviewAction: (
+      <FinanceReviewButton
+        reviewed={expense.finance_reviewed}
+        canReview={canReviewFinance}
+        pending={reviewing}
+        onToggle={() => toggleReview('expense', expense.id)}
+      />
+    ),
+  });
+
   const toggleExpenseSelected = (id) => {
     setSelectedExpenseIds((current) => (
       current.includes(id) ? current.filter((value) => value !== id) : [...current, id]
     ));
+  };
+
+  const toggleExpenseDate = (date) => {
+    setExpandedExpenseDates((current) => {
+      const next = new Set(current);
+      if (next.has(date)) next.delete(date);
+      else next.add(date);
+      return next;
+    });
+  };
+
+  const toggleExpenseGroup = (ids) => {
+    setSelectedExpenseIds((current) => {
+      const allSelected = ids.every((id) => current.includes(id));
+      if (allSelected) return current.filter((id) => !ids.includes(id));
+      const merged = new Set(current);
+      ids.forEach((id) => merged.add(id));
+      return [...merged];
+    });
   };
 
   const toggleIncomeSelected = (id) => {
@@ -912,17 +1048,17 @@ export default function FinancePage() {
                   <table className="w-full">
                     <thead>
                       <tr className="bg-[#F3F7FD]">
-                        {['Order ID', 'Customer', 'Order date', 'Selling amount', 'Payment status'].map((heading) => (
-                          <th key={heading} className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">{heading}</th>
+                        {['Order ID', 'Customer', 'Order date', 'Selling amount', 'Payment status', ''].map((heading) => (
+                          <th key={heading || 'review'} className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">{heading}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#EEF2F8]">
                       {incomeLoading ? (
-                        <tr><td colSpan="5" className="px-5 py-10 text-center text-sm text-gray-500">Loading product sales…</td></tr>
+                        <tr><td colSpan="6" className="px-5 py-10 text-center text-sm text-gray-500">Loading product sales…</td></tr>
                       ) : orderIncomeRows.length === 0 ? (
                         <tr>
-                          <td colSpan="5" className="px-5 py-12 text-center">
+                          <td colSpan="6" className="px-5 py-12 text-center">
                             <Package className="mx-auto mb-2 h-8 w-8 text-gray-300" />
                             <p className="text-sm text-gray-500">No paid product orders in this range.</p>
                           </td>
@@ -939,6 +1075,23 @@ export default function FinancePage() {
                             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold capitalize text-emerald-700">
                               <Check className="h-3.5 w-3.5" />
                               {row.payment_status || 'paid'}
+                            </span>
+                          </td>
+                          <td className="whitespace-nowrap px-5 py-3.5 text-right">
+                            <span className="inline-flex items-center justify-end">
+                              <FinanceReviewTick
+                                reviewed={row.finance_reviewed}
+                                reviewerName={row.finance_reviewed_by_name}
+                                canReview={canReviewFinance}
+                                pending={reviewing}
+                                onToggle={() => toggleReview(row.review_target || 'order', row.id)}
+                              />
+                              <FinanceReviewButton
+                                reviewed={row.finance_reviewed}
+                                canReview={canReviewFinance}
+                                pending={reviewing}
+                                onToggle={() => toggleReview(row.review_target || 'order', row.id)}
+                              />
                             </span>
                           </td>
                         </tr>
@@ -1016,10 +1169,12 @@ export default function FinancePage() {
                     <Printer className="mr-1 h-4 w-4" />
                     Print selected{selectedIncomeIds.length ? ` (${selectedIncomeIds.length})` : ''}
                   </button>
-                  <button type="button" onClick={openCreateIncome} className="btn btn-primary">
-                    <Plus className="mr-1 h-4 w-4" />
-                    Add share amount
-                  </button>
+                  {canManageFinance && (
+                    <button type="button" onClick={openCreateIncome} className="btn btn-primary">
+                      <Plus className="mr-1 h-4 w-4" />
+                      Add share amount
+                    </button>
+                  )}
                 </div>
               </div>
               <div className="overflow-x-auto">
@@ -1060,15 +1215,34 @@ export default function FinancePage() {
                         <td className="max-w-xs truncate px-5 py-3.5 text-sm text-gray-600">{row.comments || '—'}</td>
                         <td className="px-5 py-3.5 text-sm font-bold text-emerald-600">{money(row.amount)}</td>
                         <td className="px-5 py-3.5 font-mono text-xs text-gray-500">
-                          {row.reference}
+                          <span className="inline-flex items-center">
+                            {row.reference}
+                            <FinanceReviewTick
+                              reviewed={row.finance_reviewed}
+                              reviewerName={row.finance_reviewed_by_name}
+                              canReview={canReviewFinance}
+                              pending={reviewing}
+                              onToggle={() => toggleReview(row.review_target || 'manual_income', row.id)}
+                            />
+                          </span>
                           {row.status === 'draft' && (
                             <span className="ml-2 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Draft</span>
                           )}
                         </td>
                         <td className="whitespace-nowrap px-5 py-3.5 text-right">
+                          <FinanceReviewButton
+                            reviewed={row.finance_reviewed}
+                            canReview={canReviewFinance}
+                            pending={reviewing}
+                            onToggle={() => toggleReview(row.review_target || 'manual_income', row.id)}
+                          />
                           <button type="button" onClick={() => printIncomeVoucher(row)} className="mr-3 text-sm text-gray-600">Print</button>
-                          <button type="button" onClick={() => openEditIncome(row)} className="mr-3 text-sm text-gray-600">Edit</button>
-                          <button type="button" onClick={() => removeIncome(row)} className="text-sm text-red-600">Delete</button>
+                          {canManageFinance && (
+                            <button type="button" onClick={() => openEditIncome(row)} className="mr-3 text-sm text-gray-600">Edit</button>
+                          )}
+                          {canManageFinance && (
+                            <button type="button" onClick={() => removeIncome(row)} className="text-sm text-red-600">Delete</button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -1109,10 +1283,12 @@ export default function FinancePage() {
                 <Printer className="w-4 h-4 mr-1" />
                 Print selected{selectedExpenseIds.length ? ` (${selectedExpenseIds.length})` : ''}
               </button>
-              <button type="button" onClick={openCreateExpense} className="btn btn-primary">
-                <Plus className="w-4 h-4 mr-1" />
-                Add expense
-              </button>
+              {canManageFinance && (
+                <button type="button" onClick={openCreateExpense} className="btn btn-primary">
+                  <Plus className="w-4 h-4 mr-1" />
+                  Add expense
+                </button>
+              )}
             </div>
           </div>
           <div className="overflow-x-auto">
@@ -1132,41 +1308,83 @@ export default function FinancePage() {
                   <tr><td colSpan="8" className="px-4 py-8 text-center text-gray-500">Loading expenses…</td></tr>
                 ) : expenses.length === 0 ? (
                   <tr><td colSpan="8" className="px-4 py-8 text-center text-gray-500">No expenses in this range.</td></tr>
-                ) : expenses.map((expense) => (
-                  <tr key={expense.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3">
-                      <input
-                        type="checkbox"
-                        checked={selectedExpenseIds.includes(expense.id)}
-                        onChange={() => toggleExpenseSelected(expense.id)}
-                        aria-label={`Select ${expense.voucher_number}`}
+                ) : groupExpensesByDate(expenses).map((group) => {
+                  if (group.expenses.length === 1) {
+                    const expense = group.expenses[0];
+                    return (
+                      <ExpenseTableRow
+                        key={expense.id}
+                        expense={expense}
+                        selected={selectedExpenseIds.includes(expense.id)}
+                        onToggle={toggleExpenseSelected}
+                        onView={setSelected}
+                        onPrint={printExpenseVoucher}
+                        onEdit={canManageFinance ? openEditExpense : undefined}
+                        onRemove={canManageFinance ? removeExpense : undefined}
+                        {...expenseReview(expense)}
                       />
-                    </td>
-                    <td className="px-4 py-3 text-sm font-mono">
-                      {expense.voucher_number}
-                      {expense.status === 'draft' && (
-                        <span className="ml-2 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Draft</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-sm">{expense.expense_date}</td>
-                    <td className="px-4 py-3 text-sm">{expense.category_label}</td>
-                    <td className="px-4 py-3 text-sm max-w-xs truncate">{expense.description}</td>
-                    <td className="px-4 py-3 text-sm">
-                      {expense.payee || expense.product_name || '—'}
-                    </td>
-                    <td className="px-4 py-3 text-sm font-semibold text-red-700">{money(expense.amount)}</td>
-                    <td className="px-4 py-3 text-right whitespace-nowrap">
-                      <button type="button" onClick={() => setSelected(expense)} className="text-sm text-primary-600 mr-3">View</button>
-                      <button type="button" onClick={() => printExpenseVoucher(expense)} className="text-sm text-gray-600 mr-3">Print</button>
-                      <button type="button" onClick={() => openEditExpense(expense)} className="text-sm text-gray-600 mr-3">Edit</button>
-                      {(!expense.is_purchase_voucher || expense.purchase_receipt_id || expense.purchase_receipt) && (
-                        <button type="button" onClick={() => removeExpense(expense)} className="text-sm text-red-600">
-                          {expense.purchase_receipt_id || expense.purchase_receipt ? 'Cancel' : 'Delete'}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                    );
+                  }
+                  const ids = group.expenses.map((expense) => expense.id);
+                  const selectedCount = ids.filter((id) => selectedExpenseIds.includes(id)).length;
+                  const expanded = expandedExpenseDates.has(group.date);
+                  return (
+                    <Fragment key={group.date}>
+                      <tr className="bg-[#F4F7FC]">
+                        <td className="px-4 py-3">
+                          <ExpenseSelectBox
+                            checked={selectedCount === ids.length}
+                            indeterminate={selectedCount > 0 && selectedCount < ids.length}
+                            onChange={() => toggleExpenseGroup(ids)}
+                            label={`Select expenses on ${group.date}`}
+                          />
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-500">
+                          {group.expenses.length} expenses
+                        </td>
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                          <span className="inline-flex items-center gap-1">
+                            {group.date}
+                            <button
+                              type="button"
+                              onClick={() => toggleExpenseDate(group.date)}
+                              className="inline-flex h-6 w-6 items-center justify-center rounded-md text-gray-500 hover:bg-white hover:text-gray-900"
+                              aria-expanded={expanded}
+                              aria-label={expanded ? `Hide expenses for ${group.date}` : `Show expenses for ${group.date}`}
+                            >
+                              {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                            </button>
+                          </span>
+                        </td>
+                        <td className="px-4 py-3" />
+                        <td className="px-4 py-3" />
+                        <td className="px-4 py-3" />
+                        <td className="px-4 py-3 text-sm font-semibold text-red-700">
+                          <span className="inline-flex items-center">
+                            {money(expenseAmountTotal(group.expenses))}
+                            {group.expenses.every((expense) => expense.finance_reviewed) && (
+                              <FinanceReviewTick reviewed reviewerName="finance manager" />
+                            )}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3" />
+                      </tr>
+                      {expanded && group.expenses.map((expense) => (
+                        <ExpenseTableRow
+                          key={expense.id}
+                          expense={expense}
+                          selected={selectedExpenseIds.includes(expense.id)}
+                          onToggle={toggleExpenseSelected}
+                          onView={setSelected}
+                          onPrint={printExpenseVoucher}
+                          onEdit={canManageFinance ? openEditExpense : undefined}
+                          onRemove={canManageFinance ? removeExpense : undefined}
+                          {...expenseReview(expense)}
+                        />
+                      ))}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1241,7 +1459,7 @@ export default function FinancePage() {
                       {row.estimated_remaining_profit == null ? '—' : money(row.estimated_remaining_profit)}
                     </td>
                     <td className="px-4 py-3 text-right whitespace-nowrap">
-                      {row.needs_purchase_cost ? (
+                      {canManageFinance && row.needs_purchase_cost ? (
                         <button type="button" onClick={() => openCostForm(row)} className="text-sm text-primary-600">
                           Record cost
                         </button>
@@ -1940,7 +2158,7 @@ export default function FinancePage() {
                   <p className="text-xs text-gray-500">{selected.category_label || 'Receipt'}</p>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-2">
-                  {(!selected.is_purchase_voucher || selected.purchase_receipt_id || selected.purchase_receipt) && (
+                  {canManageFinance && (!selected.is_purchase_voucher || selected.purchase_receipt_id || selected.purchase_receipt) && (
                     <button type="button" onClick={() => removeExpense(selected)} className="btn btn-secondary text-red-600">
                       <Trash2 className="w-4 h-4 mr-1" />
                       {selected.purchase_receipt_id || selected.purchase_receipt ? 'Cancel purchase' : 'Delete'}

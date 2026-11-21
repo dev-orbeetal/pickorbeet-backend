@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Edit, Trash2, UserCog, Shield, Calculator, Store } from 'lucide-react';
+import { Plus, Edit, Trash2, UserCog, Shield, Calculator, Store, BadgeCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '@/components/layout/AdminLayout';
 import {
@@ -78,6 +78,7 @@ export default function StaffPage() {
     switch (role) {
       case 'super_admin': return Shield;
       case 'accountant': return Calculator;
+      case 'finance_manager': return BadgeCheck;
       case 'seller': return Store;
       default: return UserCog;
     }
@@ -87,6 +88,7 @@ export default function StaffPage() {
     switch (role) {
       case 'super_admin': return 'bg-purple-100 text-purple-800';
       case 'accountant': return 'bg-blue-100 text-blue-800';
+      case 'finance_manager': return 'bg-emerald-100 text-emerald-800';
       case 'seller': return 'bg-green-100 text-green-800';
       default: return 'bg-gray-100 text-gray-800';
     }
@@ -279,6 +281,7 @@ export default function StaffPage() {
                 >
                   <option value="seller">Seller</option>
                   <option value="accountant">Accountant</option>
+                  <option value="finance_manager">Finance Manager</option>
                   <option value="super_admin">Super Admin</option>
                 </select>
               </div>

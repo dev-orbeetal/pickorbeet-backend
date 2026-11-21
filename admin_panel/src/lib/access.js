@@ -4,7 +4,7 @@ export const MENU_GROUPS = [
     items: [
       { href: '/dashboard', label: 'Dashboard', icon: 'LayoutDashboard', roles: ['seller', 'accountant', 'super_admin'] },
       { href: '/orders', label: 'Orders', icon: 'ShoppingCart', roles: ['seller', 'accountant', 'super_admin'] },
-      { href: '/finance', label: 'Finance', icon: 'Wallet', roles: ['accountant', 'super_admin'] },
+      { href: '/finance', label: 'Finance', icon: 'Wallet', roles: ['accountant', 'finance_manager', 'super_admin'] },
       { href: '/shipments', label: 'Shipments', icon: 'Truck', roles: ['seller', 'accountant', 'super_admin'] },
     ],
   },

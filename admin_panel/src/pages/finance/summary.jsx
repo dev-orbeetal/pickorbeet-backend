@@ -1,11 +1,15 @@
 import { useState } from 'react';
 import Link from 'next/link';
+import { useSelector } from 'react-redux';
 import { ArrowLeft, DollarSign, Download, Package, Receipt, TrendingUp, Wallet } from 'lucide-react';
+import toast from 'react-hot-toast';
 import AdminLayout from '@/components/layout/AdminLayout';
+import { FinanceReviewButton, FinanceReviewTick } from '@/components/finance/FinanceReviewMark';
 import LoadError from '@/components/ui/LoadError';
 import {
   useGetFinanceSummaryQuery,
   useGetLatestTransactionsQuery,
+  useReviewFinanceMutation,
 } from '@/store/api/paymentsApi';
 
 function money(value) {
@@ -14,6 +18,9 @@ function money(value) {
 }
 
 export default function FinanceSummaryPage() {
+  const role = useSelector((state) => state.auth.user?.role);
+  const canReviewFinance = role === 'finance_manager' || role === 'super_admin';
+  const [reviewFinance, { isLoading: reviewing }] = useReviewFinanceMutation();
   const [dateRange, setDateRange] = useState({
     start_date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     end_date: new Date().toISOString().split('T')[0],
@@ -28,6 +35,15 @@ export default function FinanceSummaryPage() {
   } = useGetLatestTransactionsQuery(dateRange);
 
   const transactions = transactionsData?.transactions || [];
+
+  const toggleReview = async (row) => {
+    try {
+      await reviewFinance({ target: row.review_target, id: row.record_id }).unwrap();
+    } catch (error) {
+      const detail = error?.data?.detail;
+      toast.error(typeof detail === 'string' ? detail : 'Could not update the finance review');
+    }
+  };
 
   return (
     <AdminLayout title="Finance Summary">
@@ -155,7 +171,22 @@ export default function FinanceSummaryPage() {
                         <td className="px-4 py-3 text-sm">{row.category_label}</td>
                         <td className="px-4 py-3 text-sm max-w-xs truncate">
                           {row.description}
-                          {row.reference ? <span className="block text-xs text-gray-400 font-mono">{row.reference}</span> : null}
+                          <span className="mt-0.5 flex items-center text-xs text-gray-400 font-mono">
+                            {row.reference || ''}
+                            <FinanceReviewTick
+                              reviewed={row.finance_reviewed}
+                              reviewerName={row.finance_reviewed_by_name}
+                              canReview={canReviewFinance}
+                              pending={reviewing}
+                              onToggle={() => toggleReview(row)}
+                            />
+                            <FinanceReviewButton
+                              reviewed={row.finance_reviewed}
+                              canReview={canReviewFinance}
+                              pending={reviewing}
+                              onToggle={() => toggleReview(row)}
+                            />
+                          </span>
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600">
                           {row.type === 'income' && row.share_partner_label

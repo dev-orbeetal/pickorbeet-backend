@@ -108,9 +108,10 @@ admin_panel/out.previous
 .nuxt
 dist
 
-# Gatsby files
+# Gatsby output at the backend root only. A bare "public" also hides
+# admin_panel/public, so the exported panel ships without favicon.ico.
 .cache/
-public
+/public
 
 # vuepress build output
 .vuepress/dist
