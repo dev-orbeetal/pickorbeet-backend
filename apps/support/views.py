@@ -12,7 +12,7 @@ from rest_framework.views import APIView
 from apps.accounts.permissions import IsSeller
 
 from .models import Conversation, Message
-from .presence import customer_online, join_customer, leave_customer, online
+from .presence import clear_customer_seen, customer_online, leave_customer, online, touch_customer
 from .realtime import announce_customer
 from .serializers import MessageSerializer, conversation_payload, customer_avatar_url
 from .services import customer_name, mark_read, open_conversation, post_customer_message, post_staff_reply
@@ -31,6 +31,9 @@ class ConversationView(APIView):
     def get(self, request):
         conversation = open_conversation(request.user)
         mark_read(conversation, by_staff=False)
+        if getattr(request.user, 'role', '') == 'customer':
+            touch_customer(request.user.id)
+            announce_customer(request.user.id, True)
         return Response(conversation_payload(conversation))
 
 
@@ -89,10 +92,12 @@ class CustomerPresenceView(APIView):
             active = active.strip().lower() not in {'0', 'false', 'no'}
         channel = f'http:{request.user.id}'
         if active:
-            join_customer(channel, request.user.id)
+            touch_customer(request.user.id)
             still = True
         else:
-            still = leave_customer(channel, request.user.id)
+            leave_customer(channel, request.user.id)
+            clear_customer_seen(request.user.id)
+            still = customer_online(request.user.id)
         announce_customer(request.user.id, still)
         return Response(status=status.HTTP_204_NO_CONTENT)
 

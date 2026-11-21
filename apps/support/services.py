@@ -84,6 +84,14 @@ def order_for_track(user, order_number=''):
     return owned.exclude(order_status='cancelled').order_by('-created_at').first()
 
 
+def _note_customer_active(user_id):
+    from .presence import touch_customer
+    from .realtime import announce_customer
+
+    touch_customer(user_id)
+    announce_customer(user_id, True)
+
+
 def post_customer_message(user, *, body='', topic='', order_number='', image=None):
     conversation = open_conversation(user)
     order = order_for_track(user, order_number) if topic == Message.TRACK_ORDER else None
@@ -106,6 +114,7 @@ def post_customer_message(user, *, body='', topic='', order_number='', image=Non
     conversation.refresh_from_db()
     publish_message(message)
     notify_staff_support_message(message)
+    _note_customer_active(user.id)
     return conversation, message
 
 

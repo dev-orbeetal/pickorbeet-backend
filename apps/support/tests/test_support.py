@@ -207,7 +207,7 @@ class SupportThreadTests(ShopTestCase):
         opened = customer_api.get('/api/v1/support/conversation/')
         conversation_id = opened.json()['id']
         thread = staff_api.get(f'/api/v1/support/inbox/{conversation_id}/')
-        self.assertFalse(thread.json()['customer_online'])
+        self.assertTrue(thread.json()['customer_online'])
 
         pulse = customer_api.post('/api/v1/support/presence/', {'active': True}, format='json')
         self.assertEqual(pulse.status_code, 204, pulse.content)
@@ -231,3 +231,16 @@ class SupportThreadTests(ShopTestCase):
         leave_customer('socket-1', customer.id)
         left = staff_api.get(f'/api/v1/support/inbox/{conversation_id}/presence/')
         self.assertFalse(left.json()['customer_online'])
+
+        wrote = customer_api.post('/api/v1/support/messages/', {'body': 'I am here'}, format='json')
+        self.assertEqual(wrote.status_code, 201, wrote.content)
+        from apps.support.presence import clear_customer_seen
+        clear_customer_seen(customer.id)
+        leave_customer(f'http:{customer.id}', customer.id)
+        self.assertFalse(
+            staff_api.get(f'/api/v1/support/inbox/{conversation_id}/presence/').json()['customer_online']
+        )
+        customer_api.get('/api/v1/support/conversation/')
+        self.assertTrue(
+            staff_api.get(f'/api/v1/support/inbox/{conversation_id}/presence/').json()['customer_online']
+        )

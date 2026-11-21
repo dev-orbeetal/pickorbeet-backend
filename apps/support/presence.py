@@ -14,9 +14,12 @@ logger = logging.getLogger(__name__)
 
 _KEY = 'support:staff'
 _CUSTOMERS = 'support:customers'
+_SEEN = 'support:customer-seen'
 _TTL = 45
+_SEEN_TTL = 70
 _local = {}
 _local_customers = {}
+_local_seen = {}
 
 
 def _client():
@@ -139,8 +142,62 @@ def leave_customer(channel_name, user_id):
     return customer_online(user_id)
 
 
+def _seen_online(user_id, now):
+    """A recent chat open or message keeps the customer online.
+
+    A paused phone can drop its socket for a moment. That must not flip the
+    admin pill to offline while the person is still in the chat.
+    """
+    user_id = str(user_id)
+    try:
+        client = _client()
+        if client is None:
+            expiry = _local_seen.get(user_id, 0)
+            if expiry < now:
+                _local_seen.pop(user_id, None)
+                return False
+            return True
+        raw = client.get(f'{_SEEN}:{user_id}')
+        if raw is None:
+            return False
+        return int(raw) >= now
+    except Exception:
+        logger.warning('Could not read support customer activity', exc_info=True)
+        return _local_seen.get(user_id, 0) >= now
+
+
+def touch_customer(user_id):
+    """Remember that this customer is in the chat, apart from any one socket."""
+    user_id = str(user_id)
+    expiry = int(time.time()) + _SEEN_TTL
+    join_customer(f'http:{user_id}', user_id)
+    try:
+        client = _client()
+        if client is None:
+            _local_seen[user_id] = expiry
+            return
+        client.set(f'{_SEEN}:{user_id}', expiry, ex=_SEEN_TTL)
+    except Exception:
+        logger.warning('Could not record support customer activity', exc_info=True)
+        _local_seen[user_id] = expiry
+
+
+def clear_customer_seen(user_id):
+    """The chat screen closed, so recent activity no longer counts."""
+    user_id = str(user_id)
+    _local_seen.pop(user_id, None)
+    try:
+        client = _client()
+        if client is not None:
+            client.delete(f'{_SEEN}:{user_id}')
+    except Exception:
+        logger.warning('Could not clear support customer activity', exc_info=True)
+
+
 def customer_online(user_id):
     now = int(time.time())
+    if _seen_online(user_id, now):
+        return True
     try:
         client = _client()
         if client is None:

@@ -7,7 +7,7 @@ from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 
 from .models import Conversation
-from .presence import join, join_customer, leave, leave_customer
+from .presence import join, join_customer, leave, leave_customer, touch_customer
 from .realtime import (
     CUSTOMERS_GROUP,
     STAFF_GROUP,
@@ -63,6 +63,7 @@ class SupportConsumer(AsyncWebsocketConsumer):
             self.groups_joined.extend([group, CUSTOMERS_GROUP])
             self.counts_customer = True
             await database_sync_to_async(join_customer)(self.channel_name, user.id)
+            await database_sync_to_async(touch_customer)(user.id)
             self._pulse = asyncio.create_task(self._heartbeat())
             agent_online = await database_sync_to_async(_agent_online)()
         await self.accept()
@@ -161,6 +162,7 @@ class SupportConsumer(AsyncWebsocketConsumer):
                     await database_sync_to_async(join)(self.channel_name)
                 elif self.counts_customer:
                     await database_sync_to_async(join_customer)(self.channel_name, self.user.id)
+                    await database_sync_to_async(touch_customer)(self.user.id)
                     await database_sync_to_async(announce_customer)(self.user.id, True)
         except asyncio.CancelledError:
             return

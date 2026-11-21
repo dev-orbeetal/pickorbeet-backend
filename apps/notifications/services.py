@@ -168,6 +168,7 @@ def notify_staff_support_message(message):
     data = {
         'target': 'admin_support',
         'conversation_id': str(conversation.id),
+        'message_id': str(message.id),
         'customer_name': name,
     }
     for user in staff_users(STAFF_SUPPORT):

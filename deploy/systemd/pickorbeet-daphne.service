@@ -12,7 +12,8 @@ Wants=redis.service
 User=www
 Group=www
 WorkingDirectory=/www/wwwroot/pickorbeet-backend
-ExecStart=/www/wwwroot/pickorbeet-backend/venv/bin/daphne -b 127.0.0.1 -p 8021 core.asgi:application
+# python -m stays startable when the console script loses its execute bit.
+ExecStart=/www/wwwroot/pickorbeet-backend/venv/bin/python3 -m daphne -b 127.0.0.1 -p 8021 core.asgi:application
 Restart=always
 RestartSec=5
 
