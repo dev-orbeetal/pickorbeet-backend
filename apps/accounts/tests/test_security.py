@@ -336,6 +336,12 @@ class SecurityApiTests(ShopTestCase):
 
 
 class SecurityCodeHelperTests(ShopTestCase):
+    def test_admin_platform_is_labeled_pickorbeet_admin(self):
+        from apps.accounts.security import _device_name
+
+        self.assertEqual(_device_name('Dart/3.9 (dart:io) android', 'admin'), 'PickOrbeet Admin')
+        self.assertEqual(_device_name('', 'app'), 'PickOrbeet app')
+
     def test_generate_code_is_six_digits(self):
         code = generate_code()
         self.assertEqual(len(code), 6)

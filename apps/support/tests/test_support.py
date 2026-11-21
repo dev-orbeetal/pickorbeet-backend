@@ -167,3 +167,29 @@ class SupportThreadTests(ShopTestCase):
         self.assertEqual(detail.status_code, 200, detail.content)
         self.assertEqual(detail.json()['user'], str(customer.id))
         self.assertTrue(detail.json()['customer_avatar'])
+
+    def test_a_customer_message_alerts_each_active_seller_and_super_admin(self):
+        customer = make_user(first_name='Nadia')
+        seller = make_user(role='seller')
+        other = make_user(role='seller')
+        admin = make_user(role='super_admin')
+        accountant = make_user(role='accountant')
+        inactive = make_user(role='seller', is_active=False)
+        api = APIClient()
+        api.force_authenticate(customer)
+
+        sent = api.post('/api/v1/support/messages/', {'body': 'Where is my parcel?'}, format='json')
+
+        self.assertEqual(sent.status_code, 201, sent.content)
+        rows = Notification.objects.filter(kind='support.message')
+        self.assertEqual(
+            set(rows.values_list('recipient_id', flat=True)),
+            {seller.id, other.id, admin.id},
+        )
+        self.assertNotIn(accountant.id, set(rows.values_list('recipient_id', flat=True)))
+        self.assertNotIn(inactive.id, set(rows.values_list('recipient_id', flat=True)))
+        sample = rows.get(recipient=seller)
+        self.assertEqual(sample.data['target'], 'admin_support')
+        self.assertTrue(sample.dedupe_key.startswith('support-message:'))
+        self.assertEqual(rows.filter(dedupe_key=sample.dedupe_key).count(), 3)
+        self.assertIn('Nadia', sample.title)

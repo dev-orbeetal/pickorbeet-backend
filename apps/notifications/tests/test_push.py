@@ -103,3 +103,62 @@ class PushTests(ShopTestCase):
         device = Device.objects.get(device_id='phone-1')
         self.assertFalse(device.is_active)
         self.assertEqual(device.token, '')
+
+    def test_staff_operational_rows_reach_a_phone(self):
+        seller = make_user(role='seller')
+        Device.objects.create(user=seller, token='staff-phone', platform='android', device_id='staff-1')
+        note = Notification.objects.create(
+            recipient=seller,
+            kind='order.placed',
+            title='New order',
+            body='Order was just placed.',
+            data={'order_id': str(self.order.id), 'target': 'admin_order'},
+            dedupe_key='staff-order',
+        )
+
+        result, message = self.send(note, Batch(Sent(True)))
+
+        self.assertTrue(result)
+        self.assertEqual(message.android.notification.channel_id, 'orders')
+        self.assertEqual(message.android.notification.tag, f'order-{self.order.id}')
+
+    def test_campaign_rows_are_not_pushed_to_staff(self):
+        seller = make_user(role='seller')
+        Device.objects.create(user=seller, token='staff-offer', platform='android', device_id='staff-offer')
+        note = Notification.objects.create(
+            recipient=seller,
+            kind='product.arrival',
+            title='New arrival',
+            body='Look',
+            data={'target': 'product'},
+            dedupe_key='staff-offer',
+        )
+
+        with mock.patch('apps.notifications.delivery._firebase', return_value=object()), \
+                mock.patch('firebase_admin.messaging.send_each_for_multicast') as sent:
+            result = send_push(note)
+
+        self.assertFalse(result)
+        sent.assert_not_called()
+
+    def test_campaign_batches_stay_on_customer_phones(self):
+        from apps.notifications.delivery import send_push_batch
+
+        seller = make_user(role='seller')
+        Device.objects.create(user=seller, token='staff-batch', platform='android', device_id='staff-batch')
+        staff_note = Notification.objects.create(
+            recipient=seller,
+            kind='promo.sale',
+            title='Sale',
+            body='Sale',
+            data={},
+            dedupe_key='staff-batch',
+        )
+        customer_note = self.note(kind='promo.sale')
+
+        with mock.patch('apps.notifications.delivery._firebase', return_value=object()), \
+                mock.patch('firebase_admin.messaging.send_each', return_value=Batch(Sent(True))) as sent:
+            delivered = send_push_batch([staff_note, customer_note])
+
+        self.assertEqual(delivered, {customer_note.id})
+        self.assertEqual(len(sent.call_args.args[0]), 1)

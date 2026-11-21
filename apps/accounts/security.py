@@ -73,6 +73,8 @@ def client_ip(request):
 
 
 def _device_name(user_agent, platform):
+    if platform == 'admin':
+        return 'PickOrbeet Admin'
     agent = user_agent.lower()
     if 'iphone' in agent:
         return 'iPhone'

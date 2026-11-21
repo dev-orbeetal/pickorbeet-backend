@@ -1,4 +1,4 @@
-"""Push a saved notification onto the live socket and, for customers, FCM."""
+"""Push a saved notification onto the live socket and, when it should buzz a phone, FCM."""
 import logging
 import os
 from collections import defaultdict
@@ -188,6 +188,16 @@ def _retire(tokens, user_label):
     logger.info('FCM retired %s expired token(s) for %s', len(tokens), user_label)
 
 
+def _should_push(notification):
+    """Customers get every row. Staff get operational rows. Campaign batches stay customer-only."""
+    role = notification.recipient.role
+    if role == 'customer':
+        return True
+    if notification.kind.startswith(OFFER_KINDS):
+        return False
+    return role in {'seller', 'accountant', 'super_admin'}
+
+
 def send_push(notification):
     """Send FCM to the recipient's active phones.
 
@@ -196,7 +206,7 @@ def send_push(notification):
     so the caller can leave ``push_sent_at`` empty. Raises ``PushNotDelivered``
     when no phone accepted it for a reason that may pass.
     """
-    if notification.recipient.role != 'customer':
+    if not _should_push(notification):
         return False
     if _firebase() is None:
         logger.info('FCM skipped; FIREBASE_CREDENTIALS is not set')
@@ -233,7 +243,8 @@ def send_push(notification):
 def send_push_batch(notifications):
     """FCM for many rows at once, up to 500 phones per request. Returns the ids at least one phone accepted.
 
-    Rows for staff, people without a phone, or a server without Firebase are skipped.
+    Campaign and offer batches stay customer-only. People without a phone, and a server
+    without Firebase, are skipped.
     """
     rows = [row for row in notifications if row.recipient.role == 'customer']
     if not rows or _firebase() is None:

@@ -16,6 +16,7 @@ User = get_user_model()
 STAFF_NEW_ORDER = ('seller', 'super_admin')
 STAFF_PAYMENT = ('seller', 'accountant', 'super_admin')
 STAFF_REFUND = ('accountant', 'super_admin')
+STAFF_SUPPORT = ('seller', 'super_admin')
 
 STATUS_COPY = {
     'pending': ('Order placed', 'We received order {num}.'),
@@ -148,6 +149,36 @@ def notify_payment_failed(order, payment):
         data=_order_data(order, 'order'),
         dedupe_key=f'payment:{payment.id}:failed',
     )
+
+
+def notify_staff_support_message(message):
+    """One inbox row per active seller and super admin when a customer writes in chat.
+
+    Accountants are not included. The greeting created while opening a thread does not
+    come through here. The tray tag stays ``support``, so a newer message replaces the last.
+    """
+    conversation = message.conversation
+    customer = conversation.customer
+    name = (getattr(customer, 'full_name', '') or customer.email or 'A customer').strip() or 'A customer'
+    preview = (message.body or '').strip()
+    if not preview and getattr(message, 'image', None):
+        preview = 'Sent a photo'
+    if not preview:
+        preview = 'Sent a message'
+    data = {
+        'target': 'admin_support',
+        'conversation_id': str(conversation.id),
+        'customer_name': name,
+    }
+    for user in staff_users(STAFF_SUPPORT):
+        _create(
+            user,
+            kind='support.message',
+            title=f'Message from {name}',
+            body=preview[:180],
+            data=data,
+            dedupe_key=f'support-message:{message.id}',
+        )
 
 
 def notify_support_reply(recipient, *, message_id, title, body, conversation_id):

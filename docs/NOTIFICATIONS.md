@@ -47,13 +47,13 @@ python manage.py migrate notifications
 
 Push is skipped, and the inbox still works, until these exist. Do not commit the credential files.
 
-1. Create a Firebase project and add the Android app `com.pickorbeet.pickorbeet` and the iOS app.
+1. Create a Firebase project and add the shop Android app `com.pickorbeet.pickorbeet`, the admin Android app `com.pickorbeet.admin`, and both iOS apps.
 2. Download `google-services.json` into `pickorbeet-app/android/app/`. The Android build applies the Google Services plugin only when that file is present.
 3. Download `GoogleService-Info.plist` into `pickorbeet-app/ios/Runner/` and add it to the Runner target.
 4. In Firebase, generate a service-account JSON. Put it on the server outside the git tree and set `FIREBASE_CREDENTIALS` to its absolute path.
 5. For iOS delivery, upload an APNs authentication key in the Firebase project settings.
 
-The phone app asks for notification permission, registers its FCM token at `PUT /api/v1/notifications/devices/`, and deletes it on logout. The website and the admin panel use the socket and the inbox only. They do not register for browser push.
+The shop app and the PickOrbeet Admin app each ask for notification permission, register an FCM token at `PUT /api/v1/notifications/devices/`, and delete it on logout. Admin phones receive operational rows (new orders, payments, refunds, courier alerts, and customer chat). Campaign and offer batches stay on customer phones. The website and the admin panel in the browser use the socket and the inbox only. They do not register for browser push.
 
 ## Socket
 

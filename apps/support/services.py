@@ -3,7 +3,7 @@ from django.db import IntegrityError
 from django.db.models import F
 from django.utils import timezone
 
-from apps.notifications.services import notify_support_reply
+from apps.notifications.services import notify_staff_support_message, notify_support_reply
 from apps.orders.emails import _expected_delivery
 from apps.orders.models import Order
 from core.mailer import display_order_number
@@ -105,6 +105,7 @@ def post_customer_message(user, *, body='', topic='', order_number='', image=Non
     Conversation.objects.filter(pk=conversation.pk).update(**updates)
     conversation.refresh_from_db()
     publish_message(message)
+    notify_staff_support_message(message)
     return conversation, message
 
 
