@@ -155,7 +155,7 @@ def notify_staff_support_message(message):
     """One inbox row per active seller and super admin when a customer writes in chat.
 
     Accountants are not included. The greeting created while opening a thread does not
-    come through here. The tray tag stays ``support``, so a newer message replaces the last.
+    come through here. Each message is its own tray entry so the phone alerts again.
     """
     conversation = message.conversation
     customer = conversation.customer

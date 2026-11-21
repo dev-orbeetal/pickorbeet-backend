@@ -29,10 +29,14 @@ OFFER_KINDS = ('product.', 'promo.')
 
 
 def tray_style(notification):
-    """Android channel and tray tag. Updates about one order replace each other in the tray."""
+    """Android channel and tray tag.
+
+    Updates about one order replace each other. Each support message gets its
+    own tag, because a shared tag is only an update and the phone stays quiet.
+    """
     data = notification.data or {}
     if notification.kind.startswith('support.'):
-        return 'support', 'support'
+        return 'support', f'support-{notification.id}'
     if notification.kind.startswith(OFFER_KINDS):
         campaign_id = data.get('campaign_id')
         return 'offers', f'campaign-{campaign_id}' if campaign_id else f'note-{notification.id}'

@@ -76,11 +76,13 @@ class PushTests(ShopTestCase):
 
     def test_help_chat_replies_use_their_own_channel(self):
         note = self.note(kind='support.reply', target='support', conversation_id='c-1')
-        self.assertEqual(tray_style(note), ('support', 'support'))
+        self.assertEqual(tray_style(note), ('support', f'support-{note.id}'))
 
         _, message = self.send(note, Batch(Sent(True)))
 
         self.assertEqual(message.android.notification.channel_id, 'support')
+        self.assertEqual(message.android.notification.tag, f'support-{note.id}')
+        self.assertEqual(message.data['tag'], f'support-{note.id}')
         self.assertEqual(message.data['channel'], 'support')
 
     def test_a_refusal_on_every_phone_is_retried(self):
